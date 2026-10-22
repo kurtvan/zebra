@@ -120,6 +120,7 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 
 ### Design: scene instance pool
 - Each pooled entry is a projectM instance with its scene's preset loaded and compiled.
+- **Budgets (decided 2026-10-22):** target output **1080p**; the whole app stays at or below **5 GB** physical footprint on the author's 32 GB M1 MacBook Pro. The pool window is sized to fit inside that.
 - **Kept ready (decided starting point):** the **previous 1**, the **current** scene and the **next 2**. Window size is configurable; tune it from the milestone 1 measurements (output resolution, memory).
 - On a trigger:
   - **Pooled scene:** swap the active pointer. Next frame renders it. Instant.

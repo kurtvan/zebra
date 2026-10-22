@@ -109,7 +109,9 @@ Findings from reading v4.1.8 that shape the spike:
 3. Prototype S1. If the GL slices can't be kept under about 4–6 ms each on the author's Mac, prototype S2.
 4. Decide, write the result into `technical-details-2026-10-22.md` §4 (strategy, numbers, pool size), and turn the chosen approach into clean patches (`0003-…`).
 
-**Acceptance:** a written decision with numbers. A demo in the M0 app: press a key to cut between two presets prepared in the background, with **no frame over 16.7 ms** at 60 Hz during preparation or at the cut (frame-time graph in the debug overlay). Also: the pool memory budget at the author's output resolution.
+**Acceptance:** a written decision with numbers. A demo in the M0 app: press a key to cut between two presets prepared in the background, with **no frame over 16.7 ms** at 60 Hz during preparation or at the cut (frame-time graph in the debug overlay). Also: measured **per-instance memory at 1080p** (framebuffers, blur levels, motion-vector map, per-instance texture manager). From that, the pool window that fits inside the **5 GB app budget**, leaving room for video players, thumbnails (M6) and the UI.
+
+Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, and roughly 6–10 such textures per instance, so about 50–100 MB per instance before textures loaded from disk. If that holds, the starting window (prev 1 / current / next 2) uses well under 1 GB, and the window can grow (e.g. next 4–6) to make out-of-order jumps less likely to stutter. Decide this with the real numbers.
 
 **Exit risk:** if neither S1 nor S2 works within budget, stop and discuss with the author before continuing (S3 means accepting stutter on cuts outside the lookahead window).
 
@@ -243,7 +245,7 @@ Findings from reading v4.1.8 that shape the spike:
 **Acceptance:** scrolling the browser shows names instantly and previews filling in progressively, with no upfront wait. Revisited pages show cached images instantly. Output frame times are unaffected (0 frames over budget) while scrolling during a performance.
 
 ### M7: Show hardening (S–M), which can start in parallel with M4–M6 as the show approaches
-- **Soak test:** run the full show in a loop for 2+ hours with random and sequential triggers; check memory growth and GL object leaks; check the log for warnings.
+- **Soak test:** run the full show in a loop for 2+ hours at 1080p with random and sequential triggers. **Peak physical footprint must stay ≤ 5 GB** (`footprint` / Activity Monitor) with no growth over the run. Check for GL object leaks and review the log for warnings.
 - **Failure drills:** MIDI unplug/replug, audio device change, Syphon sender crash, display unplug/replug, missing video, a broken preset in a scene. Each must degrade gracefully with a visible indicator.
 - **Startup:** reopen the last performance, re-select the last audio and MIDI settings, and put the output on the last display if it's present.
 - **`docs/show-checklist.md`:** pre-show steps (Loopback routing, IAC CC 20 channel, displays, macOS "Do Not Disturb", disable sleep) and recovery steps.
@@ -279,7 +281,7 @@ Spike-only instrumentation patches live in `tools/spike_compile/patches/` and ar
 |---|---|---|
 | Background preparation can't meet the frame budget (M1) | Cuts stutter | Decision gate at the end of M1; S3 fallback plus a larger window; tell the author before continuing. |
 | macOS GL driver defers compile work to first draw | Hitch on the first frame after a cut | Warm-up draw into a 1×1 FBO during preparation (measured in M1). |
-| Pool memory at 4K output | Memory pressure, fewer instances ready | Measured in M1; the window size is configurable; warn in the UI if the budget is exceeded. |
+| Exceeding the 5 GB app budget (pool, video players, thumbnails) | Memory pressure, fewer instances ready | Per-instance memory measured at 1080p in M1; the window size is derived from the budget and configurable; the engine tracks its estimated usage and the debug overlay shows it; verified in the M7 soak. |
 | Patches drift from upstream | Upgrade pain | Small single-concern patches; prefer upstream API shapes; README procedure for rebasing. |
 | Show date arrives before M4–M6 | Authoring by hand | The M3 build is show-capable with JSON + converter script; M7 hardening can jump ahead. |
 | ImGui looks like a developer tool to artists | Poor first impression | Theme pass in M4; revisit native after the show (technical doc §2). |
@@ -302,7 +304,7 @@ Spike-only instrumentation patches live in `tools/spike_compile/patches/` and ar
 
 1. **Show date: November 6, 2026** (15 days after this plan).
 2. **Branching:** one branch and **pull request per milestone** on GitHub (`kurtvan/govtech-visualizer`, private). Branch names: `m0-skeleton`, `m1-compile-spike`, `m2-engine`, `m3-video`, `m4-editor`, `m5-library`, `m6-previews`, `m7-hardening`. Each PR description lists the milestone's acceptance criteria with their status. The author reviews and merges.
-3. **Machine: M1 MacBook Pro.** Output display resolution: still to confirm (it sets the M1 pool-memory budget).
+3. **Machine: M1 MacBook Pro, 32 GB RAM.** **Memory budget: the whole app stays at or below 5 GB** (physical footprint, counting GPU allocations since M1 memory is unified). **Target output: 1080p.** All frame-time and memory budgets are measured at 1920×1080. The "render at the display's native resolution" decision stands (the show display is treated as 1080p). If a larger display is used, the 5 GB cap decides how many scenes can be kept ready.
 4. **Preset library:** `/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/`. 9,795 presets: 9,791 are exactly two levels deep (`Category/Subcategory/file.milk`) and 4 are one level deep, so the tag scheme fits. There are 12 top-level categories, including `! Transition`. The folder's `LICENSE.md` treats the presets as public domain, but the user-supplied-library decision still stands.
 
 ## 9. Schedule to the show (refines §0)
