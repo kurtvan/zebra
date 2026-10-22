@@ -215,7 +215,7 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - Use a real JSON library (e.g. nlohmann/json) with schema validation and clear error messages. Avoid `NSJSONSerialization` in core code, to stay portable.
 
 ### App-level data (`~/Library/Application Support/Govtech Visualizer/`, derived from the app-name constant)
-- `settings.json`: preset library root, audio device UID, gain, MIDI channel, output display, names-only toggle.
+- `settings.json`: preset library root, texture folder(s), audio device UID, gain, MIDI channel, output display, names-only toggle.
 - `library.json` (or SQLite if it gets large): preset index. Each entry has its path relative to the library root (the **preset ID**; names repeat across folders, so names are not IDs), display name, category, subcategory, author, mtime/size or content hash, and a broken flag.
 - `favourites.json`: a list of preset IDs.
 - `thumbnails/`: cached last-frame PNGs keyed by preset ID plus content hash.
@@ -227,6 +227,7 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - **Tags:** for a path `<root>/<Category>/<Subcategory>/<file>.milk`, category = first level and subcategory = second level, shown as a two-level filter. Handle deeper or shallower trees by using the first two levels and leaving missing levels empty.
 - **Author:** the filename prefix before `" - "` (e.g. `shifter - mandala.milk` → `shifter`). Heuristic; may be empty or include several authors (`"fed + flexi + geiss"`).
 - Search: case-insensitive substring over name, author and tags; fast enough in memory for 10k entries.
+- **Textures:** a user-supplied texture folder (normally the projectM MilkDrop texture pack) is passed to every instance via `projectm_set_texture_search_paths`. The indexer records each preset's referenced-but-missing texture names so the UI can flag them. Measured: 17% of presets use image textures; with the pack, 78% of those are fully covered.
 
 ## 8. Thumbnail previews
 

@@ -147,7 +147,8 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
    - Display hot-unplug: the output window closes and the UI shows a warning; the engine keeps running.
    - VSync on the output window. The editor window renders at a lower, throttled rate (e.g. 30 fps) and never blocks the output's swap. The editor and output share a GL context group; the main loop presents the output first.
 9. **Minimal ImGui shell** (temporary, replaced in M4): open a performance file (via the M4 `NSOpenPanel` shim, or a path text field for now), show the scene list with the active scene highlighted and broken scenes marked, click a scene to trigger it, pick the output display, audio device, gain and MIDI channel, and toggle a debug overlay (frame time graph, pool state, compile queue, MIDI last value, audio level).
-10. **Settings** (`settings.json` in Application Support): library root, audio device UID, gain, MIDI channel, output display, names-only toggle; load and save with defaults.
+10. **Settings** (`settings.json` in Application Support): library root, **texture folder(s)**, audio device UID, gain, MIDI channel, output display, names-only toggle; load and save with defaults.
+11. **Texture folder.** User-supplied, like the preset library (author's copy: `/Users/kurt/projects/visualizers/milkdrop-textures/textures`, a clone of [projectM-visualizer/presets-milkdrop-texture-pack](https://github.com/projectM-visualizer/presets-milkdrop-texture-pack)). Every instance gets the folder via `projectm_set_texture_search_paths` on its lane before loading a preset. Checked 2026-10-22: 1,682 of 9,795 presets reference image textures (64 distinct names). The pack covers 46 names, so 1,321 of those presets (78%) get every texture and 361 still miss at least one (biggest gaps: `pic`, `rose`, `shub1`, `state`).
 
 **Acceptance:**
 - The author's converted performance plays on the second display.
@@ -210,7 +211,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 ### M5: Preset library, browser and favourites (M–L)
 **Goal:** browse, search, filter and favourite the whole Cream of the Crop library; assign presets to scenes from the browser.
 
-1. **First-run flow:** prompt for the library folder (the default suggestion is a common location if one exists), saved in settings, with a change option in Settings.
+1. **First-run flow:** prompt for the library folder and the texture folder (default suggestions are common locations if they exist), saved in settings, with change options in Settings.
 2. **Indexer** (background thread, no GL):
    - Recursive scan for `.milk`; the preset ID is its path relative to the root.
    - Category and subcategory from the first two folder levels; author from the filename prefix before `" - "`; display name from the remainder.
@@ -225,6 +226,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
    - Assign to the selected scene by double-clicking or dragging onto a scene.
    - "Reveal in Finder" for a preset.
 6. **Broken detection (part 1):** presets that fail to parse or compile when used in a scene are marked broken in the index.
+7. **Missing textures:** during indexing, collect each preset's referenced texture names (`sampler_*` in the shader code, minus prefixes `fw_`/`fc_`/`pw_`/`pc_` and the built-ins `main`, `blur1-3`, `noise*`, `noisevol*`, `rand00-15`). Compare them with the files in the texture folder(s), store the missing names in the index, and **flag those presets** ("missing textures: rose, pic") in the browser and scene list. Recompute when the texture folder changes. Unit-test the name extraction.
 
 **Acceptance:** the full library indexes in the background on first run without blocking the UI. Browsing, filtering and searching 10k presets is smooth (no dropped editor frames). Favourites persist. A preset can be assigned to a scene in two actions.
 
