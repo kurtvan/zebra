@@ -144,13 +144,13 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 
 ### MIDI (CoreMIDI)
 - **CC 20 on one MIDI channel** (configurable in settings, default channel 1). The CC value 0–127 selects the scene whose `midi.cc20Value` matches. No other mappings.
-- Parse properly: status bytes, **running status**, interleaved real-time bytes (0xF8 etc. ignored).
+- Parse properly: status bytes, **running status**, interleaved real-time bytes (0xF8 etc. ignored). **As built (M2):** the input port uses `MIDIInputPortCreateWithProtocol(kMIDIProtocol_1_0)`, so CoreMIDI delivers Universal MIDI Packets with running status and real-time bytes already resolved. The app decodes MIDI 1.0 channel-voice UMP words (`io/MidiDecode.cpp`, unit-tested).
 - Connect to all sources; handle **hotplug** via the client notify proc (connect new sources as they appear).
 - The callback writes the latest value to an atomic; the render loop polls once per frame (keep the fork's pattern).
 - **Maximum 128 scenes per performance** (decided). Every scene has a unique `cc20Value` 0–127. The editor prevents adding a 129th scene; the loader rejects or flags files that exceed the limit or have duplicate values. The data model doesn't otherwise hard-code 128, so a larger scheme can come later.
 
 ### Audio input (CoreAudio)
-- Enumerate input devices; the user picks one in settings (persisted by device UID). Handle device removal gracefully.
+- Enumerate input devices; the user picks one in settings. Handle device removal gracefully. **As built (M2):** capture uses SDL2's audio API (CoreAudio underneath), which identifies devices by **name** (SDL doesn't expose CoreAudio UIDs). This keeps the Windows path open.
 - A gain setting replaces the hard-coded 4× boost.
 - Mono/stereo float PCM into a lock-free ring buffer; the render thread feeds all pooled projectM instances.
 - The author routes Ableton in with Loopback today. Easier routing for non-technical users is a later effort.

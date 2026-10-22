@@ -72,6 +72,8 @@ struct Options
     int lanes{2};
     int lookahead{2};
     double secondsPerScene{2.0};
+    std::filesystem::path textures{"/Users/kurt/projects/visualizers/milkdrop-textures/textures"};
+    bool textureControl{false}; //!< textures mode: compare two renders without textures (randomness baseline).
     std::string mode{"timing"}; //!< "timing" (load phases + memory) or "lanes" (background prepare on a shared context).
 };
 
@@ -112,6 +114,10 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.lookahead = std::stoi(value);
         else if (key == "--seconds-per-scene")
             options.secondsPerScene = std::stod(value);
+        else if (key == "--textures")
+            options.textures = value;
+        else if (key == "--texture-control")
+            options.textureControl = value == "1";
         else if (key == "--mode")
             options.mode = value;
     }
@@ -364,6 +370,45 @@ int RunLanes(const Options& options, SDL_Window* mainWindow, SDL_GLContext mainC
     return 0;
 }
 
+/// Renders each preset with and without texture search paths and compares the images.
+int RunTextureCheck(const Options& options, const std::vector<std::filesystem::path>& presets)
+{
+    Target target(320, 180);
+    auto render = [&](const std::filesystem::path& preset, bool withTextures) {
+        projectm_handle instance = projectm_create();
+        projectm_set_window_size(instance, 320, 180);
+        projectm_set_preset_locked(instance, true);
+        if (withTextures)
+        {
+            const char* paths[] = {options.textures.c_str()};
+            projectm_set_texture_search_paths(instance, paths, 1);
+        }
+        projectm_load_preset_file(instance, preset.c_str(), false);
+        for (int i = 0; i < 20; ++i)
+            RenderTimed(instance, target, 320, 180, i);
+        std::vector<unsigned char> pixels(320 * 180 * 4);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, target.fbo);
+        glReadPixels(0, 0, 320, 180, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        projectm_destroy(instance);
+        return pixels;
+    };
+    int differ = 0;
+    for (const auto& preset : presets)
+    {
+        const auto without = render(preset, false);
+        const auto with = render(preset, !options.textureControl);
+        double diff = 0.0;
+        for (size_t i = 0; i < with.size(); ++i)
+            diff += std::abs(static_cast<int>(with[i]) - static_cast<int>(without[i]));
+        diff /= static_cast<double>(with.size());
+        if (diff > 1.0)
+            differ++;
+        std::printf("mean abs pixel difference %6.2f  %s\n", diff, preset.filename().c_str());
+    }
+    std::printf("%d of %zu presets look different with textures\n", differ, presets.size());
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -391,6 +436,25 @@ int main(int argc, char* argv[])
 
     const auto presets = SamplePresets(options.library, options.count, options.seed);
     GV_LOG_INFO(kLogCategory, "sampled %zu presets from %s", presets.size(), options.library.c_str());
+
+    if (options.mode == "textures")
+    {
+        std::vector<std::filesystem::path> withTextures;
+        for (const auto& preset : presets)
+        {
+            std::ifstream in(preset);
+            std::stringstream text;
+            text << in.rdbuf();
+            const auto lower = text.str();
+            if (lower.find("sampler_worms") != std::string::npos || lower.find("sampler_clouds") != std::string::npos)
+                withTextures.push_back(preset);
+        }
+        const int result = RunTextureCheck(options, withTextures);
+        SDL_GL_DeleteContext(context);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return result;
+    }
 
     if (options.mode == "pipeline")
     {

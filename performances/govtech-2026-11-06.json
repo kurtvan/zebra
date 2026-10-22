@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "name": "Govtech show (converted from fork)",
+  "scenes": [
+    {
+      "id": "2h-intro",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Geometric/Cube/Martin - QBikal - Surface Turbulence IIz3 (by hakanh mash-up).milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/2H-intro.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 0
+      }
+    },
+    {
+      "id": "2h-drop",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Reaction/Cloudy/Halfbreak - Noise-volume Negative.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 1
+      }
+    },
+    {
+      "id": "2h-drop2",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Waveform/Spectrum/suksma - n19 3 layer overlap opt 3 flx nz+ loqo yes joe rogan, chimps are crazy, but what about bonobos.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 2
+      }
+    },
+    {
+      "id": "2h-drop3",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Drawing/Liquid/midgitstraights of majillaen - made into pain candy.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 3
+      }
+    },
+    {
+      "id": "2h-drop4",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Supernova/Orbits/EoS - Apocalypse C.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 4
+      }
+    },
+    {
+      "id": "2h-drop5",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Waveform/Wire Circular/fed's blur 5! massive trip mix.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 5
+      }
+    },
+    {
+      "id": "cip-1",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Waveform/Wire Circular/fed's blur 5! massive trip mix.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/cave-in-prague.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 6
+      }
+    },
+    {
+      "id": "cip-2",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Geometric/Wire Circles/suksma - fine line between tolerance and death penalty lojitehk.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/cave-in-prague.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 7
+      }
+    },
+    {
+      "id": "cip-3",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Supernova/Burst/stahl metal crosshair 35mm roams dotes nz+.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "file",
+          "path": "/Users/kurt/Movies/govtech-visuals/cave-in-prague.mp4"
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": true
+      },
+      "midi": {
+        "cc20Value": 8
+      }
+    }
+  ]
+}

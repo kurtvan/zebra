@@ -1,11 +1,16 @@
-// Govtech Visualizer: M0 skeleton.
-// An ImGui docking window showing projectM's idle preset, rendered into an offscreen FBO.
+// Govtech Visualizer: editor window, performance output and the main loop.
 
+#include "app/OutputWindow.hpp"
+#include "app/Settings.hpp"
+#include "app/Shell.hpp"
 #include "app_info.hpp"
+#include "common/SpscRingBuffer.hpp"
 #include "common/log.hpp"
 #include "common/paths.hpp"
-
-#include <projectM-4/projectM.h>
+#include "engine/Engine.hpp"
+#include "io/AudioInput.hpp"
+#include "io/MidiInput.hpp"
+#include "model/PerformanceJson.hpp"
 
 #include <SDL.h>
 #include <imgui.h>
@@ -14,88 +19,33 @@
 
 #include <OpenGL/gl3.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
 
 constexpr const char* kLogCategory = "app";
+constexpr int kLanes = 3;
+constexpr size_t kFrameHistory = 240;
+constexpr size_t kMaxMessages = 200;
 
-/// Colour texture + FBO that projectM renders into.
-struct OffscreenTarget
-{
-    GLuint fbo{0};
-    GLuint texture{0};
-    int width{0};
-    int height{0};
-
-    void Resize(int newWidth, int newHeight)
-    {
-        if (newWidth == width && newHeight == height)
-        {
-            return;
-        }
-        Destroy();
-        width = newWidth;
-        height = newHeight;
-
-        glGenTextures(1, &texture);
-        glBindTexture(GL_TEXTURE_2D, texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glBindTexture(GL_TEXTURE_2D, 0);
-
-        glGenFramebuffers(1, &fbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        {
-            GV_LOG_ERROR(kLogCategory, "offscreen framebuffer %dx%d is incomplete", width, height);
-        }
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
-
-    void Destroy()
-    {
-        if (fbo != 0)
-        {
-            glDeleteFramebuffers(1, &fbo);
-            fbo = 0;
-        }
-        if (texture != 0)
-        {
-            glDeleteTextures(1, &texture);
-            texture = 0;
-        }
-        width = 0;
-        height = 0;
-    }
-
-    /// Mean luma of the target in [0, 1]; used by --smoke-frames to show that something was drawn.
-    auto MeanLuma() const -> double
-    {
-        std::vector<unsigned char> pixels(static_cast<size_t>(width) * height * 4);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-
-        double sum = 0.0;
-        for (size_t i = 0; i < pixels.size(); i += 4)
-        {
-            sum += 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
-        }
-        return sum / (255.0 * (pixels.size() / 4));
-    }
-};
+using Clock = std::chrono::steady_clock;
 
 struct Options
 {
-    int smokeFrames{0}; //!< > 0: render this many frames, report, then quit (for automated checks).
+    std::optional<std::filesystem::path> performance; //!< Opened instead of the last one.
+    std::optional<std::string> output;                //!< Display name; "" disables the output window.
+    // Headless check: play `performance` cutting every `smokeCutSeconds`, report, and quit.
+    bool smoke{false};
+    double smokeSeconds{20.0};
+    double smokeCutSeconds{2.0};
+    bool smokeNoEditor{false}; //!< Skip drawing the editor (to measure its cost).
 };
 
 auto ParseOptions(int argc, char* argv[]) -> Options
@@ -103,13 +53,432 @@ auto ParseOptions(int argc, char* argv[]) -> Options
     Options options;
     for (int i = 1; i < argc; ++i)
     {
-        if (std::strcmp(argv[i], "--smoke-frames") == 0 && i + 1 < argc)
-        {
-            options.smokeFrames = std::atoi(argv[++i]);
-        }
+        const std::string arg = argv[i];
+        const bool hasValue = i + 1 < argc;
+        if (arg == "--performance" && hasValue)
+            options.performance = argv[++i];
+        else if (arg == "--output" && hasValue)
+            options.output = argv[++i];
+        else if (arg == "--smoke")
+            options.smoke = true;
+        else if (arg == "--smoke-seconds" && hasValue)
+            options.smokeSeconds = std::atof(argv[++i]);
+        else if (arg == "--smoke-no-editor")
+            options.smokeNoEditor = true;
+        else if (arg == "--smoke-cut-every" && hasValue)
+            options.smokeCutSeconds = std::atof(argv[++i]);
+        else if (arg.size() > 5 && arg.substr(arg.size() - 5) == ".json")
+            options.performance = arg; // also accept a bare performance path
     }
     return options;
 }
+
+class App final : public gv::app::AppActions
+{
+public:
+    App(SDL_Window* editorWindow, SDL_GLContext editorContext, Options options)
+        : m_editorWindow(editorWindow)
+        , m_editorContext(editorContext)
+        , m_options(std::move(options))
+        , m_ring(48000 * 2)
+        , m_audio(m_ring)
+    {
+    }
+
+    auto Initialize() -> bool
+    {
+        m_settingsFile = gv::paths::ApplicationSupportDir() / "settings.json";
+        m_settings = gv::app::Settings::Load(m_settingsFile);
+
+        if (!m_engine.Start(kLanes, gv::engine::PoolConfig{kLanes, 1, 3}))
+        {
+            return false;
+        }
+        ApplyTexturePaths();
+
+        m_midi = gv::io::CreateMidiInput();
+        m_midi->SetChannel(m_settings.midiChannel);
+
+        if (!m_audio.Open(m_settings.audioDevice) && !m_settings.audioDevice.empty())
+        {
+            AddMessage("Audio input \"" + m_settings.audioDevice + "\" isn't available; using the system default.");
+            m_audio.Open("");
+        }
+
+        const std::string outputName = m_options.output.value_or(m_settings.outputDisplay);
+        if (!outputName.empty() && !m_options.smoke)
+        {
+            SetOutputDisplay(outputName);
+        }
+
+        if (m_options.performance)
+            OpenPerformance(*m_options.performance);
+        else if (!m_settings.lastPerformance.empty())
+            OpenPerformance(m_settings.lastPerformance);
+        return true;
+    }
+
+    void Shutdown()
+    {
+        SaveSettings();
+        m_output.Close();
+        m_audio.Close();
+        m_midi.reset();
+        m_engine.Shutdown();
+    }
+
+    // --- AppActions -----------------------------------------------------------------------
+
+    void OpenPerformance(const std::filesystem::path& file) override
+    {
+        auto result = gv::model::LoadPerformance(file);
+        m_issues = result.issues;
+        if (!result.ok)
+        {
+            AddMessage("Could not open " + file.string() + " (see the errors above).");
+            GV_LOG_ERROR(kLogCategory, "could not open performance %s", file.c_str());
+            return;
+        }
+        m_performance = std::move(result.performance);
+        m_performancePath = file;
+        m_hasPerformance = true;
+        m_engine.LoadPerformance(m_performance);
+        m_settings.lastPerformance = file;
+        SaveSettings();
+        AddMessage("Opened " + file.filename().string() + ": " + std::to_string(m_performance.scenes.size()) + " scenes.");
+    }
+
+    void ReloadPerformance() override
+    {
+        if (!m_performancePath.empty())
+            OpenPerformance(m_performancePath);
+    }
+
+    void SetOutputDisplay(const std::string& displayName) override
+    {
+        m_output.Close();
+        m_settings.outputDisplay = displayName;
+        if (!displayName.empty())
+        {
+            SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+            if (m_output.Open(displayName))
+            {
+                m_engine.SetRenderSize(m_output.DrawableWidth(), m_output.DrawableHeight());
+            }
+            else
+            {
+                AddMessage("Display \"" + displayName + "\" isn't connected.");
+            }
+        }
+        // With an output window, its vsync paces the app and the editor swaps without waiting.
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        SDL_GL_SetSwapInterval(m_output.IsOpen() ? 0 : 1);
+        SaveSettings();
+    }
+
+    void SetAudioDevice(const std::string& deviceName) override
+    {
+        m_settings.audioDevice = deviceName;
+        if (!m_audio.Open(deviceName))
+            AddMessage("Could not open audio input \"" + deviceName + "\".");
+        SaveSettings();
+    }
+
+    void SetMidiChannel(int channel) override
+    {
+        m_settings.midiChannel = channel;
+        m_midi->SetChannel(channel);
+        SaveSettings();
+    }
+
+    void SetLibraryRoot(const std::filesystem::path& folder) override
+    {
+        m_settings.libraryRoot = folder;
+        SaveSettings();
+    }
+
+    void SetTextureFolder(const std::filesystem::path& folder) override
+    {
+        m_settings.texturePaths = {folder};
+        ApplyTexturePaths();
+        SaveSettings();
+        AddMessage("Texture folder changed; it applies to scenes prepared from now on.");
+    }
+
+    void SettingsChanged() override
+    {
+        m_settingsDirty = true;
+    }
+
+    void Trigger(int scene) override
+    {
+        m_engine.Trigger(scene);
+    }
+
+    // --- Main loop ------------------------------------------------------------------------
+
+    void HandleEvent(const SDL_Event& event, bool& running)
+    {
+        if (event.type == SDL_QUIT)
+        {
+            running = false;
+        }
+        else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE)
+        {
+            if (event.window.windowID == SDL_GetWindowID(m_editorWindow))
+                running = false;
+            else if (event.window.windowID == m_output.WindowId())
+                SetOutputDisplay("");
+        }
+        else if (event.type == SDL_DISPLAYEVENT && event.display.event == SDL_DISPLAYEVENT_DISCONNECTED && m_output.IsOpen())
+        {
+            // The output's display may be the one that went away.
+            const auto names = gv::app::OutputWindow::DisplayNames();
+            if (std::find(names.begin(), names.end(), m_output.DisplayName()) == names.end())
+            {
+                AddMessage("The output display was disconnected.");
+                const std::string name = m_output.DisplayName();
+                m_output.Close();
+                m_settings.outputDisplay = name; // reopen it next launch
+                SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+                SDL_GL_SetSwapInterval(1);
+            }
+        }
+        else if (m_audio.HandleEvent(event))
+        {
+            AddMessage("The audio input was removed.");
+        }
+        else if (event.type == SDL_KEYDOWN && (event.key.keysym.mod & KMOD_GUI) != 0)
+        {
+            if (event.key.keysym.sym == SDLK_r)
+                ReloadPerformance();
+        }
+    }
+
+    /// One output frame. Returns false when the smoke run is over.
+    auto Frame(gv::app::Shell& shell, int frame) -> bool
+    {
+        // MIDI scene triggers.
+        if (auto value = m_midi->TakeSceneTrigger(); value && m_hasPerformance)
+        {
+            if (auto scene = m_performance.SceneForCc20(*value))
+                m_engine.Trigger(static_cast<int>(*scene));
+            else
+                GV_LOG_INFO(kLogCategory, "CC 20 = %d doesn't match any scene", *value);
+        }
+
+        if (m_options.smoke)
+        {
+            SmokeStep();
+        }
+
+        // Audio: everything captured since the last frame.
+        const size_t samples = m_ring.Read(m_pcm.data(), m_pcm.size());
+        m_engine.Tick(m_pcm.data(), samples / 2, m_settings.gain);
+
+        // Present on the editor context (the engine's copy targets live there), then show it.
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        const GLuint presented = m_engine.Present();
+
+        if (m_output.IsOpen())
+        {
+            m_output.Present(presented, m_engine.PresentFence(), m_engine.RenderWidth(), m_engine.RenderHeight());
+            SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        }
+
+        // The editor redraws at full rate without an output window, every other frame with one.
+        if (m_options.smokeNoEditor)
+        {
+            glFlush();
+            PaceSmoke();
+        }
+        else if (!m_output.IsOpen() || frame % 2 == 0)
+        {
+            DrawEditor(shell, presented);
+        }
+        else if (m_options.smoke)
+        {
+            PaceSmoke();
+        }
+
+        RecordFrameInterval();
+        if (m_settingsDirty && frame % 60 == 0)
+        {
+            SaveSettings();
+        }
+        return !m_smokeDone;
+    }
+
+    auto SmokeSucceeded() const -> bool
+    {
+        return m_smokeOk;
+    }
+
+private:
+    void DrawEditor(gv::app::Shell& shell, GLuint presented)
+    {
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+
+        gv::app::ShellState state;
+        state.performance = m_hasPerformance ? &m_performance : nullptr;
+        state.performancePath = m_performancePath;
+        state.issues = &m_issues;
+        state.messages = &m_messages;
+        state.settings = &m_settings;
+        state.engine = &m_engine;
+        state.midi = m_midi.get();
+        state.audio = &m_audio;
+        state.outputDisplay = m_output.IsOpen() ? m_output.DisplayName() : std::string();
+        state.preview = presented;
+        state.frameIntervalsMs = &m_frameIntervals;
+        state.slowFrames = m_slowFrames;
+        shell.Draw(state, *this);
+
+        ImGui::Render();
+        int width = 0;
+        int height = 0;
+        SDL_GL_GetDrawableSize(m_editorWindow, &width, &height);
+        if (m_engine.PresentFence() != nullptr)
+        {
+            glWaitSync(m_engine.PresentFence(), 0, GL_TIMEOUT_IGNORED);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, width, height);
+        glClearColor(0.08f, 0.08f, 0.09f, 1.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        SDL_GL_SwapWindow(m_editorWindow);
+        if (m_options.smoke)
+        {
+            PaceSmoke(); // hidden windows don't wait for vsync
+        }
+    }
+
+    void RecordFrameInterval()
+    {
+        const auto now = Clock::now();
+        if (m_lastFrame.time_since_epoch().count() != 0)
+        {
+            const float ms = std::chrono::duration<float, std::milli>(now - m_lastFrame).count();
+            m_frameIntervals.push_back(ms);
+            if (m_frameIntervals.size() > kFrameHistory)
+                m_frameIntervals.pop_front();
+            if (ms > 25.f)
+                m_slowFrames++;
+        }
+        m_lastFrame = now;
+    }
+
+    void PaceSmoke()
+    {
+        m_smokeDeadline += std::chrono::microseconds(16667);
+        const auto now = Clock::now();
+        if (m_smokeDeadline < now)
+            m_smokeDeadline = now;
+        std::this_thread::sleep_until(m_smokeDeadline);
+    }
+
+    void SmokeStep()
+    {
+        if (m_smokeStart.time_since_epoch().count() == 0)
+        {
+            m_smokeStart = Clock::now();
+            m_smokeDeadline = m_smokeStart;
+        }
+        const double elapsed = std::chrono::duration<double>(Clock::now() - m_smokeStart).count();
+        if (!m_hasPerformance || m_performance.scenes.empty())
+        {
+            GV_LOG_ERROR(kLogCategory, "smoke: no performance loaded");
+            m_smokeDone = true;
+            return;
+        }
+        // Wait for the first scenes to be ready before cutting, like a show would.
+        const int cut = static_cast<int>(elapsed / m_options.smokeCutSeconds);
+        if (cut != m_smokeLastCut)
+        {
+            m_smokeLastCut = cut;
+            const int scene = cut % static_cast<int>(m_performance.scenes.size());
+            m_engine.Trigger(scene);
+            m_smokeCuts++;
+        }
+        if (elapsed >= m_options.smokeSeconds)
+        {
+            const auto stats = m_engine.GetStats();
+            const long long liveTicks = stats.ticks;
+            GV_LOG_INFO(kLogCategory, "smoke: %.1fs, %d cuts, %lld ticks, %lld presented, %lld held (%.2f%%: %lld waiting for a scene to prepare, %lld late within 0.5 s of a cut, %lld late otherwise), frames over 25 ms: %lld, pre-warm %d/%d",
+                        elapsed, m_smokeCuts, liveTicks, stats.presentedFrames, stats.heldTicks,
+                        liveTicks > 0 ? 100.0 * stats.heldTicks / liveTicks : 0.0, stats.heldWaitingTicks, stats.heldNearCutTicks, stats.heldTicks - stats.heldWaitingTicks - stats.heldNearCutTicks,
+                        m_slowFrames, stats.warmDone, stats.warmTotal);
+            for (int i = 0; i < static_cast<int>(m_performance.scenes.size()); ++i)
+            {
+                const auto info = m_engine.Scene(i);
+                const auto held = stats.heldByScene.count(i) ? stats.heldByScene.at(i) : 0;
+                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, held %lld (%.1f%% of its live frames)", i, m_performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held, info.droppedFraction * 100.0);
+            }
+            m_smokeOk = stats.presentedFrames > liveTicks / 2;
+            m_smokeDone = true;
+        }
+    }
+
+    void ApplyTexturePaths()
+    {
+        std::vector<std::string> paths;
+        for (const auto& path : m_settings.texturePaths)
+            paths.push_back(path.string());
+        m_engine.SetTexturePaths(paths);
+    }
+
+    void SaveSettings()
+    {
+        if (m_options.smoke)
+            return;
+        if (auto error = m_settings.Save(m_settingsFile); !error.empty())
+            GV_LOG_ERROR(kLogCategory, "%s", error.c_str());
+        m_settingsDirty = false;
+    }
+
+    void AddMessage(std::string message)
+    {
+        GV_LOG_INFO(kLogCategory, "%s", message.c_str());
+        m_messages.push_back(std::move(message));
+        if (m_messages.size() > kMaxMessages)
+            m_messages.pop_front();
+    }
+
+    SDL_Window* m_editorWindow;
+    SDL_GLContext m_editorContext;
+    Options m_options;
+
+    std::filesystem::path m_settingsFile;
+    gv::app::Settings m_settings;
+    bool m_settingsDirty{false};
+
+    gv::engine::Engine m_engine;
+    gv::app::OutputWindow m_output;
+    gv::SpscRingBuffer<float> m_ring;
+    std::vector<float> m_pcm = std::vector<float>(48000 * 2);
+    gv::io::AudioInput m_audio;
+    std::unique_ptr<gv::io::MidiInput> m_midi;
+
+    gv::model::Performance m_performance;
+    std::filesystem::path m_performancePath;
+    bool m_hasPerformance{false};
+    std::vector<gv::model::Issue> m_issues;
+    std::deque<std::string> m_messages;
+
+    std::deque<float> m_frameIntervals;
+    long long m_slowFrames{0};
+    Clock::time_point m_lastFrame{};
+
+    Clock::time_point m_smokeStart{};
+    Clock::time_point m_smokeDeadline{};
+    int m_smokeLastCut{-1};
+    int m_smokeCuts{0};
+    bool m_smokeDone{false};
+    bool m_smokeOk{false};
+};
 
 } // namespace
 
@@ -120,7 +489,9 @@ int main(int argc, char* argv[])
     gv::log::Init(gv::paths::LogsDir());
     GV_LOG_INFO(kLogCategory, "%s %s starting", gv::app_info::kName, gv::app_info::kVersion);
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0)
+    // Real fullscreen on the output display, without a separate Space and its animation.
+    SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) != 0)
     {
         GV_LOG_ERROR(kLogCategory, "SDL_Init failed: %s", SDL_GetError());
         return 1;
@@ -132,125 +503,67 @@ int main(int argc, char* argv[])
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-    const Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI |
-                               (options.smokeFrames > 0 ? SDL_WINDOW_HIDDEN : 0);
+    const Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (options.smoke ? SDL_WINDOW_HIDDEN : 0);
     SDL_Window* window = SDL_CreateWindow(gv::app_info::kName, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1600, 1000, windowFlags);
-    if (window == nullptr)
+    SDL_GLContext context = window != nullptr ? SDL_GL_CreateContext(window) : nullptr;
+    if (context == nullptr)
     {
-        GV_LOG_ERROR(kLogCategory, "SDL_CreateWindow failed: %s", SDL_GetError());
+        GV_LOG_ERROR(kLogCategory, "could not create the editor window: %s", SDL_GetError());
         SDL_Quit();
         return 1;
     }
-
-    SDL_GLContext glContext = SDL_GL_CreateContext(window);
-    if (glContext == nullptr)
-    {
-        GV_LOG_ERROR(kLogCategory, "SDL_GL_CreateContext failed: %s", SDL_GetError());
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-    SDL_GL_MakeCurrent(window, glContext);
+    SDL_GL_MakeCurrent(window, context);
     SDL_GL_SetSwapInterval(1);
     GV_LOG_INFO(kLogCategory, "OpenGL %s, renderer %s", glGetString(GL_VERSION), glGetString(GL_RENDERER));
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    static const std::string iniPath = (gv::paths::ApplicationSupportDir() / "imgui.ini").string();
-    io.IniFilename = iniPath.c_str();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
+    static const std::string iniPath = (gv::paths::ApplicationSupportDir() / "layout.ini").string();
+    io.IniFilename = options.smoke ? nullptr : iniPath.c_str();
     ImGui::StyleColorsDark();
-    ImGui_ImplSDL2_InitForOpenGL(window, glContext);
+    ImGui_ImplSDL2_InitForOpenGL(window, context);
     ImGui_ImplOpenGL3_Init("#version 410 core");
 
-    projectm_handle projectM = projectm_create();
-    if (projectM == nullptr)
+    int status = 0;
     {
-        GV_LOG_ERROR(kLogCategory, "projectm_create failed");
-        return 1;
-    }
-    projectm_set_preset_locked(projectM, true);
-    projectm_set_hard_cut_enabled(projectM, false);
-
-    // Placeholder size until M2 sizes the target from the output display.
-    OffscreenTarget target;
-    target.Resize(1920, 1080);
-    projectm_set_window_size(projectM, static_cast<size_t>(target.width), static_cast<size_t>(target.height));
-
-    bool running = true;
-    int frame = 0;
-    while (running)
-    {
-        SDL_Event event;
-        while (SDL_PollEvent(&event))
+        App app(window, context, options);
+        if (!app.Initialize())
         {
-            ImGui_ImplSDL2_ProcessEvent(&event);
-            if (event.type == SDL_QUIT ||
-                (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID(window)))
+            status = 1;
+        }
+        else
+        {
+            gv::app::Shell shell;
+            bool running = true;
+            for (int frame = 0; running; ++frame)
             {
-                running = false;
+                SDL_Event event;
+                while (SDL_PollEvent(&event))
+                {
+                    ImGui_ImplSDL2_ProcessEvent(&event);
+                    app.HandleEvent(event, running);
+                }
+                if (!app.Frame(shell, frame))
+                {
+                    running = false;
+                }
+            }
+            if (options.smoke)
+            {
+                status = app.SmokeSucceeded() ? 0 : 2;
             }
         }
-
-        // projectM renders into the offscreen target.
-        glBindFramebuffer(GL_FRAMEBUFFER, target.fbo);
-        glViewport(0, 0, target.width, target.height);
-        glClearColor(0.f, 0.f, 0.f, 1.f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        projectm_opengl_render_frame_fbo(projectM, target.fbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
-        ImGui::DockSpaceOverViewport();
-
-        ImGui::Begin("Preview");
-        const ImVec2 available = ImGui::GetContentRegionAvail();
-        const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
-        ImVec2 size(available.x, available.x / aspect);
-        if (size.y > available.y)
-        {
-            size = ImVec2(available.y * aspect, available.y);
-        }
-        // GL textures are bottom-up; flip V for ImGui.
-        ImGui::Image(static_cast<ImTextureID>(target.texture), size, ImVec2(0, 1), ImVec2(1, 0));
-        ImGui::End();
-
-        ImGui::Begin("Status");
-        ImGui::Text("%.1f fps (%.2f ms)", io.Framerate, 1000.f / io.Framerate);
-        ImGui::Text("Render target %dx%d", target.width, target.height);
-        ImGui::End();
-
-        ImGui::Render();
-        int drawableWidth = 0;
-        int drawableHeight = 0;
-        SDL_GL_GetDrawableSize(window, &drawableWidth, &drawableHeight);
-        glViewport(0, 0, drawableWidth, drawableHeight);
-        glClearColor(0.08f, 0.08f, 0.09f, 1.f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        SDL_GL_SwapWindow(window);
-
-        ++frame;
-        if (options.smokeFrames > 0 && frame >= options.smokeFrames)
-        {
-            const GLenum error = glGetError();
-            GV_LOG_INFO(kLogCategory, "smoke: rendered %d frames, mean luma %.4f, glGetError 0x%04x", frame, target.MeanLuma(), error);
-            running = false;
-        }
+        app.Shutdown();
     }
 
-    projectm_destroy(projectM);
-    target.Destroy();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
-    SDL_GL_DeleteContext(glContext);
+    SDL_GL_DeleteContext(context);
     SDL_DestroyWindow(window);
     SDL_Quit();
-
-    GV_LOG_INFO(kLogCategory, "exited cleanly");
-    return 0;
+    GV_LOG_INFO(kLogCategory, "exited (status %d)", status);
+    return status;
 }

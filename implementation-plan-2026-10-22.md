@@ -158,6 +158,13 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 - Every scene entry is visibly fresh.
 - Unplugging the MIDI device or audio device, or deleting a referenced preset file, never crashes the app.
 
+**M2 as built (2026-10-22):**
+- **Handover at cuts:** the outgoing scene keeps rendering on its lane until the incoming scene's first frame is presented, so a cut never repeats a frame. The scene pool's release of the outgoing instance is deferred until then.
+- **Frame cost and drops per scene:** the heavy flag uses the live lane's average CPU and GPU (`GL_TIME_ELAPSED` timer query) render time once a scene has been live for 0.5 s; the warm-up frame is only an initial estimate (too noisy on its own). The scene list also shows each scene's measured drop rate while live.
+- **Contexts:** the engine's present copy runs on the editor context; the output window waits on its fence and draws with its own vsynced context, which paces the app. With an output open the editor redraws every other frame.
+- **Audio** via SDL2 capture (devices by name) and **MIDI** via UMP decoding: see technical doc §5.
+- `--smoke` mode plays a performance headless, cutting every N seconds, and reports held frames by cause and per scene.
+
 ### M3: Video (M–L): **show-capable milestone**
 **Goal:** per-scene video injected into the warp feedback from files or Syphon.
 
