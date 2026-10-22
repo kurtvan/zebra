@@ -1,0 +1,151 @@
+preset,wall.load,wall.firstframe,wall.earlymax,wall.steadyframe,lastslowframe,create.initpreset,create.parse,gl.compileprogram,init.comp,init.eval,init.fbsize,init.warp,load.create,load.initialize,load.total,shader.glcompile,shader.textures,shader.transpile,gl.compileprogram.count
+"! Transition/Slow transition to black - gas effect + zoom in + orange filter === Tripgnosis - FlameOrb --- Isosceles edit.milk",16.7878,1.99167,5.82429,3.80737,0,0.53,0.157,11.375,4.322,0.047,0.013,5.892,5.174,10.275,16.254,7.05,0.002,3.154,9
+"Dancer/Murky/EVET - Ball Lightning 1.milk",21.4899,147.637,40.7551,40.057,60,0.603,0.243,13.826,6.234,0.442,0.012,8.095,5.483,14.784,20.92,9.345,0.004,4.968,9
+"Drawing/Liquid/Phat_Zylot_EoS Come_fly_with_me_vidio_echo_v2 nz+ creole rot basquettiquit.milk",22.5043,7.76487,3.59154,3.12988,0,0.501,0.216,14.621,7.007,0.41,0.013,8.112,5.548,15.542,21.913,9.923,0.006,5.177,9
+"Fractal/Lattice/beta106S - Phat - randombox - mantra 2.milk",6.82454,3.38833,2.26954,1.77621,0,0.531,0.203,4.373,0,0.247,0.015,0,5.227,0.263,6.275,0,0,0,7
+"Geometric/Squares/amandio c - epicenter zero improvement hackery.milk",30.0956,706.048,188.955,183.122,60,1.521,1.427,8.959,7.665,13.468,0.023,0,7.596,21.157,29.512,4.559,0.004,3.098,8
+"Hypnotic/Polar Warp/flexi - grind my glitch up [140].milk",28.1616,4.46737,2.08508,1.83987,0,0.554,0.341,16.072,13.194,0.366,0.012,7.549,5.771,21.121,27.605,11.343,0.003,9.386,9
+"Particles/Swarm/fewgasm.milk",19.6552,22.9499,7.59879,6.79054,0,0.504,0.206,12.637,5.256,0.415,0.013,7.192,5.341,12.878,19.055,8.138,0.004,4.295,9
+"Reaction/Liquid Blobby/sofbingro' nz+ complete psychological eagle offering.milk",22.5854,9.05987,3.54979,3.1745,0,0.532,0.221,14.483,9.4,0.185,0.012,6.648,5.266,16.246,22.23,10.105,0.003,5.929,9
+"Sparkle/Explosions/fleekus flokus - ap3 roam2 as fuck would have it nz2 jaos.milk",19.694,15.2152,5.02404,4.02454,0,0.614,0.22,12.696,5.221,0.483,0.011,7.122,5.516,12.837,19.259,8.164,0.006,4.161,9
+"Supernova/Burst/PieturP - sunflare.milk",6.8575,2.88408,1.65229,1.3725,0,0.431,0.21,4.813,0,0.062,0.015,0,5.581,0.078,6.49,0,0,0,7
+"Waveform/Wire Tunnel/fiShbRaiN + geiss + goody + stahlregen + martin + others - a butterfly dreaming it was a demon.milk",20.336,5.86158,3.08767,2.11008,0,0.518,0.262,13.422,6.142,0.863,0.012,6.702,5.621,13.719,19.98,8.724,0.003,4.107,9
+"! Transition/Fast transition to black - levels effect === Goody's Lightning (ps 2-0) --- Isosceles edit.milk",16.3852,3.01892,1.176,1.07392,0,0.459,0.162,11.579,4.354,0.057,0.013,5.096,5.56,9.52,15.964,6.794,0.003,2.643,9
+"Dancer/Hatches Mirror/suksma - biotoxins on strings - thyghmaster oilstrip lifedecay(1).milk",17.4601,6.53721,2.56217,2.44729,0,0.488,0.199,11.861,5.031,0.39,0.051,5.299,5.382,10.772,16.876,7.286,0.002,3.032,9
+"Drawing/Explosions/propre possess quickened through absolute inability drown in your own naivaethy.milk",19.7413,110.237,29.2597,28.7175,60,0.544,0.241,12.923,5.576,0.559,0.014,6.817,5.496,12.967,19.172,8.338,0.004,4.042,9
+"Fractal/Lattice/suksma - negative infinity for not flinching - fet.milk",19.5564,4.83779,2.19633,1.67221,0,0.495,0.225,12.575,4.575,0.375,0.012,7.307,5.464,12.269,18.655,7.974,0.004,3.891,9
+"Geometric/Wire Spiral/Stahlregen - Squared^2 (Rainbow colored spiral).milk",16.8197,2.2935,1.37475,1.17342,0,0.549,0.186,11.273,4.838,0.207,0.012,4.987,5.26,10.044,16.224,6.906,0.002,2.909,9
+"Hypnotic/Polar Warp/flexi - grind my glitch up [189].milk",24.3603,4.81463,2.24008,1.96725,0,0.557,0.237,15.436,9.713,0.371,0.014,7.669,5.532,17.767,23.936,10.841,0.004,6.526,9
+"Particles/Points Trails/271 nz+ m6.milk",20.4647,6.33708,3.07283,2.46417,0,0.546,0.301,12.878,6.104,0.723,0.016,6.797,5.473,13.64,20.012,8.383,0.006,4.503,9
+"Reaction/Dunes/shifter + flexi - liquid circuitry from the fractalism hive nz+ --- Isosceles edit3.milk",22.4881,3.16125,2.15767,1.29154,0,0.551,0.246,14.64,7.079,0.611,0.014,7.802,5.693,15.506,21.969,9.898,0.011,4.96,9
+"Sparkle/Jewel/Serge + martin - crystal palace star003.milk",20.8538,4.48204,1.98908,1.50992,0,0.496,0.256,13.547,5.599,0.295,0.014,7.963,5.453,13.873,20.268,8.987,0.003,4.559,9
+"Supernova/Radiate/Rovastar + Geiss - Hyperkaleidoscope Glow 2 motion blur.milk",17.5432,3.709,4.82617,1.35554,0,0.496,0.19,12.222,4.995,0.127,0.013,5.972,5.335,11.107,17.114,7.707,0.002,3.249,9
+"Waveform/Wire Tangle/Fireball.milk",6.33442,2.17708,0.925209,0.780583,0,0.392,0.121,4.527,0,0.042,0.013,0,5.147,0.056,5.949,0,0,0,7
+"! Transition/Slow transition to black - gas effect + zoom in === Tripgnosis - FlameOrb --- Isosceles edit.milk",16.4205,1.72233,4.57954,3.91392,0,0.444,0.162,11.585,4.138,0.051,0.011,6.104,5.091,10.305,16.051,7.222,0.002,3.007,9
+"Dancer/Lasers/fat cancer dead gun.milk",17.6566,7.74642,3.42979,3.11733,0,0.505,0.242,11.647,4.258,0.464,0.016,6.016,5.408,10.755,17.075,7.114,0.003,3.148,9
+"Drawing/Trails Mirror/midgitstraights of majillaen - gunthree spher.milk",20.5253,377.081,103.263,97.6237,60,0.508,0.222,12.829,6.516,0.635,0.015,6.244,5.581,13.41,19.933,8.113,0.006,4.628,9
+"Fractal/Sierpinski/Flexi - disruptor [wolfram's rule 90 satanic teleprompter ON].milk",17.4256,2.02292,1.64058,1.11104,0,0.468,0.201,11.712,4.171,0.243,0.015,6.277,5.329,10.706,16.831,7.194,0.002,3.242,9
+"Geometric/Cube/suksma - tillionmancy angeliction lousewrouloth.milk",21.319,6.23921,3.063,2.62067,0,0.578,0.245,13.808,7.113,0.369,0.011,7.066,5.427,14.559,20.698,9.365,0.004,4.797,9
+"Hypnotic/Polar Warp/flexi - grind my glitch up [334].milk",30.314,5.40025,2.8645,2.15979,0,0.697,0.259,17.56,15.208,0.393,0.015,7.619,5.638,23.235,29.75,13.016,0.004,9.792,9
+"Particles/Points Trails/EoS - pointfield 12 deep oceans-170.milk",7.51308,2.80092,1.7515,1.53225,0,0.539,0.273,4.591,0,0.572,0.012,0,5.566,0.585,6.891,0,0,0,7
+"Reaction/Feedback/bdrv geiss zylot - oldkool2 nz+ waist ville.milk",19.9663,87.6674,25.3973,24.3028,60,0.536,0.222,12.762,6.074,0.372,0.015,6.751,5.398,13.212,19.382,8.252,0.005,4.556,9
+"Sparkle/Explosions/suksma - chernobyl pie for dessert - swami back bite jadedolojyst.milk",18.508,2.85208,1.45604,1.31896,0,0.485,0.199,12.222,4.967,0.174,0.016,6.467,5.485,11.624,17.891,7.562,0.008,3.852,9
+"Supernova/Stars/PieturP - HSL-tunnelvisions_morphing2.milk",7.74321,4.13529,2.88517,2.52954,0,0.481,0.266,4.72,0,0.658,0.013,0,5.595,0.671,7.101,0,0,0,7
+"Waveform/Spectrum/suksma - negative infinity for not flinching2(1).milk",17.9448,5.32596,2.15571,1.83125,0,0.536,0.225,12.109,4.6,0.318,0.01,6.546,5.251,11.475,17.381,7.753,0.005,3.378,9
+"! Transition/Slow transition to black - gas effect + zoom out === amandio c - magnetosphere --- Isosceles edit.milk",7.16771,1.94263,1.14708,0.906875,0,0.418,0.185,4.835,0,0.185,0.01,0,5.644,0.197,6.589,0,0,0,7
+"Dancer/Orbit/EoS - glowsticks v2 04 music minimal - swim  - dictatutorial.milk",19.7264,3.88746,2.67917,2.63525,0,0.589,0.333,11.574,5.959,0.833,0.01,6.274,5.555,13.076,19.369,7.08,0.006,5.118,9
+"Drawing/Trails/Zylot and FishBrain - I am the witch [flexi's vortex decay mix].milk",19.8762,5.53992,2.80546,2.09242,0,0.487,0.218,13.105,5.46,0.112,0.011,7.348,5.499,12.931,19.302,8.464,0.003,4.331,9
+"Fractal/Core/Tripgnosis - Golden Feedback --- Isosceles edit.milk",16.6958,2.22683,1.08442,0.90775,0,0.449,0.185,11.215,4.385,0.221,0.01,5.388,5.364,10.004,16.161,6.614,0.003,3.146,9
+"Geometric/Tunnel Spheres/cope + martin - noysez award losing single wrap.milk",25.0118,41.427,37.2794,36.0512,60,0.705,0.372,15.116,10.124,0.938,0.015,6.99,5.72,18.068,24.455,10.62,0.009,6.472,9
+"Hypnotic/Polar Static/TonyMilkdrop - Nuclear [Flexi - help out + multiverse] --- Isosceles edit1.milk",21.6117,3.86575,1.623,1.49275,0,0.489,0.178,14.193,7.373,0.047,0.013,7.222,5.554,14.655,21.058,9.467,0.003,5.111,9
+"Particles/Blobby/amandio c - fusion - claim form 'i'm a mongoloid alien, stuck on this planet, too stupid to get off it'.milk",22.401,36.2382,10.7285,10.2702,0,0.516,0.243,14.343,7.955,0.385,0.011,7.266,5.475,15.617,21.797,9.757,0.005,5.446,9
+"Reaction/Rorschach/NeW Adam Master Mashup FX 2 Geiss - Reaction Diffusion 34 + Geiss and Zylot + Aurora Industrialis +  Shifter  Liquid circutitry.milk",17.7488,2.99408,1.47863,1.23687,0,0.546,0.243,11.529,4.896,0.449,0.014,5.288,5.717,10.648,17.14,6.771,0.002,3.402,9
+"Sparkle/Explosions/ougiel - mr emit venom lilith.milk",19.5358,224.852,70.8022,64.7169,60,0.576,0.301,12.476,5.191,0.614,0.012,6.7,5.581,12.517,18.935,7.922,0.003,3.956,9
+"Supernova/Gas/Waltra - Heaven.milk",22.8927,3.16775,1.96833,1.43875,0,0.479,0.183,15.098,6.963,0.041,0.012,8.758,5.655,15.776,22.266,10.293,0.005,5.408,9
+"Waveform/Wire Tangle/Stahlregen & Geiss + Illusion + Krash + Rovastar - Crystal Brain Elderly (MashUp 24) nz+.milk",18.7298,2.60988,2.19358,1.71558,0,0.564,0.203,12.267,5.563,0.466,0.013,6.278,5.23,12.32,18.313,7.982,0.003,3.843,9
+"Dancer/Blobby Mirror/suksma - ancientient visitarz anachronsolipsist goa.milk",17.3063,1.84013,0.936375,0.742208,0,0.484,0.229,11.731,4.646,0.38,0.012,5.524,5.54,10.562,16.755,7.037,0.004,3.12,9
+"Drawing/Fractal Mirror/suksma - chemosynthetic nosferatu - automating transformation with b n s3.milk",20.3552,325.672,88.8083,83.2171,60,0.611,0.287,12.917,6.509,0.72,0.014,6.498,5.558,13.742,19.973,8.391,0.004,4.602,9
+"Fractal/Nested Circle/LuX - Digital LifeWheel Shifted A.milk",18.8461,4.44742,1.65275,1.54146,0,0.534,0.213,12.113,6.085,0.285,0.012,5.609,5.334,11.992,18.288,7.707,0.004,3.973,9
+"Geometric/Tunnel Spheres/cope + martin - noysez award losing e8 a'shayanni deanth spleendoor.milk",24.6545,36.3795,37.4446,35.9927,60,0.59,0.4,14.863,9.928,0.9,0.012,6.944,5.631,17.785,24.226,10.359,0.006,6.495,9
+"Hypnotic/Polar Static/xtramartin (1).milk",27.9059,5.56829,2.754,2.47125,0,0.59,0.281,16.517,9.453,1.525,0.015,9.96,5.502,20.954,27.318,12.024,0.006,7.37,9
+"Particles/Blobby/amandio c - log tower 1 pig vomit 2uqle4 dorqstre germ.milk",21.421,360.927,97.6098,94.6196,60,0.566,0.268,13.549,5.772,0.662,0.016,7.609,5.808,14.06,20.854,8.724,0.006,4.64,9
+"Reaction/Liquid Ripples/Rovastar + Che - Asylum Animations seo a2313312314.milk",12.4884,2.29671,1.31792,1.16233,0,0.437,0.182,8.112,5.111,0.355,0.015,0,5.523,5.482,11.885,3.423,0.001,1.679,8
+"Sparkle/Explosions/suksma - dotes hostile undertake - autoclayve - flacc das yi roam.milk",17.3863,19.8123,6.40808,5.65754,0,0.488,0.203,11.76,5.26,0.33,0.012,5.153,5.505,10.755,16.991,7.099,0.004,3.299,9
+"Supernova/Radiate/173.milk",12.1508,2.44537,1.05713,0.936917,0,0.512,0.268,7.817,4.888,0.615,0.013,0,5.498,5.517,11.743,3.228,0.001,1.654,8
+"Waveform/Wire Spirograph/Fumbling_Foo & Flexi, Martin, Orb, Unchained - Acid Mandala v4d.milk",32.1238,6.48008,3.24071,2.65692,0,0.699,0.346,16.056,8.445,7.247,0.015,9.351,5.937,25.059,31.706,11.327,0.008,6.444,9
+"Dancer/Blobby Mirror/Stahlregen & Flexi + Geiss + Martin + Rovastar + Telek - DiskWasher (Gentle RMX).milk",18.8259,3.9045,1.81067,1.44171,0,0.497,0.181,12.286,5.612,0.184,0.013,6.03,5.352,11.839,18.235,7.749,0.004,3.878,9
+"Drawing/Liquid/men in reverse in reverse time max out crap roam3 nz+.milk",19.4778,385.034,103.368,97.3268,60,0.531,0.291,12.429,5.982,0.518,0.011,6.072,5.388,12.584,18.894,7.994,0.003,4.049,9
+"Fractal/Lattice Mirror/EVET - Fractopia Kaleidoscope rot2.milk",18.9714,2.44467,1.56092,1.42837,0,0.489,0.235,12.762,5.779,0.261,0.012,6.271,5.436,12.324,18.61,8.201,0.003,3.838,9
+"Geometric/Wire Cube Trace/EoS - cubetrace demon B.milk",7.23942,3.26533,2.09167,1.82967,0,0.465,0.213,4.688,0,0.367,0.014,0,5.492,0.381,6.65,0,0,0,7
+"Hypnotic/Polar Warp/flexi - grind my glitch up [060].milk",24.3344,4.65454,2.24125,1.92092,0,0.594,0.259,15.661,8.937,0.529,0.012,7.929,5.627,17.408,23.757,11.025,0.004,5.825,9
+"Particles/Grid/Ondras - Radar.milk",6.70242,1.73592,4.71046,3.74912,0,0.403,0.145,4.574,0,0.051,0.015,0,5.242,0.067,6.163,0,0,0,7
+"Reaction/Liquid Closeup/ORB - Argon.milk",19.6949,3.59463,2.19683,1.65342,0,0.553,0.23,12.379,7.42,0.378,0.015,4.961,5.501,12.774,18.986,7.797,0.005,4.571,9
+"Sparkle/Explosions/suksma - shape instance exp 3 - bulloxain - flacc - four cheeks is best.milk",19.8325,7.31425,9.76033,8.471,0,0.507,0.227,13.103,4.357,0.379,0.014,8.353,5.36,13.103,19.261,8.599,0.003,4.099,9
+"Supernova/Gas/mbud tongu.milk",17.5601,2.22271,1.14671,1.11308,0,0.489,0.221,11.541,4.069,0.387,0.016,6.642,5.329,11.115,17.229,7.049,0.003,3.651,9
+"Waveform/Spectrum/ORB - Spirit Orion nz+.milk",19.7901,4.23271,2.21404,1.97717,0,0.541,0.258,12.954,5.404,0.427,0.013,7.199,5.508,13.042,19.219,8.371,0.007,4.212,9
+"Dancer/Infect/LuxXx - iFucking Like Drugs v01.milk",18.8029,4.68375,2.65921,2.17892,0,0.541,0.256,12.598,4.633,0.305,0.015,6.926,5.653,11.879,18.433,7.898,0.003,3.646,9
+"Drawing/Trails/xtramartin (894).milk",23.0338,371.55,99.5405,96.8875,60,0.666,0.3,14.558,7.373,0.692,0.016,8.047,5.793,16.128,22.642,9.91,0.006,5.494,9
+"Fractal/Nested Spiral/Color Torment AdamFX 2 flexi - hyperspaceflight Flexi Twisted Up (ChewedupMIXByAdamFX)ft Hexocollie and other Milkdrop Artist.milk",19.9118,3.689,1.71454,1.285,0,0.526,0.229,12.691,5.821,0.249,0.011,6.885,5.363,12.967,19.301,8.229,0.005,4.458,9
+"Geometric/Wire Sphere/ORB - Depth Charge.milk",18.4703,2.73058,1.36821,1.32879,0,0.491,0.247,12.317,4.446,0.501,0.011,6.769,5.304,11.728,17.852,7.869,0.003,3.329,9
+"Hypnotic/Polar Warp/flexi - grind my glitch up [233].milk",25.1068,4.65542,2.21854,1.82575,0,0.593,0.265,15.073,10.468,0.378,0.011,7.399,5.429,18.257,24.491,10.639,0.003,7.215,9
+"Particles/Swarm/fewgasm drugged by kenyans.milk",19.484,21.9524,7.555,6.52775,0,0.464,0.206,12.653,5.375,0.386,0.015,6.988,5.325,12.764,18.917,8.123,0.004,4.228,9
+"Reaction/Liquid Blobby/fed's overheated chromatography.milk",17.0937,3.40525,1.37538,1.297,0,0.443,0.165,11.939,4.646,0.019,0.015,6.086,5.158,10.766,16.731,7.514,0.003,3.205,9
+"Sparkle/Explosions/suksma - chernobyl pie for dessert - neodynium maggot wound vacuorm2.milk",19.8009,3.88733,1.90683,1.68063,0,0.503,0.21,13.466,6.944,0.303,0.012,6.027,5.355,13.287,19.415,8.944,0.004,4.01,9
+"Supernova/Stars/martin - dont drink and drive (police mix).milk",19.8098,3.65238,1.89092,1.30554,0,0.527,0.236,13.209,6.236,0.332,0.011,6.703,5.327,13.283,19.439,8.77,0.003,4.156,9
+"Waveform/Wire Circular/Zylot - Crossing Over (Geiss Tweak).milk",16.8317,1.76804,1.14013,0.690958,0,0.455,0.172,11.524,4.865,0.049,0.013,5.376,5.338,10.304,16.483,6.956,0.004,3.271,9
+"Dancer/Glowsticks Mirror/210.milk",19.0067,4.12225,2.74579,2.67137,0,0.614,0.319,12.079,5.073,0.785,0.018,5.927,5.816,11.803,18.43,7.333,0.004,3.654,9
+"Drawing/Liquid/shifter - mosaic mitosis - will they find me roam2 nz+ insane psycho kodiak billowing sataniq consciousness.milk",24.826,342.913,90.2638,87.3973,60,0.62,0.307,15.141,9.991,0.664,0.012,7.065,5.695,17.734,24.239,10.503,0.005,6.538,9
+"Fractal/Core Mirror/AdamFX 2 Geiss - Mash-Up - Angelic  Staine Glass Chapters 6.milk",13.5918,3.92542,2.44396,2.29083,0,0.658,0.358,8.081,5.598,1.079,0.014,0,5.613,6.692,13.185,3.636,0.001,1.951,8
+"Geometric/Tunnel Spheres/mine idiosphuhrer (throw it all away) satan m anticipating my arrival in hell nz+.milk",28.3438,2.30112,2.03108,1.56288,0,0.587,0.27,16.762,10.877,0.304,0.013,9.927,5.775,21.121,27.786,12.005,0.005,8.781,9
+"Hypnotic/Polar Rolling/gjlasd bleefed ngaeme - god (william burroughs) wants you to go insane.milk",21.6157,23.4281,8.13629,7.00304,0,0.629,0.325,13.123,7.659,1.108,0.013,5.347,6.172,14.128,21.248,8.062,0.005,4.928,9
+"Particles/Orbit/skipper skipper kiss me hard - thank god for martin nitorami - tgfmn.milk",23.9256,26.5465,7.83675,7.33117,0,0.576,0.305,14.51,7.557,1.082,0.015,8.131,5.602,16.785,23.313,9.922,0.005,5.747,9
+"Reaction/Liquid Blobby/placebo heal drift backfire roams bastarchasm nz+.milk",20.3216,4.367,2.57221,2.06996,0,0.539,0.316,13.192,5.845,0.36,0.012,7.146,5.497,13.363,19.747,8.707,0.004,4.268,9
+"Sparkle/Explosions/suksma - dotes hostile undertake - painterly oil reflection - flacc spher nz+.milk",21.0062,20.9498,6.94613,5.7915,0,0.484,0.205,13.215,7.377,0.367,0.011,6.877,5.113,14.633,20.591,8.911,0.006,5.325,9
+"Supernova/Stars/PieturP - HSL-tunnelvisions.milk",7.51025,3.53217,2.06413,1.93808,0,0.516,0.235,4.567,0,0.621,0.013,0,5.446,0.634,6.875,0,0,0,7
+"Waveform/Wire Spirograph/dylan - Sonic Errosion (spectratex) 'tismbembre the law of convservation of mediocrity.milk",24.418,370.635,97.777,95.0728,60,0.661,0.384,13.926,5.785,1.005,0.011,10.475,5.722,17.276,23.799,9.399,0.007,6.838,9
+"Dancer/Whirl Mirror/ORB - Comic Book Curves 2 thine pain chasm be fruity and divide.milk",19.0556,6.40192,3.12263,2.75867,0,0.491,0.245,12.667,5.009,0.403,0.013,6.92,5.526,12.346,18.651,8.037,0.002,3.881,9
+"Drawing/Trails Mirror/Stahlregen & fiSHbRaiN + flexi + Geiss + martin + shifter - Stonecraft (martin's metallics).milk",17.0315,3.341,1.99096,1.83842,0,0.456,0.217,11.618,5.093,0.191,0.013,5.185,5.264,10.483,16.587,7.153,0.002,3.112,9
+"Fractal/Core Tunnel/A Ultimate AdamFX 2 Martin - disco mix 6 (UFO RMX)Inside the ship (thereShooting)Flexi,Fishbrain,Hexoco2.milk",18.263,5.70583,3.04121,2.74242,0,0.507,0.328,11.816,5.247,0.49,0.011,5.674,5.499,11.423,17.666,7.281,0.002,3.63,9
+"Geometric/Wire Circles/330.milk",17.6547,5.66267,3.12896,2.08529,0,0.469,0.204,11.768,6.141,0.227,0.01,5.099,4.952,11.478,17.24,7.614,0.002,3.612,9
+"Hypnotic/Polar Static/TonyMilkdrop - Tricolors [Flexi - ps, there's more + alien complex] --- Isosceles edit.milk",21.0726,3.222,2.51742,1.39592,0,0.492,0.186,14.089,7.302,0.048,0.015,6.962,5.463,14.328,20.554,9.436,0.003,4.815,9
+"Particles/Blobby/only glimpses of the reality you once knew - what good is a drug if you can't turn it's effects on and o.milk",20.1553,10.0653,9.39208,8.48492,0,0.538,0.299,11.483,5.411,1.212,0.013,5.981,5.517,12.618,18.822,6.942,0.006,4.421,9
+"Reaction/Viscera/suksma - more pathetic attempts justifying my ignominious end - waning anti-tunneled.milk",21.6703,5.41071,2.21792,2.06942,0,0.54,0.259,13.573,6.595,0.426,0.012,7.728,5.6,14.761,21.09,8.944,0.005,5.362,9
+"Sparkle/Explosions/suksma - god might as well2 - rst blew.milk",18.7366,2.98013,1.604,1.06958,0,0.511,0.233,12.678,5.356,0.407,0.013,6.084,5.57,11.86,18.191,8.008,0.004,3.416,9
+"Supernova/Burst/Dark One - Happy Sad Daisy.milk",6.61562,2.13321,0.955166,0.786,0,0.428,0.164,4.631,0,0.148,0.012,0,5.356,0.161,6.249,0,0,0,7
+"Waveform/Wire Flat/Forum collaboration thread - second try #4 [Goody(2), Stahlregen (2)].milk",17.654,3.54771,2.36133,1.60813,0,0.475,0.145,12.479,4.911,0.072,0.019,6.239,5.368,11.241,17.307,7.889,0.005,3.243,9
+"Dancer/Wake Mirror/Hexcollie - Unreal.milk",7.18583,4.22167,4.13804,3.38563,0,0.531,0.367,4.411,0,0.666,0.013,0,5.439,0.68,6.828,0,0,0,7
+"Drawing/Explosions/shifter + Flexi - liquid circuitry from the pataoblivion hive fulscatlinnng.milk",21.3793,104.63,28.1871,26.716,60,0.599,0.271,13.796,6.436,0.588,0.014,7.198,5.741,14.237,20.846,9.171,0.004,4.449,9
+"Fractal/Nested Square/Hexcollie - do the twist.milk",7.78571,3.81421,2.69642,2.52304,0,0.526,0.254,4.662,0,0.974,0.012,0,5.581,0.987,7.453,0,0,0,7
+"Geometric/Snowflakes/shifter - blueshift_1 heat cannon (cryptosporidial coitus matt).milk",22.153,8.36142,5.883,5.45667,0,0.732,0.378,12.823,5.827,1.745,0.014,7.262,5.873,14.848,21.588,8.287,0.009,4.782,9
+"Hypnotic/Polar Static/TonyMilkdrop - Rhythm Of My Life [Flexi - multiverse].milk",14.5965,6.65637,2.51204,2.11508,0,0.488,0.182,9.287,7.485,0.096,0.012,0,5.477,7.593,14.056,4.613,0.002,2.864,8
+"Particles/Crystal/shifter - plasmic fact2.milk",17.2999,4.77833,2.83688,2.23325,0,0.535,0.214,11.607,4.597,0.445,0.012,5.227,5.562,10.282,16.726,6.919,0.003,2.891,9
+"Reaction/Feedback/Flexi - shader circus [02 yep, there we go].milk",16.6249,2.48321,1.56183,1.21317,0,0.518,0.166,11.458,3.968,0.017,0.012,5.964,5.199,9.961,16.065,7.066,0.002,2.855,9
+"Sparkle/Explosions/cpe domains flacc - rt roam.milk",14.663,4.37488,3.78854,3.36354,0,0.498,0.193,7.507,5.666,0.356,0.015,1.774,5.486,7.812,14.078,2.831,0.005,4.569,8
+"Supernova/Stars/suksma - delicious carnal amorality.milk",18.8175,7.281,3.06825,2.63942,0,0.569,0.305,11.94,6.178,0.781,0.014,5.036,5.473,12.009,18.263,7.479,0.004,3.72,9
+"Waveform/Wire Flat/Geiss - Dynamic Swirls 2 - max invert (Reverse Jelly V3).milk",19.1287,3.57804,2.09567,1.67742,0,0.477,0.205,12.822,6.555,0.129,0.011,5.837,5.285,12.532,18.721,8.337,0.002,4.042,9
+"Dancer/Whirl Mirror/ORB - Comic Book Curves 2 fetid glam dicord jointed dispathy.milk",21.245,6.08667,3.54271,2.99917,0,0.526,0.239,13.605,7.813,0.386,0.022,6.194,5.525,14.415,20.822,9.014,0.005,4.977,9
+"Drawing/Explosions/Stahlregen & Boz - Machine Code (Reaction Diffusion) genial cores.milk",23.887,585.126,156.23,155.786,60,0.523,0.241,14.073,10.328,0.646,0.014,6.384,5.083,17.373,23.344,9.899,0.006,6.774,10
+"Fractal/Pointy/Bdrv yin - 315 - Ocean of Light (yo im peakin yo EoS-Phat) BDRV et  AL  rmxmix3 - 1k pt lighter.milk",22.5977,9.40092,5.22283,4.65487,0,0.599,0.3,13.826,7.169,1.049,0.018,7.306,5.645,15.543,21.967,9.24,0.007,5.216,9
+"Geometric/Cube Array/amandio c - log tower 6 nz.milk",16.6698,32.2086,29.013,26.5212,60,0.456,0.181,11.241,4.663,0.13,0.012,4.983,5.375,9.787,16.114,6.627,0.003,3.007,9
+"Hypnotic/Polar Warp/flexi - grind my glitch up [248].milk",25.242,5.26583,2.56133,2.05575,0,0.605,0.384,15.478,10.746,0.402,0.017,7.414,5.432,18.58,24.669,11.171,0.003,6.975,9
+"Particles/Crystal/extreme paranoia and fear unleash in spontaneous suicide flails.milk",19.5921,69.2587,20.051,18.6933,60,0.63,0.402,12.125,4.485,1.054,0.013,6.924,5.608,12.477,19.039,7.67,0.003,3.728,9
+"Reaction/Liquid Blobby/shifter - spincycle(remix) - spark 20.milk",22.4373,3.86017,2.35225,2.18679,0,0.571,0.36,14.237,4.954,0.475,0.014,10.109,5.672,15.553,22.077,9.644,0.007,5.398,9
+"Sparkle/Glimmer Mirror/Serge + martin - crystal palace line008.milk",14.9604,33.6471,10.7005,9.35871,0,0.587,0.221,9.351,0,0.539,0.012,7.171,5.497,7.722,14.011,4.834,0.003,2.329,8
+"Supernova/Stars/suksma - aenomolys throaet suggaest.milk",21.0582,5.20808,2.77325,2.07371,0,0.598,0.338,12.879,6.091,0.676,0.012,7.221,5.564,14,20.473,8.391,0.005,4.907,9
+"Waveform/Wire Tunnel/A MilkKing Recreation FT Martin  - Violet Flash ft AdamFX Rovastar n Krash - Twisted in Notranomi Nebula .milk",19.0634,1.7145,1.08387,0.678917,0,0.481,0.199,13.033,5.02,0.176,0.013,7.222,5.349,12.434,18.494,8.492,0.002,3.739,9
+"Dancer/Whirl/obtain cash, dig a pit for your neighbor, disconnect - zhuGan.milk",18.2273,4.601,2.52104,2.22758,0,0.675,0.251,11.774,4.964,0.64,0.015,5.683,5.423,11.307,17.531,7.419,0.004,3.216,9
+"Drawing/Explosions/my dismal dream i live and breath i realize i cannot leave nz+ r boing boing sublimbinolingua.milk",22.2629,233.959,69.1257,62.8062,60,0.556,0.412,13.84,6.185,0.834,0.012,8.157,5.463,15.188,21.515,9.48,0.004,4.846,9
+"Fractal/Nested Circle/EoS+Phat - spectrum bubble new colors WF2 chaos theory_cage.milk",7.47229,5.61333,3.01892,2.7285,0,0.524,0.27,4.635,0,0.692,0.013,0,5.578,0.709,7.128,0,0,0,7
+"Geometric/Wire Trace/41.milk",17.8732,5.03521,3.55954,3.56533,0,0.522,0.238,11.847,4.304,0.616,0.014,6.158,5.487,11.092,17.414,7.274,0.003,3.171,9
+"Hypnotic/Polar Mirror/redi jedi - How could she(because she's a box of tricks).milk",23.3134,6.10046,2.95558,2.13771,0,0.761,0.345,14.236,6.897,0.482,0.013,8.747,6.013,16.139,22.896,9.474,0.006,6.149,9
+"Particles/Grid/suksma - fuck alltec auto in orem, but then thanks too.milk",19.538,6.64529,6.43383,5.23367,0,0.465,0.154,13.209,6.926,0.259,0.013,5.684,5.324,12.883,19.01,8.646,0.003,3.948,9
+"Reaction/Liquid Ripples/Stahlregen & AdamFX + flexi + Geiss - Dragonfly Wings (MashUp 26 - Jack's Playful Thumbdrum Planet RMX).milk",19.7271,2.46583,1.54875,1.36929,0,0.475,0.196,13.282,5.638,0.08,0.012,7.309,5.406,13.039,19.313,8.675,0.005,4.257,9
+"Sparkle/Mass Circles/suksma - dotes hostile undertake - frazzle.milk",25.2904,67.9906,18.0292,11.621,57,0.5,0.248,15.247,10.151,0.485,0.044,7.721,5.598,18.4,24.726,10.546,0.007,7.288,10
+"Supernova/Burst/suksma - orb swooping prize animal.milk",20.2148,3.20829,1.41417,1.32717,0,0.462,0.177,13.436,6.126,0.052,0.014,7.179,5.516,13.371,19.652,8.709,0.005,4.579,9
+"Waveform/Wire Circular/Goody's Thing Which Dwells Between Worlds.milk",6.84367,2.39533,1.63892,1.32667,0,0.44,0.163,4.591,0,0.074,0.017,0,5.334,0.092,6.116,0,0,0,7
+"Dancer/Glowsticks/EoS - glowsticks v2 07 trigger arrow (+Krash's beat code) .milk",7.82283,3.11463,2.23792,2.06008,0,0.586,0.351,4.354,0,1.115,0.016,0,5.41,1.135,7.268,0,0,0,7
+"Drawing/Growth/fed - glowing 5 - fingers rmx nz+ false bacon lord the art of qandy qid vampiricynicasmia.milk",22.3745,374.086,100.011,93.2789,60,0.578,0.369,14.248,6.63,0.38,0.016,8.269,5.651,15.295,21.747,9.678,0.004,5.202,9
+"Fractal/Nested Pyramid/Rarian Rakista - Pyraid Power 2.milk",13.9056,5.33004,2.10146,1.92871,0,0.478,0.188,8.984,0,0.268,0.011,6.966,5.478,7.245,13.498,4.322,0.01,2.627,8
+"Geometric/Sphere Wild/fiShbRaiN - witchcraft (metropolish remix) - test - tillex  - dickhead mbrown mbelt totality's.milk",24.8873,341.77,90.677,88.2013,60,0.623,0.335,15.556,9.098,0.774,0.014,7.962,5.647,17.85,24.293,11.003,0.005,6.041,9
+"Hypnotic/Polar Static/TonyMilkdrop - Nuclear [Flexi - inflate and reduce + multiverse] --- Isosceles edit3.milk",22.705,3.24179,1.69746,1.42142,0,0.501,0.189,14.67,7.682,0.037,0.013,8.093,5.52,15.825,22.304,10.002,0.004,5.753,9
+"Particles/Points/EVET - Magnetic Blizzard.milk",18.4689,3.67671,1.73779,1.36983,0,0.529,0.248,12.344,5.818,0.423,0.012,5.321,5.59,11.574,18.061,7.698,0.002,3.428,9
+"Reaction/Liquid Windy/Flexi + Geiss - I dont know how to call this mashup.milk",18.4037,3.18108,1.52729,1.23612,0,0.478,0.205,12.253,4.787,0.099,0.014,6.475,5.43,11.376,17.712,7.659,0.003,3.59,9
+"Sparkle/Mass Circles/suksma - dotes hostile undertake - fretting and pouting about one nookieless evening.milk",18.2248,58.7731,15.9816,11.9627,29,0.467,0.191,12.212,5.736,0.311,0.013,5.316,5.319,11.377,17.622,7.678,0.003,3.361,9
+"Supernova/Radiate/bmelgren - Liqurido.milk",6.78437,2.13112,0.977834,0.816334,0,0.442,0.11,4.465,0,0.104,0.013,0,5.224,0.118,6.16,0,0,0,7
+"Waveform/Spectrum/suksma - daryl feels my hellish lonliness - tilt.milk",21.0377,6.40192,3.11417,2.64604,0,0.524,0.255,13.324,6.57,0.557,0.018,7.276,5.334,14.42,20.457,8.899,0.006,4.929,9
+"Dancer/Murky Mirror/xtramartin (278).milk",23.3691,22.6743,7.66775,6.98146,0,0.578,0.331,14.633,6.877,1.035,0.015,8.299,5.607,16.227,22.749,10.073,0.008,5.083,9
+"Drawing/Explosions/shifter + Flexi - liquid circuitry from the pataoblivion hive cute turtle bun nz pharm.milk",22.9768,25.0215,7.51363,7.20263,0,0.7,0.315,14.18,6.856,0.971,0.014,7.45,5.785,15.292,22.044,9.549,0.005,4.74,9
+"Fractal/Nested Ellipse/suksma - arrange-a-tang2.milk",14.6078,5.36,2.46983,1.80937,0,0.498,0.172,8.035,4.829,0.196,0.014,2.443,5.592,7.484,14.008,3.261,0.005,3.987,8
+"Geometric/Squares/suksma - pus on my cat - fun bags.milk",19.5526,3.91271,2.1005,1.73883,0,0.597,0.328,12.508,5.623,0.921,0.017,5.921,5.755,12.483,19.024,7.821,0.004,3.707,9
+"Hypnotic/Polar Warp/flexi - grind my glitch up [243].milk",26.0685,4.66737,2.20971,2.02096,0,0.582,0.273,15.362,11.021,0.395,0.011,7.637,5.536,19.064,25.502,10.798,0.006,7.84,9
+"Particles/Blobby/only glimpses of the reality you once knew - what good is a drug if you can't turn it's effects on and off.milk",19.7552,8.86021,10.0019,8.54888,0,0.577,0.297,11.812,5.628,1.293,0.018,5.831,5.828,12.771,19.379,6.999,0.005,4.429,9
+"Reaction/Liquid Ripples/suksma - satanic teleprompter - nothing has will, stop pretending.milk",20.6916,380.551,100.012,98.1451,60,0.577,0.302,12.922,5.736,0.78,0.015,7.141,5.758,13.673,20.184,8.194,0.004,4.668,9
+"Sparkle/Explosions/suksma - flexi - fractrip (bccn Jelly V4) - mer de noms thomas2 xfr+.milk",19.8086,5.19421,4.01904,3.67687,0,0.549,0.229,12.869,5.52,0.645,0.014,6.729,5.743,12.91,19.443,8.088,0.004,4.145,9
+"Supernova/Burst/suksma - sun pod gambit couch - flx infinity within a finite boundary --- Isosceles edit8.milk",21.7849,6.51542,3.5105,3.12446,0,0.58,0.246,14.109,6.02,0.396,0.012,8.268,5.753,14.697,21.201,9.334,0.007,4.935,9
+"Waveform/Wire Flat/129.milk",18.4812,4.89142,2.1685,1.74383,0,0.506,0.189,12.251,5.886,0.109,0.01,5.83,5.319,11.839,17.915,7.75,0.002,3.951,9
+"Dancer/Glowsticks Mirror/$$$ Royal - Mashup (214).milk",19.3278,4.17954,3.36279,2.63242,0,0.631,0.227,12.705,5.497,0.35,0.013,6.326,5.922,12.187,18.903,7.818,0.004,3.991,9
+"Drawing/Liquid Mirror/suksma - her sideways crawl through your bank accounts - surplus $a$he nz+2.milk",19.2983,371.146,98.8934,99.2482,60,0.612,0.267,12.427,5.701,0.503,0.013,6.309,5.509,12.526,18.877,8.005,0.003,3.994,9
+"Fractal/Lattice/beta106i - Potion of Ink.milk",6.57129,3.02458,2.20904,2.071,0,0.401,0.134,4.395,0,0.114,0.013,0,5.066,0.127,5.952,0,0,0,7
+"Geometric/Sphere Particles/astral spinorgentics encrustcore nz.milk",21.4062,5.30237,2.92588,2.42742,0,0.591,0.412,13.046,6.794,0.936,0.016,6.531,5.513,14.277,20.743,8.68,0.004,4.623,9
+"Hypnotic/Polar Static/TonyMilkdrop - Rhythm Of My Life [Flexi - alien complex].milk",14.049,5.70325,3.032,2.08421,0,0.46,0.173,9.117,7.305,0.069,0.011,0,5.245,7.386,13.488,4.633,0.001,2.666,8
+"Particles/Points/suksma - third degree ac joint nihilism.milk",20.1552,5.74217,3.99958,3.28671,0,0.588,0.28,12.511,5.925,0.539,0.016,6.807,5.552,13.288,19.554,7.974,0.005,4.742,9

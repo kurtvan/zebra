@@ -106,7 +106,7 @@ Keep patches minimal, additive and isolated so they can be rebased onto new upst
 
    Implementation: a small, self-contained blend step in `MilkdropPreset::RenderFrame` (where the fork's `BlendVideo` sits), drawn into the previous-frame FBO before the y-flip/warp. Uniform locations are cached at init, blend state (RGB and alpha) is fully saved and restored, and the GL program/VAO are owned by the projectM instance, **not per preset**.
 2. **Comp shader sampler, renamed `sampler_video`.** This matches MilkDrop's `sampler_*` naming (`sampler_main`, `sampler_noise_lq`, …). No presets in the fork use the old `samplerVideo` name, so the rename costs nothing. Declare it through the shader generator's normal sampler-declaration path rather than string insertion. Bind it to a reserved texture unit; when injection is off, bind a 1×1 black texture so the shader always has something valid.
-3. **Split compile from per-context setup (needed for §4).** See "Critical risk" below.
+3. ~~Split compile from per-context setup~~: **not needed** (M1 chose lanes, §4).
 4. **(Optional) Reset preset state without recompiling.** Fresh-on-entry is implemented by recycling instances (§4), so this patch is only needed if milestone 1 shows re-preparation is too slow. An API such as `projectm_reset_preset(instance)` that clears the preset's framebuffers, re-runs its init equations and resets preset time, **reusing the compiled shaders**.
 
 Remove from the fork's patches: mask texture params, and the `MilkdropPreset` destructor GL cleanup (moves with the resources to instance level).
@@ -118,29 +118,27 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - Any scene can be triggered. **Optimize for linear playback; accept a brief stutter on out-of-order jumps** (hold the last output frame rather than going black).
 - **Up to 128 scenes per performance** (decided; the CC 20 range, see §5). Pre-compiling every scene does not scale (each instance holds output-resolution FBOs), so use a **sliding window**.
 
-### Design: scene instance pool
-- Each pooled entry is a projectM instance with its scene's preset loaded and compiled.
-- **Budgets (decided 2026-10-22):** target output **1080p**; the whole app stays at or below **5 GB** physical footprint on the author's 32 GB M1 MacBook Pro. The pool window is sized to fit inside that.
-- **Kept ready (decided starting point):** the **previous 1**, the **current** scene and the **next 2**. Window size is configurable; tune it from the milestone 1 measurements (output resolution, memory).
+### Design: lanes + scene instance pool (decided in M1, 2026-10-22; data in `tools/spike_compile/RESULTS.md`)
+- **Lanes.** A lane is a worker thread with its own GL context in the output context's share group. **Every projectM instance lives on one lane for its whole life** (created, prepared, rendered, destroyed there), so the non-shareable VAOs/FBOs never cross contexts and **no context-migration patch is needed**.
+- **The live lane** renders the live scene once per output tick into one of three shared textures and publishes a GL fence. **The output thread** waits on the fence on the GPU (`glWaitSync`) and draws the latest frame to the output window and the editor preview. It does almost no other GL work. Cut latency is one tick by design.
+- **Preparation** (create instance, load preset, 2 warm-up draws into a lane-local scratch target, which absorbs the driver's deferred first-draw compile) runs **only on lanes that aren't live**. 2 lanes are enough; use **3** for headroom.
+- **Pre-warm at performance load:** prepare every scene's preset once (throwaway) so the macOS shader cache, which persists across launches, is hot: load 30 → 19 ms and first frame 28 → 6 ms (medians). Show progress in the UI.
+- **Budgets (decided 2026-10-22):** target output **1080p**; whole app ≤ **5 GB**. Measured **34 MB per instance at 1080p**, so the pool is not memory-constrained.
+- **Window:** previous 1 / current / **next 3** (raised from next 2 since memory allows). Configurable.
 - On a trigger:
-  - **Pooled scene:** swap the active pointer. Next frame renders it. Instant.
-  - **Not pooled:** hold the last frame, compile synchronously or with priority, then cut.
-  - After any switch, the pool shifts: evict scenes far from the current one and queue new neighbours to the compile worker.
-- **All pooled instances receive PCM every frame**, so a swapped-in preset has live audio history. The render thread does this from the audio ring buffer. Only the active instance renders.
-- **Every scene entry starts fresh** (decided), including re-entering a scene that is still pooled (e.g. jumping back to the previous scene). Implemented by **recycling**: when a scene is left, its used instance is discarded and a fresh one is queued for background preparation if the scene is still in the window. Pooled-but-inactive instances receive PCM but never render, so every entry gets a fresh instance. The optional reset patch (§3 item 4) is a fallback if re-preparation is too slow.
-- Video settings (source, mix, luma) are applied to the instance as part of the switch, **before** its first rendered frame.
+  - **Pooled scene:** switch the live lane/instance; the new scene is on screen next tick.
+  - **Not pooled:** hold the last frame, prepare with top priority on a non-live lane (~65 ms warm), then cut.
+  - After any switch: evict instances outside the window; queue missing neighbours (next+1, prev, next+2, next+3) round-robin onto non-live lanes.
+- **PCM:** every pooled instance receives PCM each tick on its own lane (only the live one renders), so a swapped-in preset has live audio history. projectM is never called from the audio thread or the output thread.
+- **Every scene entry starts fresh** (decided). Implemented by **recycling**: the instance of the scene being left is destroyed and, if still in the window, a fresh one is prepared. Measured re-prepare cost ~65 ms on a non-live lane, so the reset patch (§3 item 4) is **not needed**. Note: projectM's `time` counts from instance creation, so a scene prepared ahead starts with `time` > 0; acceptable.
+- Video settings (source, mix, luma) are applied to the instance on its lane **before** its first live frame.
+- **Measured result** (prototype, simulated 60 Hz): no cut ever waited for a load; dropped output ticks 0.17–0.62% at a cut every 2 s, versus 0.22% baseline jitter with nothing prepared; 0.89% when preparing constantly (a cut every 0.5 s).
+- **Heavy presets:** ~15% of Cream of the Crop take 40–180 ms per frame on the M1 Pro at **any** resolution (CPU-bound expression code). No loading strategy fixes this. **Measure each preset's steady frame time during warm-up, store it in the library index, and flag heavy presets** in the browser and scene list.
 
-### Critical risk: prototype first
-GL **programs/shaders are shareable** across contexts in a share group; **FBOs and VAOs are not** (container objects). A projectM instance created on the compile worker's context therefore cannot simply be rendered on the main context.
-
-**Finding from reading v4.1.8:** VAOs and FBOs are created in constructors throughout (`RenderItem::Init`, `Framebuffer`, `CustomShape`, `PerPixelMesh`, `BlurTexture`, …), so the approach below is a larger patch than first assumed. Milestone 1 therefore compares it (S2) with **S1: CPU-only work (parse, projectm-eval, HLSL transpile) on a worker thread without GL, and GL work sliced across frames on the render thread.** See the implementation plan's M1 section.
-
-Original approach (S2): patch libprojectM so that (a) preset parse plus shader compile/link can run on the worker's shared context, and (b) creation of per-context objects (FBOs, VAOs) happens lazily on the render context at first use, which is cheap. Validate early:
-1. Does compiling on a shared context actually avoid hitches on the render thread with the macOS GL driver? Watch for driver-side work deferred to first draw. Mitigate by issuing a tiny warm-up draw on the worker.
-2. Measure compile times across a sample of Cream of the Crop presets.
-3. Measure per-instance memory at 1080p and 4K to size the pool window.
-
-**This prototype is milestone 1.** The rest of the playback design depends on it. Fallback if it fails: compile on the main thread during idle frame time in small slices, accepting a larger window and longer lead time.
+### Strategies considered in M1 (rejected)
+- **S1** (CPU work on a thread, GL sliced on the render thread): moves only ~5 ms. GL compile/link (~13 ms) and the deferred first-draw compile (up to hundreds of ms cold) remain on the render thread.
+- **S2** (build on a worker context, re-create VAOs/FBOs on the render context): a patch across ~10 projectM classes, with no benefit over lanes.
+- Background GL work on a shared context does disturb a thread rendering on another context (up to 4.5% of frames over budget). That's why the live scene renders on its own lane and the output thread stays nearly GL-idle.
 
 ## 5. I/O
 
@@ -263,7 +261,8 @@ No open decisions remain as of 2026-10-22. Decisions log:
 |---|---|
 | UI toolkit | **Dear ImGui**, because the show is close (§2). Revisit native AppKit/SwiftUI after the show. |
 | Scenes beyond 128 | **Not supported.** Max 128 scenes, one unique CC 20 value each (§5). |
-| Pool window size | **Prev 1 / current / next 2** as the starting point; tune from milestone 1 measurements. |
+| Pool window size | **Prev 1 / current / next 3** (M1: 34 MB per instance at 1080p). |
+| Background preparation strategy | **Lanes** (M1, §4): one thread + shared GL context per lane; instances never change context. |
 | libprojectM injection API | **Separate persistent setters** `projectm_set_feedback_texture/_mix/_luma_gate`, plus `sampler_video` (§3). Final names may be adjusted while porting in milestones 1/3. |
 | Re-entering a scene | **Always starts fresh**, by recycling instances (§4); the reset-without-recompile patch is an optional fallback. |
 | App name | **"Govtech Visualizer"** (working name, kept in one constant for a later rename). |

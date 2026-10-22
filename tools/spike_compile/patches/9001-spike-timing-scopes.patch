@@ -1,0 +1,293 @@
+From 70b1c3771a6e39fe272cf6cd1aa360a0d208192f Mon Sep 17 00:00:00 2001
+From: kurtvan <kurtv7348@gmail.com>
+Date: Thu, 22 Oct 2026 18:02:26 -0400
+Subject: [PATCH] Spike-only: timing scopes for preset load phases
+
+---
+ .../MilkdropPreset/MilkdropPreset.cpp         | 35 ++++++++++----
+ .../MilkdropPreset/MilkdropShader.cpp         |  8 ++++
+ src/libprojectM/ProjectM.cpp                  | 14 +++++-
+ src/libprojectM/ProjectMCWrapper.cpp          | 34 +++++++++++++-
+ src/libprojectM/Renderer/Shader.cpp           |  2 +
+ src/libprojectM/SpikeTiming.hpp               | 46 +++++++++++++++++++
+ 6 files changed, 128 insertions(+), 11 deletions(-)
+ create mode 100644 src/libprojectM/SpikeTiming.hpp
+
+diff --git a/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp b/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
+index e311cf0bb..93f34350a 100755
+--- a/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
++++ b/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
+@@ -24,6 +24,7 @@
+ #include "Factory.hpp"
+ #include "MilkdropPresetExceptions.hpp"
+ #include "PresetFileParser.hpp"
++#include "../SpikeTiming.hpp"
+ 
+ #ifdef MILKDROP_PRESET_DEBUG
+ #include <iostream>
+@@ -61,18 +62,30 @@ void MilkdropPreset::Initialize(const Renderer::RenderContext& renderContext)
+     m_state.renderContext = renderContext;
+ 
+     // Initialize variables and code now we have a proper render state.
+-    CompileCodeAndRunInitExpressions();
++    {
++        GV_SPIKE_SCOPE("init.eval");
++        CompileCodeAndRunInitExpressions();
++    }
+ 
+     // Update framebuffer and texture sizes if needed
+-    m_framebuffer.SetSize(renderContext.viewportSizeX, renderContext.viewportSizeY);
+-    m_motionVectorUVMap->SetSize(renderContext.viewportSizeX, renderContext.viewportSizeY);
+-    if (m_state.mainTexture.expired())
+     {
+-        m_state.mainTexture = m_framebuffer.GetColorAttachmentTexture(1, 0);
++        GV_SPIKE_SCOPE("init.fbsize");
++        m_framebuffer.SetSize(renderContext.viewportSizeX, renderContext.viewportSizeY);
++        m_motionVectorUVMap->SetSize(renderContext.viewportSizeX, renderContext.viewportSizeY);
++        if (m_state.mainTexture.expired())
++        {
++            m_state.mainTexture = m_framebuffer.GetColorAttachmentTexture(1, 0);
++        }
+     }
+ 
+-    m_perPixelMesh.CompileWarpShader(m_state);
+-    m_finalComposite.CompileCompositeShader(m_state);
++    {
++        GV_SPIKE_SCOPE("init.warp");
++        m_perPixelMesh.CompileWarpShader(m_state);
++    }
++    {
++        GV_SPIKE_SCOPE("init.comp");
++        m_finalComposite.CompileCompositeShader(m_state);
++    }
+ }
+ 
+ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audioData, const Renderer::RenderContext& renderContext)
+@@ -207,7 +220,12 @@ void MilkdropPreset::Load(const std::string& pathname)
+ 
+     PresetFileParser parser;
+ 
+-    if (!parser.Read(pathname))
++    bool readOk = false;
++    {
++        GV_SPIKE_SCOPE("create.parse");
++        readOk = parser.Read(pathname);
++    }
++    if (!readOk)
+     {
+ #ifdef MILKDROP_PRESET_DEBUG
+         std::cerr << "[Preset] Could not parse preset file." << std::endl;
+@@ -215,6 +233,7 @@ void MilkdropPreset::Load(const std::string& pathname)
+         throw MilkdropPresetLoadException("Could not parse preset file \"" + pathname + "\"");
+     }
+ 
++    GV_SPIKE_SCOPE("create.initpreset");
+     InitializePreset(parser);
+ }
+ 
+diff --git a/src/libprojectM/MilkdropPreset/MilkdropShader.cpp b/src/libprojectM/MilkdropPreset/MilkdropShader.cpp
+index fa769d5c7..eaebc8502 100644
+--- a/src/libprojectM/MilkdropPreset/MilkdropShader.cpp
++++ b/src/libprojectM/MilkdropPreset/MilkdropShader.cpp
+@@ -1,3 +1,4 @@
++#include "../SpikeTiming.hpp"
+ #include "MilkdropShader.hpp"
+ 
+ #include "PerFrameContext.hpp"
+@@ -60,6 +61,7 @@ void MilkdropShader::LoadCode(const std::string& presetShaderCode)
+ void MilkdropShader::LoadTexturesAndCompile(PresetState& presetState)
+ {
+     std::locale loc;
++    auto texturesScope = std::make_unique<Spike::Scope>("shader.textures");
+ 
+     // Now request the textures and descriptors from the texture manager.
+     for (const auto& name : m_samplerNames)
+@@ -140,6 +142,8 @@ void MilkdropShader::LoadTexturesAndCompile(PresetState& presetState)
+         m_textureSamplerDescriptors.push_back(std::move(desc));
+     }
+ 
++    texturesScope.reset();
++
+     // Now that we have the textures, transpile the code.
+     TranspileHLSLShader(presetState, m_preprocessedCode);
+ 
+@@ -601,6 +605,7 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
+         shaderTypeString = "warp";
+     }
+ 
++    auto transpileScope = std::make_unique<Spike::Scope>("shader.transpile");
+     M4::GLSLGenerator generator;
+     M4::Allocator allocator;
+ 
+@@ -675,6 +680,9 @@ void MilkdropShader::TranspileHLSLShader(const PresetState& presetState, std::st
+         throw Renderer::ShaderException("Error translating HLSL " + shaderTypeString + " shader: GLSL generating failed.\nSource:\n" + sourcePreprocessed);
+     }
+ 
++    transpileScope.reset();
++    GV_SPIKE_SCOPE("shader.glcompile");
++
+     // Now we have GLSL source for the preset shader program (hopefully it's valid!)
+     // Compile the preset shader fragment shader with the standard vertex shader and cross our fingers.
+     if (m_type == ShaderType::WarpShader)
+diff --git a/src/libprojectM/ProjectM.cpp b/src/libprojectM/ProjectM.cpp
+index d8b9be4c6..f8ddbef91 100644
+--- a/src/libprojectM/ProjectM.cpp
++++ b/src/libprojectM/ProjectM.cpp
+@@ -20,6 +20,7 @@
+ */
+ 
+ #include "ProjectM.hpp"
++#include "SpikeTiming.hpp"
+ 
+ #include "Preset.hpp"
+ #include "PresetFactoryManager.hpp"
+@@ -55,10 +56,16 @@ void ProjectM::PresetSwitchFailedEvent(const std::string&, const std::string&) c
+ 
+ void ProjectM::LoadPresetFile(const std::string& presetFilename, bool smoothTransition)
+ {
++    GV_SPIKE_SCOPE("load.total");
+     try
+     {
+         m_textureManager->PurgeTextures();
+-        StartPresetTransition(m_presetFactoryManager->CreatePresetFromFile(presetFilename), !smoothTransition);
++        std::unique_ptr<Preset> created;
++        {
++            GV_SPIKE_SCOPE("load.create");
++            created = m_presetFactoryManager->CreatePresetFromFile(presetFilename);
++        }
++        StartPresetTransition(std::move(created), !smoothTransition);
+     }
+     catch (const std::exception& ex)
+     {
+@@ -243,7 +250,10 @@ void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hard
+         return;
+     }
+ 
+-    preset->Initialize(GetRenderContext());
++    {
++        GV_SPIKE_SCOPE("load.initialize");
++        preset->Initialize(GetRenderContext());
++    }
+ 
+     // If already in a transition, force immediate completion.
+     if (m_transitioningPreset != nullptr)
+diff --git a/src/libprojectM/ProjectMCWrapper.cpp b/src/libprojectM/ProjectMCWrapper.cpp
+index d60c8210d..0544a6cab 100644
+--- a/src/libprojectM/ProjectMCWrapper.cpp
++++ b/src/libprojectM/ProjectMCWrapper.cpp
+@@ -1,4 +1,7 @@
+ #include "ProjectMCWrapper.hpp"
++#include "SpikeTiming.hpp"
++
++#include <cstdio>
+ 
+ #include <projectM-4/projectM.h>
+ 
+@@ -380,4 +383,33 @@ auto projectm_pcm_add_uint8(projectm_handle instance, const uint8_t* samples, un
+ auto projectm_write_debug_image_on_next_frame(projectm_handle, const char*) -> void
+ {
+     // UNIMPLEMENTED
+-}
+\ No newline at end of file
++}
++namespace libprojectM {
++namespace Spike {
++
++auto Registry() -> std::map<std::string, Entry>&
++{
++    thread_local std::map<std::string, Entry> registry;
++    return registry;
++}
++
++} // namespace Spike
++} // namespace libprojectM
++
++/// Spike-only: writes "name ms count" lines for the calling thread into buffer and resets the counters.
++extern "C" PROJECTM_EXPORT size_t projectm_spike_timings(char* buffer, size_t size)
++{
++    std::string out;
++    for (const auto& [name, entry] : libprojectM::Spike::Registry())
++    {
++        char line[160];
++        std::snprintf(line, sizeof(line), "%s %.3f %d\n", name.c_str(), entry.milliseconds, entry.count);
++        out += line;
++    }
++    libprojectM::Spike::Registry().clear();
++    if (buffer != nullptr && size > 0)
++    {
++        std::snprintf(buffer, size, "%s", out.c_str());
++    }
++    return out.size();
++}
+diff --git a/src/libprojectM/Renderer/Shader.cpp b/src/libprojectM/Renderer/Shader.cpp
+index 4a64ab9db..bafac7cb2 100644
+--- a/src/libprojectM/Renderer/Shader.cpp
++++ b/src/libprojectM/Renderer/Shader.cpp
+@@ -1,3 +1,4 @@
++#include "../SpikeTiming.hpp"
+ #include "Shader.hpp"
+ 
+ #include <glm/gtc/type_ptr.hpp>
+@@ -23,6 +24,7 @@ Shader::~Shader()
+ void Shader::CompileProgram(const std::string& vertexShaderSource,
+                             const std::string& fragmentShaderSource)
+ {
++    GV_SPIKE_SCOPE("gl.compileprogram");
+     auto vertexShader = CompileShader(vertexShaderSource, GL_VERTEX_SHADER);
+     auto fragmentShader = CompileShader(fragmentShaderSource, GL_FRAGMENT_SHADER);
+ 
+diff --git a/src/libprojectM/SpikeTiming.hpp b/src/libprojectM/SpikeTiming.hpp
+new file mode 100644
+index 000000000..805867a6e
+--- /dev/null
++++ b/src/libprojectM/SpikeTiming.hpp
+@@ -0,0 +1,46 @@
++#pragma once
++
++// Spike-only instrumentation (Govtech Visualizer milestone 1). Never part of the shipping patch set.
++
++#include <chrono>
++#include <map>
++#include <string>
++
++namespace libprojectM {
++namespace Spike {
++
++struct Entry
++{
++    double milliseconds{0.0};
++    int count{0};
++};
++
++auto Registry() -> std::map<std::string, Entry>&;
++
++class Scope
++{
++public:
++    explicit Scope(const char* name)
++        : m_name(name)
++        , m_start(std::chrono::steady_clock::now())
++    {
++    }
++
++    ~Scope()
++    {
++        auto& entry = Registry()[m_name];
++        entry.milliseconds += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - m_start).count();
++        entry.count++;
++    }
++
++private:
++    const char* m_name;
++    std::chrono::steady_clock::time_point m_start;
++};
++
++} // namespace Spike
++} // namespace libprojectM
++
++#define GV_SPIKE_CONCAT_INNER(a, b) a##b
++#define GV_SPIKE_CONCAT(a, b) GV_SPIKE_CONCAT_INNER(a, b)
++#define GV_SPIKE_SCOPE(name) ::libprojectM::Spike::Scope GV_SPIKE_CONCAT(gvSpikeScope, __LINE__)(name)
+-- 
+2.50.1 (Apple Git-155)
+

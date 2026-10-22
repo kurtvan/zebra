@@ -29,6 +29,13 @@ execute_process(
 file(GLOB _gv_pm_patches "${GV_PROJECTM_PATCH_DIR}/*.patch")
 list(SORT _gv_pm_patches)
 
+# Spike-only instrumentation patches (milestone 1). Use a separate build directory for these builds.
+if(GV_SPIKE)
+    file(GLOB _gv_pm_spike_patches "${CMAKE_SOURCE_DIR}/tools/spike_compile/patches/*.patch")
+    list(SORT _gv_pm_spike_patches)
+    list(APPEND _gv_pm_patches ${_gv_pm_spike_patches})
+endif()
+
 set(_gv_pm_stamp_content "submodule=${_gv_pm_head}\n")
 foreach(_patch IN LISTS _gv_pm_patches)
     file(SHA256 "${_patch}" _hash)
