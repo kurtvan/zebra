@@ -8,7 +8,7 @@ Read first: `product-2026-10-22.md` (what) and `technical-details-2026-10-22.md`
 
 ## 0. Guiding principles
 
-1. **The show is close (November 6, 2026; schedule in §9).** The plan is ordered so that a **show-capable build exists as early as possible** (end of milestone 3): it plays a performance from a JSON file with MIDI, video and instant cuts, even before the editor and browser exist. That is no worse than the fork today, and better engineered. Everything after that improves authoring.
+1. **Build everything, in dependency order.** All milestones M0–M7 are in scope and are implemented back to back. The order means a show-capable build exists from the end of M3 (it plays a performance from a JSON file with MIDI, video and instant cuts); M4–M6 then add authoring, and M7 hardens it.
 2. **Kill the biggest risk first.** Instant cuts depend on compiling presets without stalling the render thread (milestone 1).
 3. **Keep the boundaries the technical doc requires:** the engine has no UI knowledge; UI code makes no GL calls except displaying textures through ImGui; platform APIs stay behind interfaces; `model/` and `library/` are pure C++.
 4. **Every milestone ends in a runnable state**, with stated acceptance criteria and a commit (or a small series of commits) on `main`, or on a feature branch if the author prefers.
@@ -177,7 +177,6 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 - The author's converted show runs end to end with its file videos: video is warped by presets, mix and luma match the fork's look, and restart works.
 - A Syphon test sender (e.g. Simple Server) is picked up by name, survives sender restarts, and shows "disconnected" (not frozen) when it quits.
 - 4K and 1080p file playback cost measured: the CPU stays low with no per-frame copies (check in Instruments).
-- **This build is what the author can rehearse and perform with if the show arrives before M4–M6 are finished.**
 
 ### M4: Editor: performance and scene authoring (L)
 **Goal:** create and edit performances without touching JSON.
@@ -244,7 +243,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 
 **Acceptance:** scrolling the browser shows names instantly and previews filling in progressively, with no upfront wait. Revisited pages show cached images instantly. Output frame times are unaffected (0 frames over budget) while scrolling during a performance.
 
-### M7: Show hardening (S–M), which can start in parallel with M4–M6 as the show approaches
+### M7: Show hardening (S–M)
 - **Soak test:** run the full show in a loop for 2+ hours at 1080p with random and sequential triggers. **Peak physical footprint must stay ≤ 5 GB** (`footprint` / Activity Monitor) with no growth over the run. Check for GL object leaks and review the log for warnings.
 - **Failure drills:** MIDI unplug/replug, audio device change, Syphon sender crash, display unplug/replug, missing video, a broken preset in a scene. Each must degrade gracefully with a visible indicator.
 - **Startup:** reopen the last performance, re-select the last audio and MIDI settings, and put the output on the last display if it's present.
@@ -283,7 +282,6 @@ Spike-only instrumentation patches live in `tools/spike_compile/patches/` and ar
 | macOS GL driver defers compile work to first draw | Hitch on the first frame after a cut | Warm-up draw into a 1×1 FBO during preparation (measured in M1). |
 | Exceeding the 5 GB app budget (pool, video players, thumbnails) | Memory pressure, fewer instances ready | Per-instance memory measured at 1080p in M1; the window size is derived from the budget and configurable; the engine tracks its estimated usage and the debug overlay shows it; verified in the M7 soak. |
 | Patches drift from upstream | Upgrade pain | Small single-concern patches; prefer upstream API shapes; README procedure for rebasing. |
-| Show date arrives before M4–M6 | Authoring by hand | The M3 build is show-capable with JSON + converter script; M7 hardening can jump ahead. |
 | ImGui looks like a developer tool to artists | Poor first impression | Theme pass in M4; revisit native after the show (technical doc §2). |
 | Some Cream of the Crop presets misbehave in projectM | Broken scenes | Broken detection (M5/M6); failing presets never crash the app; logged with the preset ID. |
 | Syphon.framework sourcing/build | Build friction | Pin the version, document it in the README, fail clearly in CMake. |
@@ -302,23 +300,7 @@ Spike-only instrumentation patches live in `tools/spike_compile/patches/` and ar
 
 ## 8. Author's answers (2026-10-22)
 
-1. **Show date: November 6, 2026** (15 days after this plan).
+1. **Show date: November 6, 2026.** No milestone schedule; all milestones are implemented back to back.
 2. **Branching:** one branch and **pull request per milestone** on GitHub (`kurtvan/govtech-visualizer`, private). Branch names: `m0-skeleton`, `m1-compile-spike`, `m2-engine`, `m3-video`, `m4-editor`, `m5-library`, `m6-previews`, `m7-hardening`. Each PR description lists the milestone's acceptance criteria with their status. The author reviews and merges.
 3. **Machine: M1 MacBook Pro, 32 GB RAM.** **Memory budget: the whole app stays at or below 5 GB** (physical footprint, counting GPU allocations since M1 memory is unified). **Target output: 1080p.** All frame-time and memory budgets are measured at 1920×1080. The "render at the display's native resolution" decision stands (the show display is treated as 1080p). If a larger display is used, the 5 GB cap decides how many scenes can be kept ready.
 4. **Preset library:** `/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/`. 9,795 presets: 9,791 are exactly two levels deep (`Category/Subcategory/file.milk`) and 4 are one level deep, so the tag scheme fits. There are 12 top-level categories, including `! Transition`. The folder's `LICENSE.md` treats the presets as public domain, but the user-supplied-library decision still stands.
-
-## 9. Schedule to the show (refines §0)
-
-Fifteen calendar days is tight for M0–M3 plus hardening. **M4–M6 (editor, browser, previews) are planned for after the show.** For the show, the author authors the performance in JSON, starting from the converted fork performance.
-
-| Dates | Work | Gate |
-|---|---|---|
-| Oct 23 | M0: skeleton | PR merged |
-| Oct 24 – Oct 28 | M1: compile spike | **Oct 28 decision gate:** S1/S2 works within budget, or discuss S3 |
-| Oct 29 – Nov 2 | M2: engine + playback from JSON | Converted show plays with MIDI cuts |
-| Nov 2 – Nov 4 | M3: video | Full show runs with video |
-| Nov 4 – Nov 5 | M7 (show-critical subset): soak test, failure drills, show checklist, rehearsal | **Nov 4 go/no-go** |
-| **Nov 6** | **Show** | |
-| After Nov 6 | M4 → M5 → M6, then the rest of M7 | |
-
-**Safety net:** the fork's build (`libprojectM-4.1.4`) works today. **Keep it buildable and rehearsed as the show backup.** If the new build hasn't passed the M3 acceptance criteria and the M7 soak test by the **Nov 4 go/no-go**, perform on the fork and continue the new work after the show. Nothing in this plan modifies the fork or its folder (the converter only reads it).
