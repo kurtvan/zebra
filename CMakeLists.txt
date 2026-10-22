@@ -19,6 +19,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(GV_BUILD_TESTS "Build the unit tests" ON)
+option(GV_SPIKE "Build the milestone 1 compile spike tool with timing instrumentation patches" OFF)
 
 include(ProjectMPatched)
 include(Dependencies)
@@ -28,6 +29,10 @@ add_library(gv_warnings INTERFACE)
 target_compile_options(gv_warnings INTERFACE -Wall -Wextra -Wno-unused-parameter)
 
 add_subdirectory(src)
+
+if(GV_SPIKE)
+    add_subdirectory(tools/spike_compile)
+endif()
 
 if(GV_BUILD_TESTS)
     enable_testing()

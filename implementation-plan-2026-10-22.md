@@ -61,7 +61,7 @@ src/
     GlContext*          SDL2 GL context creation / share-group helpers
     ProjectMInstance*   RAII wrapper around projectm_handle (+ patched APIs)
     ScenePool*          sliding-window pool, compile scheduling
-    CompileWorker*      background compile (strategy decided in milestone 1)
+    Lane*               worker thread + shared GL context hosting instances (M1 decision)
     OutputRenderer*     offscreen FBO at output resolution, blit to output window
     PcmFanout*          audio ring buffer → all pooled instances
     Engine.hpp          the only interface the app uses
@@ -115,6 +115,8 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 
 **Exit risk:** if neither S1 nor S2 works within budget, stop and discuss with the author before continuing (S3 means accepting stutter on cuts outside the lookahead window).
 
+**M1 outcome (2026-10-22): decided on lanes.** No projectM context-migration patch; see `tools/spike_compile/RESULTS.md` and technical doc §4.
+
 ### M2: Engine core and playback from JSON (L): **first show-capable path**
 **Goal:** play a performance file with MIDI-triggered instant hard cuts on a fullscreen output display.
 
@@ -125,24 +127,28 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
    - A migration hook (`migrate(json, fromVersion)`) exists with nothing to do yet.
    - Unit tests: round-trip, every validation rule, missing-file flagging.
 2. **`scripts/convert_fork_performance.py`.** Converts the fork's `performance.json` plus `favourites.txt` aliases into v1. Aliases are resolved to absolute paths in the user's library location (with a `--library-root` remap for the old `libprojectM-4.1.4` paths). `cc20Value` follows the fork's positional order. This gets the author's existing show into the new app on day one.
-3. **`ProjectMInstance`.** RAII wrapper: create/destroy; set window size; preset locked; hard-cut disabled; soft-cut duration 0; preset duration effectively infinite; load via the M1 strategy; render to FBO; PCM add.
-4. **`PcmFanout`.** A lock-free single-producer/single-consumer float ring buffer. The audio thread writes; the render thread drains once per frame and calls `projectm_pcm_add_float` on **every pooled instance**. Unit-test the ring buffer.
+3. **`Lane` and `ProjectMInstance`** (M1 decision: lanes, see `tools/spike_compile/RESULTS.md`).
+   - `Lane`: a thread + GL context in the output share group with a job queue; three output slot textures + fences; a scratch target for warm-up; instances confined to the lane. Promote the spike's `pipeline.cpp` design to production code (vsync-driven instead of `sleep_until`, proper shutdown, error handling).
+   - `ProjectMInstance`: RAII wrapper used only on its lane: set window size; preset locked; hard-cut disabled; soft-cut duration 0; preset duration effectively infinite; load; 2 warm-up draws (recording steady frame time for the heavy-preset flag); render to FBO; PCM add.
+   - **Pre-warm** all scenes once when a performance loads, with progress shown.
+4. **`PcmFanout`.** The audio thread writes into a lock-free ring buffer; once per output tick the engine snapshots the new samples and each lane calls `projectm_pcm_add_float` on **every pooled instance it hosts**. Unit-test the ring buffer.
 5. **`AudioInput` (CoreAudio).** Enumerate input devices (name + UID), open by UID, mono/stereo float callback into the ring buffer, gain applied on the render-thread side (no clipping hacks), device-removed notification → falls back to "no input" with a UI warning.
 6. **`MidiInput`.** A `MidiParser` that is pure C++, handling status bytes, **running status**, real-time bytes interleaved anywhere (ignored), channel filter, CC 20 only; unit-tested with byte streams. The CoreMIDI implementation connects all sources, handles hotplug via the notify proc (connect new sources), and feeds the parser. The latest value goes to an atomic for the render loop.
 7. **`ScenePool`** (logic separated from GL so it can be unit-tested):
-   - Window: prev 1 / current / next 2 (configurable).
+   - Window: prev 1 / current / next 3 (configurable); prepared round-robin onto non-live lanes (3 lanes).
    - **Fresh-on-entry, implemented by recycling (refines technical doc §3 patch 4 / §4):** when a scene is left, its used instance is discarded and a **fresh instance is queued** for background preparation if the scene is still inside the window. Every entry then gets an instance that has never rendered. The "reset without recompile" patch becomes **optional**, needed only if M1 shows re-preparation is too slow for the "prev 1" slot.
-   - On a trigger: if ready, swap the active instance (the cut happens next frame). If not ready, **hold the last output frame**, prepare with top priority, then cut. Log a warning with the timing.
-   - After a switch: evict instances outside the window; enqueue missing neighbours in priority order (next+1, prev, next+2).
+   - On a trigger: if ready, switch the live lane/instance (the cut is on screen next tick). If not ready, **hold the last output frame**, prepare with top priority on a non-live lane, then cut. Log a warning with the timing.
+   - After a switch: evict instances outside the window; enqueue missing neighbours in priority order (next+1, prev, next+2, next+3).
    - Unit tests: window maths at the ends of the list, out-of-order jumps, rapid repeated triggers, triggers for scenes still being prepared.
 8. **`OutputRenderer` and windows.**
    - The output window is an SDL2 borderless fullscreen-desktop window on the chosen display, sized from that display's native resolution (backing scale aware).
-   - The active instance renders into an offscreen FBO at that size; the FBO is blitted to the output window and shown in the editor via `ImGui::Image`.
+   - The live lane renders into its slot textures at that size; the output thread waits on the slot fence, draws it to the output window, and the editor shows the same texture via `ImGui::Image`.
    - Before the first trigger: black.
    - Display hot-unplug: the output window closes and the UI shows a warning; the engine keeps running.
    - VSync on the output window. The editor window renders at a lower, throttled rate (e.g. 30 fps) and never blocks the output's swap. The editor and output share a GL context group; the main loop presents the output first.
 9. **Minimal ImGui shell** (temporary, replaced in M4): open a performance file (via the M4 `NSOpenPanel` shim, or a path text field for now), show the scene list with the active scene highlighted and broken scenes marked, click a scene to trigger it, pick the output display, audio device, gain and MIDI channel, and toggle a debug overlay (frame time graph, pool state, compile queue, MIDI last value, audio level).
-10. **Settings** (`settings.json` in Application Support): library root, audio device UID, gain, MIDI channel, output display, names-only toggle; load and save with defaults.
+10. **Settings** (`settings.json` in Application Support): library root, **texture folder(s)**, audio device UID, gain, MIDI channel, output display, names-only toggle; load and save with defaults.
+11. **Texture folder.** User-supplied, like the preset library (author's copy: `/Users/kurt/projects/visualizers/milkdrop-textures/textures`, a clone of [projectM-visualizer/presets-milkdrop-texture-pack](https://github.com/projectM-visualizer/presets-milkdrop-texture-pack)). Every instance gets the folder via `projectm_set_texture_search_paths` on its lane before loading a preset. Checked 2026-10-22: 1,682 of 9,795 presets reference image textures (64 distinct names). The pack covers 46 names, so 1,321 of those presets (78%) get every texture and 361 still miss at least one (biggest gaps: `pic`, `rose`, `shub1`, `state`).
 
 **Acceptance:**
 - The author's converted performance plays on the second display.
@@ -205,7 +211,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 ### M5: Preset library, browser and favourites (M–L)
 **Goal:** browse, search, filter and favourite the whole Cream of the Crop library; assign presets to scenes from the browser.
 
-1. **First-run flow:** prompt for the library folder (the default suggestion is a common location if one exists), saved in settings, with a change option in Settings.
+1. **First-run flow:** prompt for the library folder and the texture folder (default suggestions are common locations if they exist), saved in settings, with change options in Settings.
 2. **Indexer** (background thread, no GL):
    - Recursive scan for `.milk`; the preset ID is its path relative to the root.
    - Category and subcategory from the first two folder levels; author from the filename prefix before `" - "`; display name from the remainder.
@@ -220,6 +226,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
    - Assign to the selected scene by double-clicking or dragging onto a scene.
    - "Reveal in Finder" for a preset.
 6. **Broken detection (part 1):** presets that fail to parse or compile when used in a scene are marked broken in the index.
+7. **Missing textures:** during indexing, collect each preset's referenced texture names (`sampler_*` in the shader code, minus prefixes `fw_`/`fc_`/`pw_`/`pc_` and the built-ins `main`, `blur1-3`, `noise*`, `noisevol*`, `rand00-15`). Compare them with the files in the texture folder(s), store the missing names in the index, and **flag those presets** ("missing textures: rose, pic") in the browser and scene list. Recompute when the texture folder changes. Unit-test the name extraction.
 
 **Acceptance:** the full library indexes in the background on first run without blocking the UI. Browsing, filtering and searching 10k presets is smooth (no dropped editor frames). Favourites persist. A preset can be assigned to a scene in two actions.
 
@@ -258,7 +265,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 |---|---|---|---|
 | 0001 | Render to a caller-provided FBO (`projectm_opengl_render_frame_fbo`) | M0 | Drop if upstream equivalent arrives on upgrade |
 | 0002 | Feedback texture API + `sampler_video` | M3 | Yes (candidate for upstreaming) |
-| 0003+ | Background-prepare support (S1 prepare/GL split **or** S2 context attach) | M1 | Yes |
+| ~~0003+~~ | ~~Background-prepare support~~: **not needed** (M1 chose lanes) | M1 | — |
 | (opt) | Reset preset without recompile | M2 if needed | Only if recycling is too slow |
 
 Spike-only instrumentation patches live in `tools/spike_compile/patches/` and are never part of the main build.
@@ -278,8 +285,9 @@ Spike-only instrumentation patches live in `tools/spike_compile/patches/` and ar
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Background preparation can't meet the frame budget (M1) | Cuts stutter | Decision gate at the end of M1; S3 fallback plus a larger window; tell the author before continuing. |
-| macOS GL driver defers compile work to first draw | Hitch on the first frame after a cut | Warm-up draw into a 1×1 FBO during preparation (measured in M1). |
+| ~~Background preparation can't meet the frame budget~~ | **Resolved in M1:** lanes prototype, no cut waited for a load. | — |
+| macOS GL driver defers compile work to first draw | Hitch on the first frame after a cut | **Measured in M1:** 2 warm-up draws on the preparing lane absorb it; pre-warm at performance load keeps the shader cache hot. |
+| Heavy presets (~15% of the library) can't reach 60 fps on the M1 Pro | Dropped frames whenever such a scene is live | Measure steady frame time during warm-up; flag heavy presets in the browser and scene list (M2 index field, shown in M4/M5). |
 | Exceeding the 5 GB app budget (pool, video players, thumbnails) | Memory pressure, fewer instances ready | Per-instance memory measured at 1080p in M1; the window size is derived from the budget and configurable; the engine tracks its estimated usage and the debug overlay shows it; verified in the M7 soak. |
 | Patches drift from upstream | Upgrade pain | Small single-concern patches; prefer upstream API shapes; README procedure for rebasing. |
 | ImGui looks like a developer tool to artists | Poor first impression | Theme pass in M4; revisit native after the show (technical doc §2). |
