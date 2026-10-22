@@ -13,7 +13,7 @@
 - This directory is the git repo (`main` branch) and the home of all the code.
 - **projectM is the upstream repo as a git submodule** at `third_party/projectm`, **pinned to tag `v4.1.8`** (the latest 4.1.x). It has its own nested submodule (`vendor/projectm-eval`), so clone with `git clone --recursive`, or run `git submodule update --init --recursive`.
 - The fork was based on **v4.1.4**, so its patches must be **ported to v4.1.8**, not copied verbatim.
-- **Never commit inside the submodule.** Changes to projectM live as ordered patch files in `third_party/patches/` and are applied by the build (a CMake step or `scripts/apply-patches.sh`; it must be idempotent and fail loudly if a patch doesn't apply). Upgrading projectM means bumping the submodule tag and rebasing the patches.
+- **Never commit inside the submodule.** Changes to projectM live as ordered patch files in `third_party/patches/` and are applied by the build **to a copy of the submodule in the build directory**, so the submodule's working tree stays clean (details in the implementation plan §1.1). Patch application must be idempotent and fail loudly if a patch doesn't apply. Upgrading projectM means bumping the submodule tag and rebasing the patches.
 - **Windowing: SDL2** (decided: kept from the fork because it's known to work with the author's setup). ImGui uses `imgui_impl_sdl2` + `imgui_impl_opengl3`.
 
 ## 1. Review of the fork: what to keep and what to rewrite
@@ -91,6 +91,7 @@ third_party/ libprojectM (pinned upstream 4.1.x + patch set)
 
 Keep patches minimal, additive and isolated so they can be rebased onto new upstream versions or upstreamed.
 
+0. **Render to a caller-provided FBO.** v4.1.8 always binds framebuffer 0 at the end of `ProjectM::RenderFrame`, so the offscreen render in §2 needs `projectm_opengl_render_frame_fbo(instance, fbo)`. Match upstream master's signature if it has one, so the patch can be dropped on upgrade.
 1. **External texture injection (replaces `projectm_set_video_texture`).** Additive C API in projectM's existing style (one setter per property, state persists on the instance like `projectm_set_beat_sensitivity`), declared in `render_opengl.h`:
    ```c
    /* tex: GL_TEXTURE_2D, bottom-up (GL) orientation, owned by the caller. 0 disables injection. */
@@ -106,7 +107,7 @@ Keep patches minimal, additive and isolated so they can be rebased onto new upst
    Implementation: a small, self-contained blend step in `MilkdropPreset::RenderFrame` (where the fork's `BlendVideo` sits), drawn into the previous-frame FBO before the y-flip/warp. Uniform locations are cached at init, blend state (RGB and alpha) is fully saved and restored, and the GL program/VAO are owned by the projectM instance, **not per preset**.
 2. **Comp shader sampler, renamed `sampler_video`.** This matches MilkDrop's `sampler_*` naming (`sampler_main`, `sampler_noise_lq`, …). No presets in the fork use the old `samplerVideo` name, so the rename costs nothing. Declare it through the shader generator's normal sampler-declaration path rather than string insertion. Bind it to a reserved texture unit; when injection is off, bind a 1×1 black texture so the shader always has something valid.
 3. **Split compile from per-context setup (needed for §4).** See "Critical risk" below.
-4. **Reset preset state without recompiling (needed for §4: scenes start fresh).** An API such as `projectm_reset_preset(instance)` that clears the preset's framebuffers, re-runs its init equations and resets preset time, **reusing the compiled shaders**.
+4. **(Optional) Reset preset state without recompiling.** Fresh-on-entry is implemented by recycling instances (§4), so this patch is only needed if milestone 1 shows re-preparation is too slow. An API such as `projectm_reset_preset(instance)` that clears the preset's framebuffers, re-runs its init equations and resets preset time, **reusing the compiled shaders**.
 
 Remove from the fork's patches: mask texture params, and the `MilkdropPreset` destructor GL cleanup (moves with the resources to instance level).
 
@@ -125,13 +126,15 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
   - **Not pooled:** hold the last frame, compile synchronously or with priority, then cut.
   - After any switch, the pool shifts: evict scenes far from the current one and queue new neighbours to the compile worker.
 - **All pooled instances receive PCM every frame**, so a swapped-in preset has live audio history. The render thread does this from the audio ring buffer. Only the active instance renders.
-- **Every scene entry starts fresh** (decided), including re-entering a scene that is still pooled (e.g. jumping back to the previous scene). On entry, reset the instance: clear its feedback buffers, re-run the preset's init and reset preset time, without recompiling (patch 4 in §3). Pooled-but-inactive instances receive PCM but never render, so they're already fresh when first entered.
+- **Every scene entry starts fresh** (decided), including re-entering a scene that is still pooled (e.g. jumping back to the previous scene). Implemented by **recycling**: when a scene is left, its used instance is discarded and a fresh one is queued for background preparation if the scene is still in the window. Pooled-but-inactive instances receive PCM but never render, so every entry gets a fresh instance. The optional reset patch (§3 item 4) is a fallback if re-preparation is too slow.
 - Video settings (source, mix, luma) are applied to the instance as part of the switch, **before** its first rendered frame.
 
 ### Critical risk: prototype first
 GL **programs/shaders are shareable** across contexts in a share group; **FBOs and VAOs are not** (container objects). A projectM instance created on the compile worker's context therefore cannot simply be rendered on the main context.
 
-Planned approach: patch libprojectM so that (a) preset parse plus shader compile/link can run on the worker's shared context, and (b) creation of per-context objects (FBOs, VAOs) happens lazily on the render context at first use, which is cheap. Validate early:
+**Finding from reading v4.1.8:** VAOs and FBOs are created in constructors throughout (`RenderItem::Init`, `Framebuffer`, `CustomShape`, `PerPixelMesh`, `BlurTexture`, …), so the approach below is a larger patch than first assumed. Milestone 1 therefore compares it (S2) with **S1: CPU-only work (parse, projectm-eval, HLSL transpile) on a worker thread without GL, and GL work sliced across frames on the render thread.** See the implementation plan's M1 section.
+
+Original approach (S2): patch libprojectM so that (a) preset parse plus shader compile/link can run on the worker's shared context, and (b) creation of per-context objects (FBOs, VAOs) happens lazily on the render context at first use, which is cheap. Validate early:
 1. Does compiling on a shared context actually avoid hitches on the render thread with the macOS GL driver? Watch for driver-side work deferred to first draw. Mitigate by issuing a tiny warm-up draw on the worker.
 2. Measure compile times across a sample of Cream of the Crop presets.
 3. Measure per-instance memory at 1080p and 4K to size the pool window.
@@ -240,6 +243,8 @@ Goal: **instant-feeling, no upfront wait.** Never pre-generate the whole library
 
 ## 9. Suggested milestones
 
+**Superseded by `implementation-plan-2026-10-22.md`**, which reorders these to reach a show-capable build first (skeleton → compile spike → engine → video → editor → library → previews → hardening). The original list is kept below for reference.
+
 1. **Background compile prototype** (§4 critical risk): patched libprojectM, shared-context compile, hitch measurement, memory per instance. Go/no-go for the pool design.
 2. **Engine core:** offscreen render, output window on the chosen display, scene instance pool, PCM fan-out, CC 20 triggers, the performance JSON loader (v1). The old fork's performance can be converted by hand to validate it.
 3. **Video:** clean feedback-injection patch, zero-copy file playback, Syphon per scene with a server picker and disconnected state.
@@ -259,7 +264,7 @@ No open decisions remain as of 2026-10-22. Decisions log:
 | Scenes beyond 128 | **Not supported.** Max 128 scenes, one unique CC 20 value each (§5). |
 | Pool window size | **Prev 1 / current / next 2** as the starting point; tune from milestone 1 measurements. |
 | libprojectM injection API | **Separate persistent setters** `projectm_set_feedback_texture/_mix/_luma_gate`, plus `sampler_video` (§3). Final names may be adjusted while porting in milestones 1/3. |
-| Re-entering a scene | **Always starts fresh**, via a reset that doesn't recompile (§3 patch 4, §4). |
+| Re-entering a scene | **Always starts fresh**, by recycling instances (§4); the reset-without-recompile patch is an optional fallback. |
 | App name | **"Govtech Visualizer"** (working name, kept in one constant for a later rename). |
 | Output resolution | **The output display's native resolution** (§2). |
 | Thumbnail audio | **Not audio-reactive**; driven by synthetic audio (§8). |
