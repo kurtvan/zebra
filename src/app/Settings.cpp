@@ -106,8 +106,6 @@ auto Settings::Load(const std::filesystem::path& file) -> Settings
     Read(root, "audioDevice", settings.audioDevice);
     Read(root, "gain", settings.gain);
     Read(root, "midiChannel", settings.midiChannel);
-    Read(root, "outputDisplay", settings.outputDisplay);
-    Read(root, "outputOpen", settings.outputOpen);
     Read(root, "namesOnly", settings.namesOnly);
     Read(root, "lastPerformance", lastPerformance);
 
@@ -130,8 +128,6 @@ auto Settings::Save(const std::filesystem::path& file) const -> std::string
     root["audioDevice"] = audioDevice;
     root["gain"] = gain;
     root["midiChannel"] = midiChannel;
-    root["outputDisplay"] = outputDisplay;
-    root["outputOpen"] = outputOpen;
     root["namesOnly"] = namesOnly;
     root["lastPerformance"] = lastPerformance.string();
 

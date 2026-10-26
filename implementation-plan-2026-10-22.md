@@ -62,7 +62,7 @@ src/
     ProjectMInstance*   RAII wrapper around projectm_handle (+ patched APIs)
     ScenePool*          sliding-window pool, compile scheduling
     Lane*               worker thread + shared GL context hosting instances (M1 decision)
-    OutputRenderer*     offscreen FBO at output resolution, blit to output window
+    (presenting)        presented texture copy; the app draws it in the Preview panel or fullscreen
     PcmFanout*          audio ring buffer → all pooled instances
     Engine.hpp          the only interface the app uses
   thumbnails/           ThumbnailService (worker context, tiny instances, queue)
@@ -161,7 +161,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 **M2 as built (2026-10-22):**
 - **Handover at cuts:** the outgoing scene keeps rendering on its lane until the incoming scene's first frame is presented, so a cut never repeats a frame. The scene pool's release of the outgoing instance is deferred until then.
 - **Frame cost and drops per scene:** the heavy flag uses the live lane's average CPU and GPU (`GL_TIME_ELAPSED` timer query) render time once a scene has been live for 0.5 s; the warm-up frame is only an initial estimate (too noisy on its own). The scene list also shows each scene's measured drop rate while live.
-- **Contexts:** the engine's present copy runs on the editor context; the output window waits on its fence and draws with its own vsynced context, which paces the app. With an output open the editor redraws every other frame.
+- **Fullscreen instead of an output window (2026-10-25, author's decision):** the editor window itself goes fullscreen on its current screen with Cmd+F (or the Preview's Fullscreen button) and draws only the visuals; Cmd+F/Esc returns. No output-display setting.
 - **Audio** via SDL2 capture (devices by name) and **MIDI** via UMP decoding: see technical doc §5.
 - `--smoke` mode plays a performance headless, cutting every N seconds, and reports held frames by cause and per scene.
 
@@ -211,7 +211,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
    - Changes made to the active scene apply live.
 7. **macOS menu bar** via the `NSMenu` shim (File / Edit / View / Window with the standard shortcuts: ⌘N, ⌘O, ⌘S, ⌘Z, ⇧⌘Z, plus a Perform toggle).
 8. **Finder drop:** dropping a video onto a scene sets it as that scene's file source; dropping a `.json` opens it.
-9. **Perform mode toggle:** shows/hides the output window and throttles editor work (this matters more once thumbnails exist).
+9. **Perform mode = fullscreen** (Cmd+F, built in M2): throttles editor-only work such as thumbnails while fullscreen.
 
 **Acceptance:** the author can rebuild their show from scratch in the editor, save it, reopen it and play it. Undo works for every edit. The app warns about unsaved changes and recovers from a crash via autosave.
 

@@ -43,8 +43,6 @@ add_executable(govtech-visualizer
     app/Settings.hpp
     app/Shell.cpp
     app/Shell.hpp
-    app/OutputWindow.cpp
-    app/OutputWindow.hpp
     app/macos/FileDialog.mm
     app/macos/FileDialog.hpp)
 target_link_libraries(govtech-visualizer PRIVATE

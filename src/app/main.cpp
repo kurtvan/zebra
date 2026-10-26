@@ -1,6 +1,5 @@
 // Govtech Visualizer: editor window, performance output and the main loop.
 
-#include "app/OutputWindow.hpp"
 #include "app/Settings.hpp"
 #include "app/Shell.hpp"
 #include "app_info.hpp"
@@ -19,6 +18,7 @@
 
 #include <OpenGL/gl3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -34,13 +34,13 @@ constexpr const char* kLogCategory = "app";
 constexpr int kLanes = 3;
 constexpr size_t kFrameHistory = 240;
 constexpr size_t kMaxMessages = 200;
+constexpr int kMaxRenderWidth = 1920; //!< Keeps Retina screens at a 1080p-class render (the M1 budgets).
 
 using Clock = std::chrono::steady_clock;
 
 struct Options
 {
     std::optional<std::filesystem::path> performance; //!< Opened instead of the last one.
-    std::optional<std::string> output;                //!< Display name; "" disables the output window.
     // Headless check: play `performance` cutting every `smokeCutSeconds`, report, and quit.
     bool smoke{false};
     double smokeSeconds{20.0};
@@ -57,8 +57,6 @@ auto ParseOptions(int argc, char* argv[]) -> Options
         const bool hasValue = i + 1 < argc;
         if (arg == "--performance" && hasValue)
             options.performance = argv[++i];
-        else if (arg == "--output" && hasValue)
-            options.output = argv[++i];
         else if (arg == "--smoke")
             options.smoke = true;
         else if (arg == "--smoke-seconds" && hasValue)
@@ -105,19 +103,7 @@ public:
             m_audio.Open("");
         }
 
-        // --output NAME shows the output on NAME; --output "" starts without it (keeping the saved choice).
-        if (m_options.smoke)
-        {
-        }
-        else if (m_options.output)
-        {
-            if (!m_options.output->empty())
-                SetOutputDisplay(*m_options.output);
-        }
-        else if (m_settings.outputOpen && !m_settings.outputDisplay.empty())
-        {
-            OpenOutput();
-        }
+        UpdateRenderSize();
 
         if (m_options.performance)
             OpenPerformance(*m_options.performance);
@@ -129,7 +115,6 @@ public:
     void Shutdown()
     {
         SaveSettings();
-        m_output.Close();
         m_audio.Close();
         m_midi.reset();
         m_engine.Shutdown();
@@ -162,25 +147,12 @@ public:
             OpenPerformance(m_performancePath);
     }
 
-    void SetOutputDisplay(const std::string& displayName) override
+    void ToggleFullscreen() override
     {
-        if (displayName.empty())
-        {
-            CloseOutput();
-            m_settings.outputDisplay.clear();
-            SaveSettings();
-            return;
-        }
-        m_settings.outputDisplay = displayName;
-        OpenOutput();
-    }
-
-    void ToggleOutput() override
-    {
-        if (m_output.IsOpen())
-            CloseOutput();
-        else
-            OpenOutput();
+        m_fullscreen = !m_fullscreen;
+        SDL_SetWindowFullscreen(m_editorWindow, m_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        SDL_ShowCursor(m_fullscreen ? SDL_DISABLE : SDL_ENABLE);
+        GV_LOG_INFO(kLogCategory, "fullscreen %s", m_fullscreen ? "on" : "off");
     }
 
     void SetAudioDevice(const std::string& deviceName) override
@@ -222,59 +194,31 @@ public:
         m_engine.Trigger(scene);
     }
 
-    /// Shows the output on the chosen display (picking one if none is chosen yet).
-    void OpenOutput()
+    /// Renders at the native resolution of the screen the window is on, capped at kMaxRenderWidth wide.
+    void UpdateRenderSize()
     {
-        if (m_settings.outputDisplay.empty())
+        const int display = SDL_GetWindowDisplayIndex(m_editorWindow);
+        SDL_DisplayMode mode{};
+        if (display < 0 || SDL_GetDesktopDisplayMode(display, &mode) != 0)
         {
-            // Prefer a display other than the editor's.
-            const auto names = gv::app::OutputWindow::DisplayNames();
-            const std::string editor = EditorDisplayName();
-            for (const auto& name : names)
-            {
-                if (name != editor)
-                {
-                    m_settings.outputDisplay = name;
-                    break;
-                }
-            }
-            if (m_settings.outputDisplay.empty() && !names.empty())
-                m_settings.outputDisplay = names.front();
+            return;
         }
-
-        m_output.Close();
-        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
-        if (m_output.Open(m_settings.outputDisplay))
+        // Desktop modes are in points; scale by the window's pixel density to get the screen's pixels.
+        int windowWidth = 0;
+        int windowHeight = 0;
+        int drawableWidth = 0;
+        int drawableHeight = 0;
+        SDL_GetWindowSize(m_editorWindow, &windowWidth, &windowHeight);
+        SDL_GL_GetDrawableSize(m_editorWindow, &drawableWidth, &drawableHeight);
+        const double density = windowWidth > 0 ? static_cast<double>(drawableWidth) / windowWidth : 1.0;
+        int width = static_cast<int>(mode.w * density);
+        int height = static_cast<int>(mode.h * density);
+        if (width > kMaxRenderWidth)
         {
-            m_engine.SetRenderSize(m_output.DrawableWidth(), m_output.DrawableHeight());
-            m_settings.outputOpen = true;
-            if (m_output.DisplayName() == EditorDisplayName())
-                AddMessage("The output covers this screen. Press Esc or Cmd+F to get back to the editor.");
+            height = static_cast<int>(static_cast<double>(height) * kMaxRenderWidth / width);
+            width = kMaxRenderWidth;
         }
-        else
-        {
-            AddMessage("Display \"" + m_settings.outputDisplay + "\" isn't connected.");
-        }
-        // With an output window, its vsync paces the app and the editor swaps without waiting.
-        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
-        SDL_GL_SetSwapInterval(m_output.IsOpen() ? 0 : 1);
-        SaveSettings();
-    }
-
-    void CloseOutput()
-    {
-        m_output.Close();
-        m_settings.outputOpen = false;
-        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
-        SDL_GL_SetSwapInterval(1);
-        SaveSettings();
-    }
-
-    auto EditorDisplayName() const -> std::string
-    {
-        const int index = SDL_GetWindowDisplayIndex(m_editorWindow);
-        const auto names = gv::app::OutputWindow::DisplayNames();
-        return index >= 0 && index < static_cast<int>(names.size()) ? names[static_cast<size_t>(index)] : std::string();
+        m_engine.SetRenderSize(width, height);
     }
 
     // --- Main loop ------------------------------------------------------------------------
@@ -287,23 +231,11 @@ public:
         }
         else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE)
         {
-            if (event.window.windowID == SDL_GetWindowID(m_editorWindow))
-                running = false;
-            else if (event.window.windowID == m_output.WindowId())
-                CloseOutput();
+            running = false;
         }
-        else if (event.type == SDL_DISPLAYEVENT && event.display.event == SDL_DISPLAYEVENT_DISCONNECTED && m_output.IsOpen())
+        else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED)
         {
-            // The output's display may be the one that went away.
-            const auto names = gv::app::OutputWindow::DisplayNames();
-            if (std::find(names.begin(), names.end(), m_output.DisplayName()) == names.end())
-            {
-                AddMessage("The output display was disconnected.");
-                // Keep outputOpen so the output comes back when the display does (on next launch or Cmd+F).
-                m_output.Close();
-                SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
-                SDL_GL_SetSwapInterval(1);
-            }
+            UpdateRenderSize(); // moved to another screen
         }
         else if (m_audio.HandleEvent(event))
         {
@@ -314,14 +246,11 @@ public:
             if (event.key.keysym.sym == SDLK_r)
                 ReloadPerformance();
             else if (event.key.keysym.sym == SDLK_f && event.key.repeat == 0)
-                ToggleOutput();
+                ToggleFullscreen();
         }
-        else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE && m_output.IsOpen())
+        else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE && m_fullscreen)
         {
-            // Esc only closes the output when it hides the editor. On a separate display (the show setup)
-            // a stray Esc must not take the visuals down.
-            if (m_output.DisplayName() == EditorDisplayName())
-                CloseOutput();
+            ToggleFullscreen();
         }
     }
 
@@ -346,29 +275,21 @@ public:
         const size_t samples = m_ring.Read(m_pcm.data(), m_pcm.size());
         m_engine.Tick(m_pcm.data(), samples / 2, m_settings.gain);
 
-        // Present on the editor context (the engine's copy targets live there), then show it.
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
         const GLuint presented = m_engine.Present();
 
-        if (m_output.IsOpen())
-        {
-            m_output.Present(presented, m_engine.PresentFence(), m_engine.RenderWidth(), m_engine.RenderHeight());
-            SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
-        }
-
-        // The editor redraws at full rate without an output window, every other frame with one.
         if (m_options.smokeNoEditor)
         {
             glFlush();
             PaceSmoke();
         }
-        else if (!m_output.IsOpen() || frame % 2 == 0)
+        else if (m_fullscreen)
+        {
+            DrawFullscreen(presented);
+        }
+        else
         {
             DrawEditor(shell, presented);
-        }
-        else if (m_options.smoke)
-        {
-            PaceSmoke();
         }
 
         RecordFrameInterval();
@@ -400,8 +321,6 @@ private:
         state.engine = &m_engine;
         state.midi = m_midi.get();
         state.audio = &m_audio;
-        state.outputDisplay = m_output.IsOpen() ? m_output.DisplayName() : std::string();
-        state.editorDisplay = EditorDisplayName();
         state.preview = presented;
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;
@@ -425,6 +344,36 @@ private:
         {
             PaceSmoke(); // hidden windows don't wait for vsync
         }
+    }
+
+    /// Fullscreen: only the visuals, letterboxed, no UI.
+    void DrawFullscreen(GLuint presented)
+    {
+        int width = 0;
+        int height = 0;
+        SDL_GL_GetDrawableSize(m_editorWindow, &width, &height);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glViewport(0, 0, width, height);
+        glClearColor(0.f, 0.f, 0.f, 1.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        const int textureWidth = m_engine.RenderWidth();
+        const int textureHeight = m_engine.RenderHeight();
+        if (presented != 0 && textureWidth > 0 && textureHeight > 0)
+        {
+            if (m_readFbo == 0)
+                glGenFramebuffers(1, &m_readFbo);
+            const float scale = std::min(static_cast<float>(width) / textureWidth, static_cast<float>(height) / textureHeight);
+            const int w = static_cast<int>(textureWidth * scale);
+            const int h = static_cast<int>(textureHeight * scale);
+            const int x = (width - w) / 2;
+            const int y = (height - h) / 2;
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, m_readFbo);
+            glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, presented, 0);
+            glBlitFramebuffer(0, 0, textureWidth, textureHeight, x, y, x + w, y + h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        }
+        SDL_GL_SwapWindow(m_editorWindow);
     }
 
     void RecordFrameInterval()
@@ -527,7 +476,8 @@ private:
     bool m_settingsDirty{false};
 
     gv::engine::Engine m_engine;
-    gv::app::OutputWindow m_output;
+    bool m_fullscreen{false};
+    GLuint m_readFbo{0};
     gv::SpscRingBuffer<float> m_ring;
     std::vector<float> m_pcm = std::vector<float>(48000 * 2);
     gv::io::AudioInput m_audio;

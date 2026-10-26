@@ -1,6 +1,5 @@
 #include "app/Shell.hpp"
 
-#include "app/OutputWindow.hpp"
 #include "app/macos/FileDialog.hpp"
 
 #include <imgui.h>
@@ -63,7 +62,6 @@ void Shell::Draw(ShellState& state, AppActions& actions)
     if (!m_listsLoaded)
     {
         m_audioDevices = io::AudioInput::ListDevices();
-        m_displays = OutputWindow::DisplayNames();
         m_listsLoaded = true;
     }
 
@@ -84,9 +82,9 @@ void Shell::Draw(ShellState& state, AppActions& actions)
         }
         if (ImGui::BeginMenu("View"))
         {
-            if (ImGui::MenuItem(state.outputDisplay.empty() ? "Show Output" : "Hide Output", "Cmd+F"))
+            if (ImGui::MenuItem("Fullscreen", "Cmd+F"))
             {
-                actions.ToggleOutput();
+                actions.ToggleFullscreen();
             }
             ImGui::EndMenu();
         }
@@ -100,7 +98,7 @@ void Shell::Draw(ShellState& state, AppActions& actions)
         m_layoutBuilt = true;
     }
 
-    DrawPreview(state);
+    DrawPreview(state, actions);
     DrawScenes(state, actions);
     DrawSetup(state, actions);
     DrawStatus(state);
@@ -131,7 +129,7 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     ImGui::DockBuilderFinish(dockspace);
 }
 
-void Shell::DrawPreview(const ShellState& state)
+void Shell::DrawPreview(const ShellState& state, AppActions& actions)
 {
     ImGui::Begin(kPreview);
     const auto* engine = state.engine;
@@ -146,6 +144,19 @@ void Shell::DrawPreview(const ShellState& state)
         // GL textures are bottom-up; flip V.
         ImGui::Image(static_cast<ImTextureID>(state.preview), size, ImVec2(0, 1), ImVec2(1, 0));
     }
+
+    // Fullscreen button, bottom right of the panel.
+    const char* label = "Fullscreen";
+    const ImVec2 padding = ImGui::GetStyle().FramePadding;
+    const ImVec2 buttonSize(ImGui::CalcTextSize(label).x + padding.x * 2.f, ImGui::GetFrameHeight());
+    const ImVec2 regionMax = ImGui::GetWindowContentRegionMax();
+    ImGui::SetCursorPos(ImVec2(regionMax.x - buttonSize.x - 8.f, regionMax.y - buttonSize.y - 8.f));
+    if (ImGui::Button(label, buttonSize))
+    {
+        actions.ToggleFullscreen();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Show only the visuals on this screen. Cmd+F or Esc to come back.");
     ImGui::End();
 }
 
@@ -266,31 +277,7 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     ImGui::EndDisabled();
 
     ImGui::SeparatorText("Output");
-    auto displayLabel = [&](const std::string& name) {
-        return name == state.editorDisplay ? name + " (this screen)" : name;
-    };
-    const std::string currentOutput = settings.outputDisplay.empty() ? "Off" : displayLabel(settings.outputDisplay);
-    if (ImGui::BeginCombo("Display", currentOutput.c_str()))
-    {
-        if (ImGui::Selectable("Off", settings.outputDisplay.empty()))
-            actions.SetOutputDisplay("");
-        for (const auto& name : m_displays)
-        {
-            if (ImGui::Selectable(displayLabel(name).c_str(), name == settings.outputDisplay))
-                actions.SetOutputDisplay(name);
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Refresh##displays"))
-        m_displays = OutputWindow::DisplayNames();
-    if (ImGui::Button(state.outputDisplay.empty() ? "Show output" : "Hide output"))
-        actions.ToggleOutput();
-    ImGui::SameLine();
-    ImGui::TextColored(kDim, "Cmd+F");
-    if (!settings.outputDisplay.empty() && settings.outputDisplay == state.editorDisplay)
-        ImGui::TextColored(kAmber, "This is the editor's screen: the output will cover it.\nPress Esc or Cmd+F to come back.");
-    ImGui::TextColored(kDim, "Rendering at %dx%d", state.engine->RenderWidth(), state.engine->RenderHeight());
+    ImGui::TextColored(kDim, "Rendering at %dx%d. Move this window to the screen\nyou perform on and press Cmd+F for fullscreen.", state.engine->RenderWidth(), state.engine->RenderHeight());
 
     ImGui::SeparatorText("Audio input");
     const char* currentAudio = settings.audioDevice.empty() ? "System default" : settings.audioDevice.c_str();

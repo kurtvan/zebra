@@ -22,8 +22,7 @@ public:
     virtual ~AppActions() = default;
     virtual void OpenPerformance(const std::filesystem::path& file) = 0;
     virtual void ReloadPerformance() = 0;
-    virtual void SetOutputDisplay(const std::string& displayName) = 0; //!< Chooses and shows; empty closes and clears.
-    virtual void ToggleOutput() = 0;                                    //!< Shows/hides the output on the chosen display.
+    virtual void ToggleFullscreen() = 0; //!< The window shows only the visuals, on whichever screen it's on.
     virtual void SetAudioDevice(const std::string& deviceName) = 0;    //!< Empty: system default.
     virtual void SetMidiChannel(int channel) = 0;
     virtual void SetLibraryRoot(const std::filesystem::path& folder) = 0;
@@ -43,10 +42,6 @@ struct ShellState
     const engine::Engine* engine{nullptr};
     const io::MidiInput* midi{nullptr};
     const io::AudioInput* audio{nullptr};
-    std::string outputDisplay; //!< Open output display, or empty.
-    std::string editorDisplay; //!< Display the editor window is on.
-    int outputWidth{0};
-    int outputHeight{0};
     GLuint preview{0};
     const std::deque<float>* frameIntervalsMs{nullptr};
     long long slowFrames{0};
@@ -60,7 +55,7 @@ public:
 
 private:
     void BuildDefaultLayout(unsigned int dockspace);
-    void DrawPreview(const ShellState& state);
+    void DrawPreview(const ShellState& state, AppActions& actions);
     void DrawScenes(const ShellState& state, AppActions& actions);
     void DrawSetup(ShellState& state, AppActions& actions);
     void DrawStatus(const ShellState& state);
@@ -68,7 +63,6 @@ private:
 
     bool m_layoutBuilt{false};
     std::vector<std::string> m_audioDevices;
-    std::vector<std::string> m_displays;
     bool m_listsLoaded{false};
 };
 
