@@ -100,6 +100,35 @@ auto StarButton(const char* id, bool on, float size = 15.f) -> bool
     return pressed;
 }
 
+/// A level meter, vertically centred on the current text line (a ProgressBar sits at the top of the line).
+void LevelMeter(float level, float width, float height)
+{
+    const float lineHeight = ImGui::GetFrameHeight();
+    const ImVec2 position = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(width, lineHeight));
+    const float y = position.y + (lineHeight - height) * 0.5f;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(ImVec2(position.x, y), ImVec2(position.x + width, y + height), ImGui::GetColorU32(ImGuiCol_FrameBg), height * 0.5f);
+    const float filled = std::clamp(level, 0.f, 1.f) * width;
+    if (filled > 0.5f)
+        draw->AddRectFilled(ImVec2(position.x, y), ImVec2(position.x + filled, y + height), ImGui::GetColorU32(level > 0.95f ? kAmber : kAccent), height * 0.5f);
+}
+
+/// "128.0 BPM  bar 12 . 3", or why there's no clock.
+auto ClockText(const io::ClockState& clock) -> std::string
+{
+    if (!clock.receiving)
+        return "No MIDI clock";
+    char text[64];
+    if (clock.running && clock.positionKnown)
+        std::snprintf(text, sizeof(text), "%.1f BPM  bar %lld . %d", clock.bpm, clock.Bar(), clock.BeatInBar());
+    else if (clock.running)
+        std::snprintf(text, sizeof(text), "%.1f BPM  playing", clock.bpm);
+    else
+        std::snprintf(text, sizeof(text), "%.1f BPM  stopped", clock.bpm);
+    return text;
+}
+
 /// Starts dragging a preset (to drop it on a scene).
 void PresetDragSource(const std::filesystem::path& preset, const std::string& label)
 {
@@ -890,7 +919,7 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     if (ImGui::SliderFloat("Gain", &settings.gain, 0.f, 8.f, "%.2fx"))
         actions.SettingsChanged();
     const float level = state.engine->GetStats().audioLevel;
-    ImGui::ProgressBar(std::min(1.f, level * 2.f), ImVec2(-80, 6), "");
+    LevelMeter(level * 2.f, std::max(40.f, ImGui::GetContentRegionAvail().x - 80.f), 6.f);
 
     ImGui::SeparatorText("MIDI");
     int channel = settings.midiChannel + 1;
@@ -904,6 +933,10 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
         ImGui::Text("%zu source%s", sources.size(), sources.size() == 1 ? "" : "s");
         for (const auto& source : sources)
             ImGui::BulletText("%s", source.c_str());
+        const auto clock = state.midi->Clock();
+        ImGui::Text("Clock: %s", ClockText(clock).c_str());
+        if (!clock.receiving)
+            ImGui::TextColored(kDim, "In Ableton: Preferences > Link, Tempo & MIDI, turn on\nSync for the IAC Driver output.");
     }
 
     ImGui::SeparatorText("Folders");
@@ -1526,13 +1559,19 @@ void Shell::DrawStatusBar(const ShellState& state)
                 if (auto cc = state.midi->LastControlChange())
                     ImGui::TextColored(kDim, "MIDI ch %d CC %d = %d", cc->channel + 1, cc->controller, cc->value);
                 else
-                    ImGui::TextColored(kDim, "MIDI: no messages yet");
+                    ImGui::TextColored(kDim, "MIDI: no CC received yet");
             }
             ImGui::SameLine(0, 28);
             const auto stats = state.engine->GetStats();
+            if (state.midi != nullptr)
+            {
+                const auto clock = state.midi->Clock();
+                ImGui::TextColored(clock.receiving ? (clock.running ? kGreen : kDim) : kDim, "%s", ClockText(clock).c_str());
+                ImGui::SameLine(0, 28);
+            }
             ImGui::TextColored(kDim, "Audio");
             ImGui::SameLine();
-            ImGui::ProgressBar(std::min(1.f, stats.audioLevel * 2.f), ImVec2(70, 5), "");
+            LevelMeter(stats.audioLevel * 2.f, 70.f, 5.f);
             ImGui::SameLine(0, 28);
             if (stats.warmTotal > 0 && stats.warmDone < stats.warmTotal)
             {

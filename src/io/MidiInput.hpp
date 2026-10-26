@@ -18,6 +18,60 @@ struct ControlChange
     int value{0};      //!< 0-127
 };
 
+/// A MIDI 1.0 system message (clock, start, stop, song position...) from a UMP word of message type 0x1.
+struct SystemMessage
+{
+    uint8_t status{0}; //!< 0xF8 clock, 0xFA start, 0xFB continue, 0xFC stop, 0xF2 song position, ...
+    uint8_t data1{0};
+    uint8_t data2{0};
+};
+
+/// Decodes the system messages (message type 0x1) in a sequence of Universal MIDI Packet words.
+auto DecodeSystemMessages(const uint32_t* words, size_t wordCount) -> std::vector<SystemMessage>;
+
+/// What the incoming MIDI clock says.
+struct ClockState
+{
+    bool receiving{false}; //!< Clock pulses arrived in the last half second.
+    bool running{false};   //!< Between Start/Continue and Stop, or pulses arriving with no transport message seen yet.
+    bool positionKnown{false}; //!< Start or a song position was received (bars/beats are meaningful).
+    double bpm{0.0};       //!< Tempo from the pulse spacing (24 per beat); 0 until known.
+    long long pulses{0};   //!< Pulses since Start (or the song position), 24 per beat.
+
+    /// Position in beats since the start (4/4 assumed for bars).
+    auto Beats() const -> double
+    {
+        return static_cast<double>(pulses) / 24.0;
+    }
+    auto Bar() const -> long long
+    {
+        return pulses / (24 * 4) + 1;
+    }
+    auto BeatInBar() const -> int
+    {
+        return static_cast<int>((pulses / 24) % 4) + 1;
+    }
+};
+
+/// Follows MIDI clock, start/stop/continue and song position. Not thread-safe by itself.
+class ClockTracker
+{
+public:
+    /// `seconds` is when the message arrived (any monotonic clock).
+    void OnMessage(const SystemMessage& message, double seconds);
+    auto State(double nowSeconds) const -> ClockState;
+
+private:
+    static constexpr int kWindow = 96; //!< Pulses averaged for the tempo (one 4/4 bar).
+    bool m_running{false};
+    bool m_transportSeen{false}; //!< Start/Continue/Stop/song position received at least once.
+    long long m_pulses{0};
+    double m_lastPulse{-1.0};
+    double m_intervals[kWindow]{};
+    int m_intervalCount{0};
+    int m_intervalNext{0};
+};
+
 /// Decodes the Control Change messages in a sequence of Universal MIDI Packet words.
 ///
 /// Only MIDI 1.0 channel voice messages (UMP message type 0x2) are decoded; everything else is skipped
@@ -45,6 +99,9 @@ public:
 
     /// Most recent Control Change on any channel/controller, for diagnostics.
     virtual auto LastControlChange() const -> std::optional<ControlChange> = 0;
+
+    /// The incoming MIDI clock (from any source).
+    virtual auto Clock() const -> ClockState = 0;
 };
 
 /// CoreMIDI implementation: listens to every source and follows sources being added and removed.

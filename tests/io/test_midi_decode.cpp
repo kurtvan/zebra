@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
+
 using namespace gv::io;
 
 namespace {
@@ -63,4 +65,99 @@ TEST_CASE("data bytes are masked to 7 bits")
     REQUIRE(ccs.size() == 1);
     CHECK(ccs[0].controller == 127);
     CHECK(ccs[0].value == 127);
+}
+
+namespace {
+
+constexpr auto System(uint8_t status, uint8_t data1 = 0, uint8_t data2 = 0) -> uint32_t
+{
+    return (0x1u << 28) | (static_cast<uint32_t>(status) << 16) | (static_cast<uint32_t>(data1) << 8) | data2;
+}
+
+} // namespace
+
+TEST_CASE("system messages are decoded beside control changes")
+{
+    const uint32_t words[] = {System(0xF8), Midi1(0xB0, 20, 3), System(0xFA), System(0xF2, 0x10, 0x01)};
+    const auto messages = DecodeSystemMessages(words, 4);
+    REQUIRE(messages.size() == 3);
+    CHECK(messages[0].status == 0xF8);
+    CHECK(messages[1].status == 0xFA);
+    CHECK(messages[2].status == 0xF2);
+    CHECK(messages[2].data1 == 0x10);
+    CHECK(messages[2].data2 == 0x01);
+    CHECK(DecodeControlChanges(words, 4).size() == 1);
+}
+
+TEST_CASE("the clock tracker follows tempo, transport and position")
+{
+    ClockTracker tracker;
+    double t = 10.0;
+    const double pulse = 60.0 / 128.0 / 24.0; // 128 BPM
+
+    CHECK_FALSE(tracker.State(t).receiving);
+    tracker.OnMessage({0xFA}, t); // start
+    for (int i = 0; i < 24 * 4 * 2 + 24 + 12; ++i) // 2 bars, 1.5 beats
+    {
+        t += pulse;
+        tracker.OnMessage({0xF8}, t);
+    }
+    auto state = tracker.State(t);
+    CHECK(state.receiving);
+    CHECK(state.running);
+    CHECK(std::abs(state.bpm - 128.0) < 0.01);
+    CHECK(state.Bar() == 3);
+    CHECK(state.BeatInBar() == 2);
+    CHECK(std::abs(state.Beats() - 9.5) < 1e-9);
+
+    tracker.OnMessage({0xFC}, t); // stop: position holds
+    t += pulse;
+    tracker.OnMessage({0xF8}, t);
+    CHECK_FALSE(tracker.State(t).running);
+    CHECK(tracker.State(t).pulses == state.pulses);
+
+    tracker.OnMessage({0xF2, 32, 0}, t); // song position: 32 sixteenths = 2 bars
+    tracker.OnMessage({0xFB}, t);         // continue
+    t += pulse;
+    tracker.OnMessage({0xF8}, t);
+    CHECK(tracker.State(t).running);
+    CHECK(tracker.State(t).Bar() == 3);
+
+    CHECK_FALSE(tracker.State(t + 1.0).receiving); // no pulses for a second
+}
+
+TEST_CASE("pulses without a Start mean playing, position unknown")
+{
+    ClockTracker tracker;
+    double t = 0.0;
+    for (int i = 0; i < 48; ++i)
+    {
+        t += 60.0 / 120.0 / 24.0;
+        tracker.OnMessage({0xF8}, t);
+    }
+    const auto state = tracker.State(t);
+    CHECK(state.running);
+    CHECK_FALSE(state.positionKnown);
+    CHECK(std::abs(state.bpm - 120.0) < 0.01);
+    tracker.OnMessage({0xFA}, t);
+    CHECK(tracker.State(t).positionKnown);
+}
+
+TEST_CASE("a pause between pulses doesn't count as tempo")
+{
+    ClockTracker tracker;
+    double t = 0.0;
+    const double pulse = 60.0 / 100.0 / 24.0;
+    for (int i = 0; i < 30; ++i)
+    {
+        t += pulse;
+        tracker.OnMessage({0xF8}, t);
+    }
+    t += 3.0; // transport paused
+    for (int i = 0; i < 30; ++i)
+    {
+        t += pulse;
+        tracker.OnMessage({0xF8}, t);
+    }
+    CHECK(std::abs(tracker.State(t).bpm - 100.0) < 0.01);
 }

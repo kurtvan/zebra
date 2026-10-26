@@ -4,6 +4,8 @@
 
 #import <CoreMIDI/CoreMIDI.h>
 
+#include <mach/mach_time.h>
+
 #include <atomic>
 #include <mutex>
 
@@ -12,6 +14,16 @@ namespace gv::io {
 namespace {
 
 constexpr const char* kLogCategory = "midi";
+
+auto HostSeconds(uint64_t hostTime) -> double
+{
+    static const mach_timebase_info_data_t timebase = [] {
+        mach_timebase_info_data_t info{};
+        mach_timebase_info(&info);
+        return info;
+    }();
+    return static_cast<double>(hostTime) * timebase.numer / timebase.denom / 1.0e9;
+}
 
 auto ObjectName(MIDIObjectRef object) -> std::string
 {
@@ -51,6 +63,15 @@ public:
                 {
                     OnControlChange(cc);
                 }
+                const auto system = DecodeSystemMessages(packet->words, packet->wordCount);
+                if (!system.empty())
+                {
+                    // CoreMIDI's timestamp (host time) is when the message arrived; 0 means "now".
+                    const double seconds = HostSeconds(packet->timeStamp != 0 ? packet->timeStamp : mach_absolute_time());
+                    std::lock_guard<std::mutex> lock(m_clockMutex);
+                    for (const auto& message : system)
+                        m_clock.OnMessage(message, seconds);
+                }
                 packet = MIDIEventPacketNext(packet);
             }
         });
@@ -87,6 +108,12 @@ public:
     {
         std::lock_guard<std::mutex> lock(m_sourcesMutex);
         return m_sourceNames;
+    }
+
+    auto Clock() const -> ClockState override
+    {
+        std::lock_guard<std::mutex> lock(m_clockMutex);
+        return m_clock.State(HostSeconds(mach_absolute_time()));
     }
 
     auto LastControlChange() const -> std::optional<ControlChange> override
@@ -135,6 +162,8 @@ private:
     std::atomic<int> m_pendingTrigger{-1};
     std::atomic<int> m_lastControlChange{-1};
     mutable std::mutex m_sourcesMutex;
+    mutable std::mutex m_clockMutex;
+    ClockTracker m_clock;
     std::vector<std::string> m_sourceNames;
 };
 

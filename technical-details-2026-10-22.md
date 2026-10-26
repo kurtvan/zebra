@@ -150,6 +150,8 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - The callback writes the latest value to an atomic; the render loop polls once per frame (keep the fork's pattern).
 - **Maximum 128 scenes per performance** (decided). Every scene has a unique `cc20Value` 0–127. The editor prevents adding a 129th scene; the loader rejects or flags files that exceed the limit or have duplicate values. The data model doesn't otherwise hard-code 128, so a larger scheme can come later.
 
+- **MIDI clock (added 2026-10-26):** system real-time messages from any source are decoded too (UMP type 0x1). `ClockTracker` follows Start/Continue/Stop and song position, counts the 24-per-beat pulses (bars and beats assume 4/4), and estimates the tempo from the pulse spacing averaged over a bar, using CoreMIDI's arrival timestamps. Pulses without a Start (app launched mid-song) count as "playing, position unknown". It's shown in the status bar and Setup > MIDI; nothing is driven by it yet. Ableton sends clock when Sync is on for the output port.
+
 ### Audio input (CoreAudio)
 - Enumerate input devices; the user picks one in settings. Handle device removal gracefully. **As built (M2):** capture uses SDL2's audio API (CoreAudio underneath), which identifies devices by **name** (SDL doesn't expose CoreAudio UIDs). This keeps the Windows path open.
 - A gain setting replaces the hard-coded 4× boost.
