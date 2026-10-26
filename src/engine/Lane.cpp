@@ -29,6 +29,9 @@ void OnPresetFailed(const char* /*filename*/, const char* message, void* userDat
     auto* failure = static_cast<LoadFailure*>(userData);
     failure->failed = true;
     failure->message = message != nullptr ? message : "unknown error";
+    // projectM reports unreadable files as a bare "std::exception".
+    if (failure->message == "std::exception")
+        failure->message = "the preset file couldn't be read";
 }
 
 void CreateTarget(GLuint texture, GLuint fbo, int width, int height)

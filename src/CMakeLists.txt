@@ -5,6 +5,8 @@ add_library(gv_common STATIC
     common/log.hpp
     common/paths.mm
     common/paths.hpp
+    common/memory.cpp
+    common/memory.hpp
     common/SpscRingBuffer.hpp)
 target_include_directories(gv_common PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"

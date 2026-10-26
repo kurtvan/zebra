@@ -32,6 +32,8 @@ add_subdirectory(src)
 
 # Publishes a Syphon test pattern, for checking Syphon input by hand.
 add_subdirectory(tools/syphon_test_server)
+# Sends CC 20 from a virtual MIDI source, for checking MIDI input and hot-plugging by hand.
+add_subdirectory(tools/midi_test_sender)
 
 if(GV_SPIKE)
     add_subdirectory(tools/spike_compile)

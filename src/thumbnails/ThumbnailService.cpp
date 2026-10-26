@@ -45,6 +45,8 @@ void OnPresetFailed(const char*, const char* message, void* userData)
     auto* failure = static_cast<LoadFailure*>(userData);
     failure->failed = true;
     failure->message = message != nullptr ? message : "unknown error";
+    if (failure->message == "std::exception")
+        failure->message = "the preset file couldn't be read";
 }
 
 /// The same beating two-tone signal for every preview, so audio-driven presets move.

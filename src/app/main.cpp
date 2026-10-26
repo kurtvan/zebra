@@ -12,6 +12,7 @@
 #include "common/SpscRingBuffer.hpp"
 #include "common/log.hpp"
 #include "common/paths.hpp"
+#include "common/memory.hpp"
 #include "engine/Engine.hpp"
 #include "io/AudioInput.hpp"
 #include "io/MidiInput.hpp"
@@ -31,6 +32,7 @@
 #include <deque>
 #include <fstream>
 #include <optional>
+#include <random>
 #include <set>
 #include <string>
 #include <thread>
@@ -57,6 +59,10 @@ struct Options
     double smokeCutSeconds{2.0};
     bool smokeNoEditor{false}; //!< Skip drawing the editor (to measure its cost).
     bool smokeEdits{false};    //!< Script edits during playback (reorder, change the live preset, delete live, undo).
+    bool smokeRandom{false};   //!< Trigger scenes in random order instead of sequentially.
+    bool smokeCrash{false};    //!< Edit, write the recovery copy, then exit abruptly (crash-recovery drill).
+    bool smokeRecover{false};  //!< Restore a recovery copy at launch, as a normal launch would.
+    double smokeReportSeconds{0}; //!< If > 0, log memory and playback stats this often (soak tests).
     std::filesystem::path smokeSnapshots; //!< If set, saves the output just before each cut as a BMP here.
     std::filesystem::path smokeEditorSnapshot; //!< If set, saves the editor window once as a BMP...
     double smokeEditorSnapshotAt{3.0};         //!< ...this many seconds in.
@@ -81,6 +87,14 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.smokeEditorSnapshot = argv[++i];
         else if (arg == "--smoke-editor-snapshot-at" && hasValue)
             options.smokeEditorSnapshotAt = std::atof(argv[++i]);
+        else if (arg == "--smoke-crash")
+            options.smokeCrash = true;
+        else if (arg == "--smoke-recover")
+            options.smokeRecover = true;
+        else if (arg == "--smoke-random")
+            options.smokeRandom = true;
+        else if (arg == "--smoke-report-every" && hasValue)
+            options.smokeReportSeconds = std::atof(argv[++i]);
         else if (arg == "--smoke-edits")
             options.smokeEdits = true;
         else if (arg == "--smoke-no-editor")
@@ -143,7 +157,7 @@ public:
             OpenPerformance(m_settings.lastPerformance);
         else
             LoadDocument(gv::model::Document());
-        if (!m_options.smoke)
+        if (!m_options.smoke || m_options.smokeRecover)
             RestoreRecovery();
         return true;
     }
@@ -480,7 +494,7 @@ public:
     /// Writes unsaved changes so a crash doesn't lose them.
     void WriteRecovery()
     {
-        if (!m_document.IsDirty() || m_options.smoke)
+        if (!m_document.IsDirty() || (m_options.smoke && !m_options.smokeCrash))
             return;
         gv::model::SavePerformance(m_document.Get(), RecoveryFile());
         std::ofstream(RecoveryFile().string() + ".path") << m_document.Path().string();
@@ -512,6 +526,7 @@ public:
         m_document.Edit(std::move(recovered), "Recover Unsaved Changes"); // marks it unsaved
         m_syncedRevision = m_document.Revision();
         AddMessage("Recovered unsaved changes from your last session. Save to keep them, or File > Revert to Saved to discard them.");
+        GV_LOG_INFO(kLogCategory, "recovered \"%s\" (unsaved: %d) from %s", m_document.Title().c_str(), m_document.IsDirty(), RecoveryFile().c_str());
     }
 
     void HandleMenuCommands(bool& running)
@@ -835,7 +850,17 @@ private:
         {
             SmokeEdits(elapsed);
         }
-        const int cut = static_cast<int>(elapsed / m_options.smokeCutSeconds);
+        if (m_options.smokeCrash && elapsed > 2.0)
+        {
+            auto edited = m_document.Get();
+            edited.name = "recovered by the crash drill";
+            Edit(std::move(edited), "Rename Performance", {});
+            WriteRecovery();
+            GV_LOG_INFO(kLogCategory, "smoke: simulating a crash with unsaved changes");
+            std::_Exit(3);
+        }
+        // --smoke-cut-every 0: no automatic cuts (e.g. when MIDI drives the scenes).
+        const int cut = m_options.smokeCutSeconds > 0 ? static_cast<int>(elapsed / m_options.smokeCutSeconds) : 0;
         if (cut != m_smokeLastCut && m_smokeLastCut >= 0 && !m_options.smokeSnapshots.empty())
         {
             SaveSnapshot(m_options.smokeSnapshots / ("cut" + std::to_string(m_smokeLastCut) + "-scene" + std::to_string(m_engine.LiveScene()) + ".bmp"));
@@ -843,9 +868,19 @@ private:
         if (cut != m_smokeLastCut)
         {
             m_smokeLastCut = cut;
-            const int scene = cut % static_cast<int>(performance.scenes.size());
+            // Sequential, or random (out-of-order jumps, as a show with improvised triggers would do).
+            const int scene = m_options.smokeRandom ? static_cast<int>(m_smokeRandom() % performance.scenes.size())
+                                                    : cut % static_cast<int>(performance.scenes.size());
             Trigger(scene);
             m_smokeCuts++;
+        }
+        if (m_options.smokeReportSeconds > 0 && elapsed >= m_smokeNextReport)
+        {
+            m_smokeNextReport = elapsed + m_options.smokeReportSeconds;
+            const auto stats = m_engine.GetStats();
+            GV_LOG_INFO(kLogCategory, "soak: %.0f min, footprint %.0f MB, %d cuts, held %lld of %lld (%.2f%%), frames over 25 ms %lld, preview instances %d",
+                        elapsed / 60.0, gv::PhysicalFootprintBytes() / 1048576.0, m_smokeCuts, stats.heldTicks, stats.ticks,
+                        stats.ticks > 0 ? 100.0 * stats.heldTicks / stats.ticks : 0.0, m_slowFrames, m_thumbnails.LiveInstances());
         }
         if (elapsed >= m_options.smokeSeconds)
         {
@@ -860,9 +895,12 @@ private:
                 const auto info = m_engine.Scene(i);
                 const auto held = stats.heldByScene.count(i) ? stats.heldByScene.at(i) : 0;
                 const auto video = m_video.StateFor(i);
-                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, held %lld (%.1f%% of its live frames), video %s", i,
+                char dropped[32] = "never live long enough";
+                if (info.droppedFraction >= 0.0)
+                    std::snprintf(dropped, sizeof(dropped), "%.1f%% of its live frames", info.droppedFraction * 100.0);
+                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, held %lld (%s), video %s", i,
                             performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held,
-                            info.droppedFraction * 100.0, video ? gv::io::ToString(*video) : "-");
+                            dropped, video ? gv::io::ToString(*video) : "-");
             }
             m_smokeOk = stats.presentedFrames > liveTicks / 2;
             m_smokeDone = true;
@@ -1036,6 +1074,8 @@ private:
     bool m_smokeDone{false};
     bool m_editorSnapshotTaken{false};
     int m_smokeEditStep{-1};
+    double m_smokeNextReport{0.0};
+    std::mt19937 m_smokeRandom{12345};
     bool m_smokeOk{false};
 };
 
