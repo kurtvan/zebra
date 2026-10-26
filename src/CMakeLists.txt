@@ -21,6 +21,13 @@ add_library(gv_model STATIC
     model/Document.hpp)
 target_link_libraries(gv_model PUBLIC gv_common PRIVATE gv_warnings nlohmann_json::nlohmann_json)
 
+add_library(gv_library STATIC
+    library/PresetParsing.cpp
+    library/PresetParsing.hpp
+    library/Library.cpp
+    library/Library.hpp)
+target_link_libraries(gv_library PUBLIC gv_common PRIVATE gv_warnings nlohmann_json::nlohmann_json)
+
 add_library(gv_io STATIC
     io/MidiInput.hpp
     io/MidiDecode.cpp
@@ -66,6 +73,7 @@ target_link_libraries(govtech-visualizer PRIVATE
     gv_model
     gv_io
     gv_engine
+    gv_library
     imgui
     nlohmann_json::nlohmann_json
     SDL2::SDL2

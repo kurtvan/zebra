@@ -129,6 +129,16 @@ public:
         return m_pool.PendingScene();
     }
     auto Scene(int index) const -> SceneInfo;
+
+    struct PresetMeasurement
+    {
+        std::string path;
+        double frameMs{0.0}; //!< Live average if measured live, else the warm-up estimate.
+        std::string error;   //!< Load error, if it failed.
+    };
+
+    /// Everything learned about presets this session (for the library index).
+    auto PresetMeasurements() const -> std::vector<PresetMeasurement>;
     auto GetStats() const -> Stats;
 
 private:

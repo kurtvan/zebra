@@ -5,6 +5,7 @@
 #include "app/VideoManager.hpp"
 #include "app/macos/FileDialog.hpp"
 #include "app/macos/Menu.hpp"
+#include "library/Library.hpp"
 #include "model/Document.hpp"
 #include "app_info.hpp"
 #include "common/SpscRingBuffer.hpp"
@@ -29,6 +30,7 @@
 #include <deque>
 #include <fstream>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -122,6 +124,7 @@ public:
 
         UpdateRenderSize();
         gv::app::SetRecentFiles(m_settings.recentPerformances);
+        InitializeLibrary();
 
         if (m_options.performance)
             OpenPerformance(*m_options.performance);
@@ -137,6 +140,7 @@ public:
     void Shutdown()
     {
         SaveSettings();
+        SaveLibrary();
         if (!m_document.IsDirty())
             DeleteRecovery();
         m_audio.Close();
@@ -253,12 +257,29 @@ public:
     {
         m_settings.libraryRoot = folder;
         SaveSettings();
+        RescanLibrary();
+    }
+
+    void ToggleFavourite(const std::string& presetId) override
+    {
+        m_favourites.Toggle(presetId);
+        if (auto error = m_favourites.Save(gv::paths::ApplicationSupportDir() / "favourites.json"); !error.empty())
+            AddMessage("Could not save favourites: " + error);
+        m_libraryVersion++;
+    }
+
+    void RescanLibrary() override
+    {
+        if (!m_settings.libraryRoot.empty())
+            m_indexer.Start(m_settings.libraryRoot, m_library);
     }
 
     void SetTextureFolder(const std::filesystem::path& folder) override
     {
         m_settings.texturePaths = {folder};
         ApplyTexturePaths();
+        m_availableTextures = gv::library::AvailableTextures(m_settings.texturePaths);
+        m_libraryVersion++;
         SaveSettings();
         AddMessage("Texture folder changed; it applies to scenes prepared from now on.");
     }
@@ -299,6 +320,53 @@ public:
             width = kMaxRenderWidth;
         }
         m_engine.SetRenderSize(width, height);
+    }
+
+    // --- Preset library -------------------------------------------------------------------------
+
+    void InitializeLibrary()
+    {
+        const auto dir = gv::paths::ApplicationSupportDir();
+        m_library.Load(dir / "library.json");
+        if (m_library.Root() != m_settings.libraryRoot)
+            m_library = gv::library::Library();
+        m_favourites.Load(dir / "favourites.json");
+        m_availableTextures = gv::library::AvailableTextures(m_settings.texturePaths);
+        RescanLibrary(); // background; quick when nothing changed
+    }
+
+    /// Takes a finished scan, and records what the engine learned about presets (heavy, broken).
+    void UpdateLibrary(int frame)
+    {
+        if (auto scanned = m_indexer.TakeResult())
+        {
+            m_library = std::move(*scanned);
+            m_libraryVersion++;
+            m_libraryDirty = true;
+            SaveLibrary();
+        }
+        if (frame % 120 == 0)
+        {
+            bool changed = false;
+            for (const auto& measurement : m_engine.PresetMeasurements())
+                changed |= m_library.Record(measurement.path, measurement.frameMs, measurement.error);
+            if (changed)
+            {
+                m_libraryDirty = true;
+                m_libraryVersion++;
+            }
+        }
+        if (m_libraryDirty && frame % 1800 == 0)
+            SaveLibrary();
+    }
+
+    void SaveLibrary()
+    {
+        if (!m_libraryDirty || m_library.Root().empty())
+            return;
+        if (auto error = m_library.Save(gv::paths::ApplicationSupportDir() / "library.json"); !error.empty())
+            GV_LOG_ERROR(kLogCategory, "%s", error.c_str());
+        m_libraryDirty = false;
     }
 
     // --- Document -----------------------------------------------------------------------------
@@ -592,6 +660,7 @@ public:
 
         RecordFrameInterval();
         UpdateChrome();
+        UpdateLibrary(frame);
         if (m_settingsDirty && frame % 60 == 0)
         {
             SaveSettings();
@@ -626,6 +695,12 @@ private:
         state.midi = m_midi.get();
         state.audio = &m_audio;
         state.video = &m_video;
+        state.library = &m_library;
+        state.favourites = &m_favourites;
+        state.availableTextures = &m_availableTextures;
+        state.libraryVersion = m_libraryVersion;
+        state.indexing = m_indexer.Running();
+        state.indexProgress = m_indexer.Progress();
         state.preview = presented;
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;
@@ -905,6 +980,13 @@ private:
     std::vector<float> m_pcm = std::vector<float>(48000 * 2);
     gv::io::AudioInput m_audio;
     std::unique_ptr<gv::io::MidiInput> m_midi;
+
+    gv::library::Library m_library;
+    gv::library::Favourites m_favourites;
+    gv::library::Indexer m_indexer;
+    std::set<std::string> m_availableTextures;
+    uint64_t m_libraryVersion{0};
+    bool m_libraryDirty{false};
 
     gv::model::Document m_document;
     uint64_t m_syncedRevision{0};
