@@ -41,22 +41,29 @@ void VideoManager::Clear()
 
 void VideoManager::Load(const model::Performance& performance)
 {
-    Clear();
+    // Keep sources that are still used (so an edit doesn't restart a playing video); create new ones; drop the rest.
     m_performance = performance;
+    m_sceneKeys.clear();
+    std::map<std::string, SourceEntry> sources;
     for (const auto& scene : m_performance.scenes)
     {
         const std::string key = KeyFor(scene);
         m_sceneKeys.push_back(key);
-        if (key.empty() || m_sources.count(key) > 0)
+        if (key.empty() || sources.count(key) > 0)
             continue;
-
+        if (auto existing = m_sources.find(key); existing != m_sources.end())
+        {
+            sources.emplace(key, std::move(existing->second));
+            continue;
+        }
         const auto& source = scene.video.source;
         SourceEntry entry;
         entry.source = source.type == model::VideoSourceType::File
                            ? io::CreateFileVideoSource(source.path)
                            : io::CreateSyphonVideoSource(source.appName, source.serverName);
-        m_sources.emplace(key, std::move(entry));
+        sources.emplace(key, std::move(entry));
     }
+    m_sources = std::move(sources);
     GV_LOG_INFO(kLogCategory, "%zu video source(s) for %zu scenes", m_sources.size(), m_performance.scenes.size());
 }
 

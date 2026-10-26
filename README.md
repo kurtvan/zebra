@@ -36,9 +36,11 @@ projectM is built from a patched copy of the `third_party/projectm` submodule. S
 ./build/src/govtech-visualizer [performance.json]
 ```
 
-- **Setup panel:** the audio input and gain, the MIDI channel, and the preset and texture folders. Settings are saved in `~/Library/Application Support/Govtech Visualizer/settings.json`.
+- **Scenes panel:** click a scene to select it; **double-click**, **Enter** or **Go Live** in the Scene panel triggers it; **Left/Right** trigger the previous/next scene. Drag rows to reorder, right-click for more. Drop `.milk` presets onto the list to add scenes (or onto a scene to replace its preset), drop a video onto a scene to use it. MIDI **CC 20** on the chosen channel triggers the scene with that CC value.
+- **Scene panel:** name, CC value, preset, and video (file or Syphon sender, mix, luma gate, restart on entry). Edits apply to the running visuals immediately.
+- **Setup panel:** performance name, audio input and gain, MIDI channel, preset and texture folders. Settings are saved in `~/Library/Application Support/Govtech Visualizer/settings.json`.
+- **Menus:** File (New, Open, Open Recent, Save, Save As, Revert), Edit (Undo/Redo), Scene (Add, Duplicate, Delete, Go Live), View (Fullscreen). Unsaved changes are asked about on close and recovered after a crash.
 - **Fullscreen:** move the window to the screen you perform on and press **Cmd+F** (or the Fullscreen button at the bottom right of the preview). Only the visuals show; **Cmd+F** or **Esc** brings the editor back.
-- **Scenes panel:** click a scene, or use Left/Right, to trigger it. MIDI **CC 20** on the chosen channel triggers the scene whose CC value matches. Badges show heavy presets and each scene's drop rate.
 - Logs go to stderr and to `~/Library/Logs/Govtech Visualizer/`.
 
 ### Performance files
@@ -61,7 +63,7 @@ scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.tx
 ./build/src/govtech-visualizer --smoke --smoke-seconds 30 --smoke-cut-every 2 performances/govtech-2026-11-06.json
 ```
 
-Plays the performance in a hidden window, cutting to the next scene every 2 seconds, then logs held frames (by cause and per scene) and each scene's video state, and exits with status 0 on success. `--smoke-snapshots DIR` saves the output just before each cut as a BMP.
+Plays the performance in a hidden window, cutting to the next scene every 2 seconds, then logs held frames (by cause and per scene) and each scene's video state, and exits with status 0 on success. `--smoke-snapshots DIR` saves the output just before each cut as a BMP; `--smoke-editor-snapshot FILE` saves the editor window; `--smoke-edits` makes scripted edits during playback (reorder, change the live preset, delete it, undo).
 
 ## Test
 

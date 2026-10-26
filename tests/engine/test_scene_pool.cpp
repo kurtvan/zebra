@@ -224,3 +224,67 @@ TEST_CASE("reset releases everything from the previous performance")
     CHECK(h.pool.LiveScene() == -1);
     CHECK(Count(commands, Type::Prepare) == 2);
 }
+
+TEST_CASE("remap after reordering keeps prepared instances and the live scene")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(6, std::vector<bool>(6, false)));
+    h.Run(h.pool.Trigger(1));
+    const auto liveInstance = h.pool.InstancesOf(1);
+    REQUIRE(liveInstance.size() == 1);
+
+    // Move scene 1 to the end: old order 0 1 2 3 4 5 -> new order 0 2 3 4 5 1.
+    const std::vector<int> oldToNew = {0, 5, 1, 2, 3, 4};
+    h.log.clear();
+    h.Run(h.pool.Remap(6, oldToNew, std::vector<bool>(6, false), std::vector<bool>(6, false)));
+    CHECK(h.pool.LiveScene() == 5);
+    CHECK(h.pool.InstancesOf(5).front().instance == liveInstance.front().instance); // still the same instance
+    // Window is now [4..8] around scene 5: scene 4 ready, scenes far before released.
+    CHECK(h.pool.StatusOf(4).state == ScenePool::State::Ready);
+    CHECK(h.pool.StatusOf(0).state == ScenePool::State::None);
+}
+
+TEST_CASE("remap releases removed and changed scenes but keeps a removed live scene on screen")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(5, std::vector<bool>(5, false)));
+    h.Run(h.pool.Trigger(0));
+    const auto scene2 = h.pool.InstancesOf(2);
+    REQUIRE(scene2.size() == 1);
+
+    // Remove the live scene 0; scene 2's preset changed (now index 1).
+    const std::vector<int> oldToNew = {-1, 0, 1, 2, 3};
+    std::vector<bool> changed(4, false);
+    changed[1] = true;
+    auto commands = h.pool.Remap(4, oldToNew, std::vector<bool>(4, false), changed);
+    CHECK(h.pool.LiveScene() == -1);
+    CHECK(h.pool.LiveLane() >= 0); // its instance still renders
+    bool releasedStale = false;
+    for (const auto& c : commands)
+        releasedStale = releasedStale || (c.type == Type::Release && c.instance == scene2.front().instance);
+    CHECK(releasedStale);
+    CHECK(Find(commands, Type::Prepare, 1) != nullptr); // re-prepared with the new preset
+}
+
+TEST_CASE("changing the live scene's preset prepares a replacement and swaps it in")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(4, std::vector<bool>(4, false)));
+    h.Run(h.pool.Trigger(1));
+    const auto old = h.pool.InstancesOf(1).front().instance;
+
+    std::vector<bool> changed(4, false);
+    changed[1] = true;
+    auto commands = h.pool.Remap(4, {0, 1, 2, 3}, std::vector<bool>(4, false), changed);
+    const auto* prepare = Find(commands, Type::Prepare, 1);
+    REQUIRE(prepare != nullptr);
+    CHECK(prepare->priority);
+    CHECK(h.pool.LiveScene() == 1); // still showing the old preset meanwhile
+
+    auto after = h.pool.OnPrepared(prepare->instance, true);
+    CHECK(Find(after, Type::Activate, 1) != nullptr);
+    bool releasedOld = false;
+    for (const auto& c : after)
+        releasedOld = releasedOld || (c.type == Type::Release && c.instance == old);
+    CHECK(releasedOld);
+}

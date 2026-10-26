@@ -217,6 +217,16 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 
 **Acceptance:** the author can rebuild their show from scratch in the editor, save it, reopen it and play it. Undo works for every edit. The app warns about unsaved changes and recovers from a crash via autosave.
 
+**M4 as built (2026-10-25):**
+- **Undo** stores a snapshot of the whole performance per step (`model::Document`); slider drags and typing coalesce into one step. Unit-tested together with the add/duplicate/delete/move edits.
+- **Live edits:** `Engine::UpdatePerformance` matches scenes by id. Reorders keep prepared instances; changed presets are re-prepared, and the live scene's replacement is swapped in when ready (`ScenePool::Remap`, unit-tested); video mix/luma/on-off change in place on the lanes; deleting the live scene keeps it on screen until the next trigger; video sources still in use aren't restarted.
+- **Interaction:** a click **selects** a scene for editing; double-click, Enter, the Scene panel's "Go Live", Left/Right or MIDI **trigger** it. Return isn't a menu shortcut, so it never fires while typing.
+- **Native menu bar** (File, Edit, Scene, View) with key equivalents; ImGui's menu bar is gone.
+- **Save** refuses to write a performance with validation errors (e.g. a duplicate CC value) and lists them in Messages.
+- **Recovery:** unsaved changes are written to `recovery.json` about every 30 s and reopened (marked unsaved) on the next launch.
+- **Font:** the macOS system font (SF), loaded from the system, not bundled.
+- `--smoke-edits` scripts edits during playback; `--smoke-editor-snapshot FILE` saves the editor window.
+
 ### M5: Preset library, browser and favourites (M–L)
 **Goal:** browse, search, filter and favourite the whole Cream of the Crop library; assign presets to scenes from the browser.
 

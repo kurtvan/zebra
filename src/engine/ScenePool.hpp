@@ -75,6 +75,22 @@ public:
     /// Called when a lane dropped not-yet-started Prepares (e.g. because it went live). They are re-planned.
     auto OnCancelled(const std::vector<InstanceId>& instances) -> std::vector<PoolCommand>;
 
+    /// The performance was edited: scenes added, removed, reordered or changed, while playing.
+    /// `oldToNew[i]` is the new index of old scene i, or -1 if it was removed. `presetChanged[n]` marks new
+    /// scenes whose prepared instances are stale. The live scene keeps playing: if it was removed it stays on
+    /// screen until the next trigger; if its preset changed, a replacement is prepared and swapped in.
+    auto Remap(int sceneCount, const std::vector<int>& oldToNew, const std::vector<bool>& unusable,
+               const std::vector<bool>& presetChanged) -> std::vector<PoolCommand>;
+
+    struct HostedInstance
+    {
+        InstanceId instance{0};
+        int lane{-1};
+    };
+
+    /// Every instance (live, ready or preparing) of `scene`.
+    auto InstancesOf(int scene) const -> std::vector<HostedInstance>;
+
     auto LiveScene() const -> int
     {
         return m_live;

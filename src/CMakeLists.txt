@@ -16,7 +16,9 @@ add_library(gv_model STATIC
     model/Performance.cpp
     model/Performance.hpp
     model/PerformanceJson.cpp
-    model/PerformanceJson.hpp)
+    model/PerformanceJson.hpp
+    model/Document.cpp
+    model/Document.hpp)
 target_link_libraries(gv_model PUBLIC gv_common PRIVATE gv_warnings nlohmann_json::nlohmann_json)
 
 add_library(gv_io STATIC
@@ -55,7 +57,9 @@ add_executable(govtech-visualizer
     app/VideoManager.cpp
     app/VideoManager.hpp
     app/macos/FileDialog.mm
-    app/macos/FileDialog.hpp)
+    app/macos/FileDialog.hpp
+    app/macos/Menu.mm
+    app/macos/Menu.hpp)
 target_link_libraries(govtech-visualizer PRIVATE
     gv_warnings
     gv_common
@@ -73,6 +77,6 @@ target_compile_definitions(govtech-visualizer PRIVATE GL_SILENCE_DEPRECATION)
 set_target_properties(govtech-visualizer PROPERTIES BUILD_RPATH "${SYPHON_FRAMEWORK_DIR}")
 
 # Objective-C++ sources use ARC.
-set_source_files_properties(common/paths.mm io/macos/CoreMidiInput.mm app/macos/FileDialog.mm
+set_source_files_properties(common/paths.mm io/macos/CoreMidiInput.mm app/macos/FileDialog.mm app/macos/Menu.mm
     io/macos/FileVideoSource.mm io/macos/SyphonVideoSource.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc")

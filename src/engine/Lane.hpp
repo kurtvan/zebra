@@ -95,6 +95,9 @@ public:
 
     void Release(InstanceId instance);
 
+    /// Changes a hosted instance's video blend settings (mix, luma gate, on/off) without re-preparing it.
+    void UpdateVideo(InstanceId instance, VideoSettings video);
+
     /// Drops queued (not started) Prepare and Warm jobs. Returns the dropped prepares and warm scenes.
     auto CancelQueued() -> std::pair<std::vector<InstanceId>, std::vector<std::pair<int, std::string>>>;
 
@@ -129,6 +132,7 @@ private:
             Warm,
             Release,
             Configure,
+            UpdateVideo,
             Shutdown,
         };
         Type type{Type::Prepare};

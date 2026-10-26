@@ -108,6 +108,10 @@ auto Settings::Load(const std::filesystem::path& file) -> Settings
     Read(root, "midiChannel", settings.midiChannel);
     Read(root, "namesOnly", settings.namesOnly);
     Read(root, "lastPerformance", lastPerformance);
+    std::vector<std::string> recent;
+    Read(root, "recentPerformances", recent);
+    for (const auto& path : recent)
+        settings.recentPerformances.emplace_back(path);
 
     settings.libraryRoot = libraryRoot;
     for (const auto& path : texturePaths)
@@ -130,6 +134,9 @@ auto Settings::Save(const std::filesystem::path& file) const -> std::string
     root["midiChannel"] = midiChannel;
     root["namesOnly"] = namesOnly;
     root["lastPerformance"] = lastPerformance.string();
+    root["recentPerformances"] = json::array();
+    for (const auto& path : recentPerformances)
+        root["recentPerformances"].push_back(path.string());
 
     const auto temp = std::filesystem::path(file.string() + ".tmp");
     {

@@ -25,7 +25,8 @@ public:
     VideoManager(const VideoManager&) = delete;
     auto operator=(const VideoManager&) -> VideoManager& = delete;
 
-    /// Creates sources for every scene with video enabled; releases the previous performance's.
+    /// Creates sources for every scene with video enabled, keeping sources that are still in use and
+    /// releasing the rest. Also used after edits.
     void Load(const model::Performance& performance);
 
     /// Once per frame, before the engine's Tick: plays the sources of the scenes around `liveScene`
