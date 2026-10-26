@@ -1,0 +1,5 @@
+add_executable(gv_syphon_test_server main.mm)
+target_compile_options(gv_syphon_test_server PRIVATE "-F${SYPHON_FRAMEWORK_DIR}" -fobjc-arc)
+target_compile_definitions(gv_syphon_test_server PRIVATE GL_SILENCE_DEPRECATION)
+target_link_libraries(gv_syphon_test_server PRIVATE SDL2::SDL2 OpenGL::GL "${SYPHON_FRAMEWORK}" "-framework Foundation")
+set_target_properties(gv_syphon_test_server PROPERTIES BUILD_RPATH "${SYPHON_FRAMEWORK_DIR}")

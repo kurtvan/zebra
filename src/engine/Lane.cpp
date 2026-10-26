@@ -89,13 +89,14 @@ void Lane::Configure(int width, int height, std::vector<std::string> texturePath
     Push(std::move(job), true);
 }
 
-void Lane::Prepare(InstanceId instance, int scene, std::string presetPath, bool priority)
+void Lane::Prepare(InstanceId instance, int scene, std::string presetPath, VideoSettings video, bool priority)
 {
     Job job;
     job.type = Job::Type::Prepare;
     job.instance = instance;
     job.scene = scene;
     job.presetPath = std::move(presetPath);
+    job.video = video;
     Push(std::move(job), priority);
 }
 
@@ -163,7 +164,7 @@ void Lane::SetLive(InstanceId instance)
     m_live = instance;
 }
 
-void Lane::Tick(PcmChunk pcm, long long tick)
+void Lane::Tick(PcmChunk pcm, long long tick, VideoFrame video)
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -173,6 +174,7 @@ void Lane::Tick(PcmChunk pcm, long long tick)
             m_pendingTick.pcm.push_back(std::move(pcm));
         }
         m_pendingTick.tick = tick;
+        m_pendingTick.video = video;
     }
     m_cv.notify_one();
 }
@@ -268,9 +270,11 @@ void Lane::Run()
                 DoConfigure(job);
                 break;
             case Job::Type::Shutdown:
-                for (auto& [id, instance] : m_instances)
-                    projectm_destroy(instance);
+                for (auto& [id, hosted] : m_instances)
+                    projectm_destroy(hosted.handle);
                 m_instances.clear();
+                if (m_placeholderVideo != 0)
+                    glDeleteTextures(1, &m_placeholderVideo);
                 {
                     std::lock_guard<std::mutex> lock(m_publishMutex);
                     if (m_published.fence != nullptr && !m_publishedTaken)
@@ -341,6 +345,25 @@ void Lane::DoPrepare(const Job& job, bool keep)
     projectm_load_preset_file(instance, job.presetPath.c_str(), false);
     projectm_set_preset_switch_failed_event_callback(instance, nullptr, nullptr);
 
+    if (job.video.enabled)
+    {
+        projectm_set_feedback_mix(instance, job.video.mix);
+        projectm_set_feedback_luma_gate(instance, job.video.lumaMin);
+        // Warm up with a placeholder so the blend shader is compiled now, not on the first live frame.
+        if (m_placeholderVideo == 0)
+        {
+            const unsigned char black[4] = {0, 0, 0, 255};
+            glGenTextures(1, &m_placeholderVideo);
+            glBindTexture(GL_TEXTURE_2D, m_placeholderVideo);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, black);
+            // Without mipmaps the default minification filter leaves the texture incomplete.
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+        projectm_set_feedback_texture(instance, m_placeholderVideo);
+    }
+
     if (failure.failed)
     {
         projectm_destroy(instance);
@@ -361,6 +384,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     glFinish();
     event.frameMs = MillisecondsSince(second);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    projectm_set_feedback_texture(instance, 0);
 
     event.ok = true;
     event.prepareMs = MillisecondsSince(start);
@@ -382,7 +406,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
         projectm_destroy(instance);
         return;
     }
-    m_instances[job.instance] = instance;
+    m_instances[job.instance] = {instance, job.video.enabled};
     m_sink(std::move(event));
 }
 
@@ -391,7 +415,7 @@ void Lane::DoRelease(InstanceId id)
     auto it = m_instances.find(id);
     if (it != m_instances.end())
     {
-        projectm_destroy(it->second);
+        projectm_destroy(it->second.handle);
         m_instances.erase(it);
     }
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -409,20 +433,20 @@ void Lane::DoConfigure(const Job& job)
     m_height = job.height;
     DestroyTargets();
     CreateTargets();
-    for (auto& [id, instance] : m_instances)
+    for (auto& [id, hosted] : m_instances)
     {
-        projectm_set_window_size(instance, static_cast<size_t>(m_width), static_cast<size_t>(m_height));
+        projectm_set_window_size(hosted.handle, static_cast<size_t>(m_width), static_cast<size_t>(m_height));
     }
     glFinish();
 }
 
 void Lane::DoTick(PendingTick tick)
 {
-    for (auto& [id, instance] : m_instances)
+    for (auto& [id, hosted] : m_instances)
     {
         for (const auto& chunk : tick.pcm)
         {
-            AddPcm(instance, *chunk);
+            AddPcm(hosted.handle, *chunk);
         }
     }
 
@@ -467,12 +491,20 @@ void Lane::DoTick(PendingTick tick)
         }
     }
     const bool timeThisFrame = !m_queryPending[slot];
+    // Video: wait (on the GPU) until the producer finished writing this frame, then blend it.
+    const GLuint video = it->second.video ? tick.video.texture : 0;
+    if (video != 0 && tick.video.fence != nullptr && glIsSync(tick.video.fence))
+    {
+        glWaitSync(tick.video.fence, 0, GL_TIMEOUT_IGNORED);
+    }
+    projectm_set_feedback_texture(it->second.handle, video);
+
     if (timeThisFrame)
         glBeginQuery(GL_TIME_ELAPSED, m_timerQuery[slot]);
 
     glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
     glViewport(0, 0, m_width, m_height);
-    projectm_opengl_render_frame_fbo(it->second, m_slotFbo[slot]);
+    projectm_opengl_render_frame_fbo(it->second.handle, m_slotFbo[slot]);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     if (timeThisFrame)

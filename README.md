@@ -12,7 +12,7 @@ Planning documents:
 - macOS 12 or later (developed on Apple Silicon).
 - Xcode (or the Command Line Tools) and CMake 3.24+: `brew install cmake`.
 - SDL2: `brew install sdl2`.
-- Syphon.framework in `/Library/Frameworks`, `~/Library/Frameworks` or `third_party/Syphon/` (needed from milestone 3).
+- Syphon.framework in `/Library/Frameworks`, `~/Library/Frameworks` or `third_party/Syphon/` ([releases](https://github.com/Syphon/Syphon-Framework/releases)). The build fails without it.
 - Optional: Ninja (`brew install ninja`) for faster builds; add `-G Ninja` to the configure command.
 
 Dear ImGui, nlohmann/json and Catch2 are downloaded at configure time (pinned in `cmake/Dependencies.cmake`).
@@ -51,13 +51,17 @@ scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.tx
 
 `performances/govtech-2026-11-06.json` is the fork's show, converted.
 
+### Syphon test pattern
+
+`./build/tools/syphon_test_server/gv_syphon_test_server [seconds]` publishes a server named "GV Test" (red top half, green bottom half, a sweeping white bar), for checking Syphon input.
+
 ### Headless smoke run
 
 ```sh
 ./build/src/govtech-visualizer --smoke --smoke-seconds 30 --smoke-cut-every 2 performances/govtech-2026-11-06.json
 ```
 
-Plays the performance in a hidden window, cutting to the next scene every 2 seconds, then logs held frames (by cause and per scene) and exits with status 0 on success.
+Plays the performance in a hidden window, cutting to the next scene every 2 seconds, then logs held frames (by cause and per scene) and each scene's video state, and exits with status 0 on success. `--smoke-snapshots DIR` saves the output just before each cut as a BMP.
 
 ## Test
 

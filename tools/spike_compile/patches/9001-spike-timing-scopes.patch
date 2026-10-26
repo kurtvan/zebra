@@ -1,4 +1,4 @@
-From 70b1c3771a6e39fe272cf6cd1aa360a0d208192f Mon Sep 17 00:00:00 2001
+From baf3623a42449f5584e9dd592b7c38cc737371c4 Mon Sep 17 00:00:00 2001
 From: kurtvan <kurtv7348@gmail.com>
 Date: Thu, 22 Oct 2026 18:02:26 -0400
 Subject: [PATCH] Spike-only: timing scopes for preset load phases
@@ -14,7 +14,7 @@ Subject: [PATCH] Spike-only: timing scopes for preset load phases
  create mode 100644 src/libprojectM/SpikeTiming.hpp
 
 diff --git a/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp b/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
-index e311cf0bb..93f34350a 100755
+index a2d5184c5..2f321df87 100755
 --- a/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
 +++ b/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
 @@ -24,6 +24,7 @@
@@ -63,7 +63,7 @@ index e311cf0bb..93f34350a 100755
  }
  
  void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audioData, const Renderer::RenderContext& renderContext)
-@@ -207,7 +220,12 @@ void MilkdropPreset::Load(const std::string& pathname)
+@@ -220,7 +233,12 @@ void MilkdropPreset::Load(const std::string& pathname)
  
      PresetFileParser parser;
  
@@ -77,7 +77,7 @@ index e311cf0bb..93f34350a 100755
      {
  #ifdef MILKDROP_PRESET_DEBUG
          std::cerr << "[Preset] Could not parse preset file." << std::endl;
-@@ -215,6 +233,7 @@ void MilkdropPreset::Load(const std::string& pathname)
+@@ -228,6 +246,7 @@ void MilkdropPreset::Load(const std::string& pathname)
          throw MilkdropPresetLoadException("Could not parse preset file \"" + pathname + "\"");
      }
  
@@ -130,7 +130,7 @@ index fa769d5c7..eaebc8502 100644
      // Compile the preset shader fragment shader with the standard vertex shader and cross our fingers.
      if (m_type == ShaderType::WarpShader)
 diff --git a/src/libprojectM/ProjectM.cpp b/src/libprojectM/ProjectM.cpp
-index d8b9be4c6..f8ddbef91 100644
+index c204875ba..a98b90f35 100644
 --- a/src/libprojectM/ProjectM.cpp
 +++ b/src/libprojectM/ProjectM.cpp
 @@ -20,6 +20,7 @@
@@ -139,9 +139,9 @@ index d8b9be4c6..f8ddbef91 100644
  #include "ProjectM.hpp"
 +#include "SpikeTiming.hpp"
  
- #include "Preset.hpp"
- #include "PresetFactoryManager.hpp"
-@@ -55,10 +56,16 @@ void ProjectM::PresetSwitchFailedEvent(const std::string&, const std::string&) c
+ #include <algorithm>
+ 
+@@ -57,10 +58,16 @@ void ProjectM::PresetSwitchFailedEvent(const std::string&, const std::string&) c
  
  void ProjectM::LoadPresetFile(const std::string& presetFilename, bool smoothTransition)
  {
@@ -159,7 +159,7 @@ index d8b9be4c6..f8ddbef91 100644
      }
      catch (const std::exception& ex)
      {
-@@ -243,7 +250,10 @@ void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hard
+@@ -266,7 +273,10 @@ void ProjectM::StartPresetTransition(std::unique_ptr<Preset>&& preset, bool hard
          return;
      }
  
@@ -172,7 +172,7 @@ index d8b9be4c6..f8ddbef91 100644
      // If already in a transition, force immediate completion.
      if (m_transitioningPreset != nullptr)
 diff --git a/src/libprojectM/ProjectMCWrapper.cpp b/src/libprojectM/ProjectMCWrapper.cpp
-index d60c8210d..0544a6cab 100644
+index c23cd6e5d..dc1b1e7cc 100644
 --- a/src/libprojectM/ProjectMCWrapper.cpp
 +++ b/src/libprojectM/ProjectMCWrapper.cpp
 @@ -1,4 +1,7 @@
@@ -183,7 +183,7 @@ index d60c8210d..0544a6cab 100644
  
  #include <projectM-4/projectM.h>
  
-@@ -380,4 +383,33 @@ auto projectm_pcm_add_uint8(projectm_handle instance, const uint8_t* samples, un
+@@ -395,4 +398,33 @@ auto projectm_pcm_add_uint8(projectm_handle instance, const uint8_t* samples, un
  auto projectm_write_debug_image_on_next_frame(projectm_handle, const char*) -> void
  {
      // UNIMPLEMENTED

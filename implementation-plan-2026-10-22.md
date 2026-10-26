@@ -191,6 +191,8 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 - A Syphon test sender (e.g. Simple Server) is picked up by name, survives sender restarts, and shows "disconnected" (not frozen) when it quits.
 - 4K and 1080p file playback cost measured: the CPU stays low with no per-frame copies (check in Instruments).
 
+**M3 as built (2026-10-25):** see technical doc §5 "Video as built". `sampler_video` deferred. The Syphon server picker UI moves to M4's scene properties (`io::ListSyphonServers()` is ready). `tools/syphon_test_server` publishes a test pattern for manual checks.
+
 ### M4: Editor: performance and scene authoring (L)
 **Goal:** create and edit performances without touching JSON.
 
@@ -271,7 +273,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 | # | Patch | Milestone | Keep long-term? |
 |---|---|---|---|
 | 0001 | Render to a caller-provided FBO (`projectm_opengl_render_frame_fbo`) | M0 | Drop if upstream equivalent arrives on upgrade |
-| 0002 | Feedback texture API + `sampler_video` | M3 | Yes (candidate for upstreaming) |
+| 0002 | Feedback texture API (`sampler_video` deferred, see technical doc §3) | M3 | Yes (candidate for upstreaming) |
 | ~~0003+~~ | ~~Background-prepare support~~: **not needed** (M1 chose lanes) | M1 | — |
 | (opt) | Reset preset without recompile | M2 if needed | Only if recycling is too slow |
 

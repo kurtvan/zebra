@@ -1,0 +1,66 @@
+#pragma once
+
+#include <OpenGL/gl3.h>
+
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace gv::io {
+
+enum class VideoState
+{
+    Starting,     //!< Opening / waiting for the first frame.
+    Live,         //!< Frames are arriving.
+    Disconnected, //!< Syphon server not available (yet); no frame is shown.
+    Missing,      //!< File not found.
+    Failed,       //!< Couldn't be opened.
+};
+
+auto ToString(VideoState state) -> const char*;
+
+/// A video feed turned into a GL_TEXTURE_2D in bottom-up (OpenGL) orientation, as patch 0002 expects.
+///
+/// Created and updated on the main thread with the editor's GL context current; the textures are shared
+/// with the lanes through the share group.
+class VideoSource
+{
+public:
+    virtual ~VideoSource() = default;
+
+    /// Pulls the newest frame, if any. Returns the texture to blend, or 0 when there is nothing to show
+    /// (never a stale frame from a source that went away).
+    virtual auto Update() -> GLuint = 0;
+
+    /// Starts or pauses decoding (file sources). Paused sources keep their position.
+    virtual void SetActive(bool active)
+    {
+    }
+
+    /// Jumps back to the start (file sources).
+    virtual void Restart()
+    {
+    }
+
+    virtual auto State() const -> VideoState = 0;
+    virtual auto Describe() const -> std::string = 0;
+};
+
+/// AVFoundation playback of a file, muted and looping, decoded straight into GL textures (no CPU copies).
+auto CreateFileVideoSource(const std::filesystem::path& file) -> std::unique_ptr<VideoSource>;
+
+/// Syphon input from the server matching `appName` and `serverName` (an empty field matches anything).
+/// Connects when the server appears and reconnects after it goes away.
+auto CreateSyphonVideoSource(const std::string& appName, const std::string& serverName) -> std::unique_ptr<VideoSource>;
+
+struct SyphonServerInfo
+{
+    std::string appName;
+    std::string serverName;
+};
+
+/// Syphon servers currently announced on this machine.
+auto ListSyphonServers() -> std::vector<SyphonServerInfo>;
+
+} // namespace gv::io

@@ -2,6 +2,7 @@
 
 #include "app/Settings.hpp"
 #include "app/Shell.hpp"
+#include "app/VideoManager.hpp"
 #include "app_info.hpp"
 #include "common/SpscRingBuffer.hpp"
 #include "common/log.hpp"
@@ -23,6 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <thread>
@@ -46,6 +48,7 @@ struct Options
     double smokeSeconds{20.0};
     double smokeCutSeconds{2.0};
     bool smokeNoEditor{false}; //!< Skip drawing the editor (to measure its cost).
+    std::filesystem::path smokeSnapshots; //!< If set, saves the output just before each cut as a BMP here.
 };
 
 auto ParseOptions(int argc, char* argv[]) -> Options
@@ -61,6 +64,8 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.smoke = true;
         else if (arg == "--smoke-seconds" && hasValue)
             options.smokeSeconds = std::atof(argv[++i]);
+        else if (arg == "--smoke-snapshots" && hasValue)
+            options.smokeSnapshots = argv[++i];
         else if (arg == "--smoke-no-editor")
             options.smokeNoEditor = true;
         else if (arg == "--smoke-cut-every" && hasValue)
@@ -92,6 +97,7 @@ public:
         {
             return false;
         }
+        m_engine.SetVideoProvider(&m_video);
         ApplyTexturePaths();
 
         m_midi = gv::io::CreateMidiInput();
@@ -135,6 +141,8 @@ public:
         m_performance = std::move(result.performance);
         m_performancePath = file;
         m_hasPerformance = true;
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext); // video sources convert frames on this context
+        m_video.Load(m_performance);
         m_engine.LoadPerformance(m_performance);
         m_settings.lastPerformance = file;
         SaveSettings();
@@ -191,6 +199,7 @@ public:
 
     void Trigger(int scene) override
     {
+        m_video.OnTrigger(scene, m_engine.LiveScene());
         m_engine.Trigger(scene);
     }
 
@@ -261,7 +270,7 @@ public:
         if (auto value = m_midi->TakeSceneTrigger(); value && m_hasPerformance)
         {
             if (auto scene = m_performance.SceneForCc20(*value))
-                m_engine.Trigger(static_cast<int>(*scene));
+                Trigger(static_cast<int>(*scene));
             else
                 GV_LOG_INFO(kLogCategory, "CC 20 = %d doesn't match any scene", *value);
         }
@@ -273,6 +282,8 @@ public:
 
         // Audio: everything captured since the last frame.
         const size_t samples = m_ring.Read(m_pcm.data(), m_pcm.size());
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        m_video.BeginFrame(m_engine.LiveScene(), m_engine.PendingScene(), m_engine.HandoverScene());
         m_engine.Tick(m_pcm.data(), samples / 2, m_settings.gain);
 
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
@@ -321,6 +332,7 @@ private:
         state.engine = &m_engine;
         state.midi = m_midi.get();
         state.audio = &m_audio;
+        state.video = &m_video;
         state.preview = presented;
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;
@@ -416,11 +428,15 @@ private:
         }
         // Wait for the first scenes to be ready before cutting, like a show would.
         const int cut = static_cast<int>(elapsed / m_options.smokeCutSeconds);
+        if (cut != m_smokeLastCut && m_smokeLastCut >= 0 && !m_options.smokeSnapshots.empty())
+        {
+            SaveSnapshot(m_options.smokeSnapshots / ("cut" + std::to_string(m_smokeLastCut) + "-scene" + std::to_string(m_engine.LiveScene()) + ".bmp"));
+        }
         if (cut != m_smokeLastCut)
         {
             m_smokeLastCut = cut;
             const int scene = cut % static_cast<int>(m_performance.scenes.size());
-            m_engine.Trigger(scene);
+            Trigger(scene);
             m_smokeCuts++;
         }
         if (elapsed >= m_options.smokeSeconds)
@@ -435,11 +451,55 @@ private:
             {
                 const auto info = m_engine.Scene(i);
                 const auto held = stats.heldByScene.count(i) ? stats.heldByScene.at(i) : 0;
-                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, held %lld (%.1f%% of its live frames)", i, m_performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held, info.droppedFraction * 100.0);
+                const auto video = m_video.StateFor(i);
+                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, held %lld (%.1f%% of its live frames), video %s", i,
+                            m_performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held,
+                            info.droppedFraction * 100.0, video ? gv::io::ToString(*video) : "-");
             }
             m_smokeOk = stats.presentedFrames > liveTicks / 2;
             m_smokeDone = true;
         }
+    }
+
+    /// Writes the presented texture as a 24-bit BMP (bottom-up rows, like GL).
+    void SaveSnapshot(const std::filesystem::path& file)
+    {
+        const int width = m_engine.RenderWidth();
+        const int height = m_engine.RenderHeight();
+        if (m_readFbo == 0)
+            glGenFramebuffers(1, &m_readFbo);
+        std::vector<unsigned char> rgba(static_cast<size_t>(width) * height * 4);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_readFbo);
+        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_engine.PresentedTexture(), 0);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+        const int rowBytes = (width * 3 + 3) & ~3;
+        const uint32_t imageBytes = static_cast<uint32_t>(rowBytes * height);
+        std::vector<unsigned char> bmp(54 + imageBytes, 0);
+        auto put32 = [&](size_t at, uint32_t value) { for (int i = 0; i < 4; ++i) bmp[at + i] = static_cast<unsigned char>(value >> (8 * i)); };
+        bmp[0] = 'B';
+        bmp[1] = 'M';
+        put32(2, 54 + imageBytes);
+        put32(10, 54);
+        put32(14, 40);
+        put32(18, static_cast<uint32_t>(width));
+        put32(22, static_cast<uint32_t>(height));
+        bmp[26] = 1;
+        bmp[28] = 24;
+        put32(34, imageBytes);
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+            {
+                const unsigned char* p = &rgba[static_cast<size_t>((y * width + x) * 4)];
+                unsigned char* q = &bmp[54 + static_cast<size_t>(y * rowBytes + x * 3)];
+                q[0] = p[2];
+                q[1] = p[1];
+                q[2] = p[0];
+            }
+        std::error_code ec;
+        std::filesystem::create_directories(file.parent_path(), ec);
+        std::ofstream(file, std::ios::binary).write(reinterpret_cast<const char*>(bmp.data()), static_cast<std::streamsize>(bmp.size()));
     }
 
     void ApplyTexturePaths()
@@ -475,6 +535,7 @@ private:
     gv::app::Settings m_settings;
     bool m_settingsDirty{false};
 
+    gv::app::VideoManager m_video; // declared before the engine: destroyed after it, so lanes never see freed textures
     gv::engine::Engine m_engine;
     bool m_fullscreen{false};
     GLuint m_readFbo{0};

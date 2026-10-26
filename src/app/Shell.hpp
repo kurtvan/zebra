@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/Settings.hpp"
+#include "app/VideoManager.hpp"
 #include "engine/Engine.hpp"
 #include "io/AudioInput.hpp"
 #include "io/MidiInput.hpp"
@@ -42,6 +43,7 @@ struct ShellState
     const engine::Engine* engine{nullptr};
     const io::MidiInput* midi{nullptr};
     const io::AudioInput* audio{nullptr};
+    const VideoManager* video{nullptr};
     GLuint preview{0};
     const std::deque<float>* frameIntervalsMs{nullptr};
     long long slowFrames{0};

@@ -216,9 +216,19 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
         chunk = std::move(buffer);
     }
 
-    for (auto& lane : m_lanes)
+    // Video for the live scene and, during a handover, the outgoing one; other lanes only take PCM.
+    const int liveScene = m_pool.LiveScene();
+    for (int i = 0; i < static_cast<int>(m_lanes.size()); ++i)
     {
-        lane->Tick(chunk, m_tick);
+        VideoFrame video;
+        if (m_videoProvider != nullptr)
+        {
+            if (i == m_liveLane && liveScene >= 0)
+                video = m_videoProvider->FrameFor(liveScene);
+            else if (i == m_handover.lane && m_handover.scene >= 0)
+                video = m_videoProvider->FrameFor(m_handover.scene);
+        }
+        m_lanes[static_cast<size_t>(i)]->Tick(chunk, m_tick, video);
     }
 
     // Once a scene has been live for half a second, its lane's average render time replaces the
@@ -370,13 +380,17 @@ void Engine::Execute(std::vector<PoolCommand> commands)
         switch (command.type)
         {
             case PoolCommand::Type::Prepare:
-                lane.Prepare(command.instance, command.scene, m_performance.scenes[static_cast<size_t>(command.scene)].presetPath.string(), command.priority);
+            {
+                const auto& scene = m_performance.scenes[static_cast<size_t>(command.scene)];
+                VideoSettings video{scene.video.enabled, scene.video.mix, scene.video.lumaMin};
+                lane.Prepare(command.instance, command.scene, scene.presetPath.string(), video, command.priority);
+            }
                 break;
             case PoolCommand::Type::Release:
                 if (command.instance == m_liveInstance)
                 {
                     // The scene being left: it keeps rendering until the next one's first frame is presented.
-                    m_handoverRelease = {command.lane, command.instance};
+                    m_handoverRelease = {command.lane, command.instance, command.scene};
                     break;
                 }
                 lane.Release(command.instance);

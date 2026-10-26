@@ -24,8 +24,17 @@ add_library(gv_io STATIC
     io/MidiDecode.cpp
     io/macos/CoreMidiInput.mm
     io/AudioInput.hpp
-    io/sdl/SdlAudioInput.cpp)
-target_link_libraries(gv_io PUBLIC gv_common SDL2::SDL2 PRIVATE gv_warnings "-framework CoreMIDI" "-framework CoreFoundation")
+    io/sdl/SdlAudioInput.cpp
+    io/VideoSource.hpp
+    io/macos/RectToTexture.cpp
+    io/macos/RectToTexture.hpp
+    io/macos/FileVideoSource.mm
+    io/macos/SyphonVideoSource.mm)
+target_compile_options(gv_io PRIVATE "-F${SYPHON_FRAMEWORK_DIR}")
+target_compile_definitions(gv_io PRIVATE GL_SILENCE_DEPRECATION)
+target_link_libraries(gv_io PUBLIC gv_common SDL2::SDL2 OpenGL::GL PRIVATE gv_warnings "${SYPHON_FRAMEWORK}"
+    "-framework CoreMIDI" "-framework CoreFoundation" "-framework AVFoundation" "-framework CoreVideo"
+    "-framework CoreMedia" "-framework QuartzCore" "-framework Foundation")
 
 add_library(gv_engine STATIC
     engine/ScenePool.cpp
@@ -43,6 +52,8 @@ add_executable(govtech-visualizer
     app/Settings.hpp
     app/Shell.cpp
     app/Shell.hpp
+    app/VideoManager.cpp
+    app/VideoManager.hpp
     app/macos/FileDialog.mm
     app/macos/FileDialog.hpp)
 target_link_libraries(govtech-visualizer PRIVATE
@@ -58,7 +69,10 @@ target_link_libraries(govtech-visualizer PRIVATE
     "-framework AppKit"
     "-framework UniformTypeIdentifiers")
 target_compile_definitions(govtech-visualizer PRIVATE GL_SILENCE_DEPRECATION)
+# Syphon.framework's install name is @rpath-relative.
+set_target_properties(govtech-visualizer PROPERTIES BUILD_RPATH "${SYPHON_FRAMEWORK_DIR}")
 
 # Objective-C++ sources use ARC.
 set_source_files_properties(common/paths.mm io/macos/CoreMidiInput.mm app/macos/FileDialog.mm
+    io/macos/FileVideoSource.mm io/macos/SyphonVideoSource.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc")

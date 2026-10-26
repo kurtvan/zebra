@@ -17,6 +17,14 @@
 
 namespace gv::engine {
 
+/// Supplies the current video frame of a scene (implemented by the app, which owns the video sources).
+class VideoProvider
+{
+public:
+    virtual ~VideoProvider() = default;
+    virtual auto FrameFor(int scene) -> VideoFrame = 0;
+};
+
 /// Playback engine: lanes, the scene pool, PCM fan-out and the presented frame.
 ///
 /// All methods are called on the main thread. Lanes report back through a queue drained in Tick().
@@ -69,6 +77,18 @@ public:
     /// Requests scene `index` (into the loaded performance) to go live.
     void Trigger(int index);
 
+    /// Where live scenes get their video frames from (may be null: no video).
+    void SetVideoProvider(VideoProvider* provider)
+    {
+        m_videoProvider = provider;
+    }
+
+    /// The outgoing scene during a cut's handover, or -1.
+    auto HandoverScene() const -> int
+    {
+        return m_handover.scene;
+    }
+
     /// Once per output frame: handles lane events, fans out `frames` interleaved stereo samples (times `gain`),
     /// and asks the live lane for the next frame.
     void Tick(const float* samples, size_t frames, float gain);
@@ -115,6 +135,7 @@ private:
     void CreatePresentTargets();
 
     std::vector<std::unique_ptr<Lane>> m_lanes;
+    VideoProvider* m_videoProvider{nullptr};
     ScenePool m_pool;
     model::Performance m_performance;
     int m_width{1920};
@@ -131,6 +152,7 @@ private:
     {
         int lane{-1};
         InstanceId instance{0};
+        int scene{-1};
     };
     LaneInstance m_handover;        //!< Outgoing live instance, still rendering until the new one has a frame.
     LaneInstance m_handoverRelease; //!< Set while executing an Activate's commands.
