@@ -1,0 +1,168 @@
+From da4f3dd5cb1132a3cff1724f4d40d860db758893 Mon Sep 17 00:00:00 2001
+From: kurtvan <kurtv7348@gmail.com>
+Date: Sun, 25 Oct 2026 23:13:04 -0400
+Subject: [PATCH] Contrast and saturation for the feedback texture
+
+Adds projectm_set_feedback_contrast and projectm_set_feedback_saturation
+(1 = unchanged). The blend shader adjusts the external texture's colour
+before the luma gate, so the gate works on what's actually blended.
+---
+ src/api/include/projectM-4/render_opengl.h | 14 ++++++++++++++
+ src/libprojectM/ProjectM.cpp               | 10 ++++++++++
+ src/libprojectM/ProjectM.hpp               |  2 ++
+ src/libprojectM/ProjectMCWrapper.cpp       | 10 ++++++++++
+ src/libprojectM/Renderer/FeedbackBlend.cpp | 16 +++++++++++++---
+ src/libprojectM/Renderer/FeedbackBlend.hpp |  4 ++++
+ 6 files changed, 53 insertions(+), 3 deletions(-)
+
+diff --git a/src/api/include/projectM-4/render_opengl.h b/src/api/include/projectM-4/render_opengl.h
+index f2c2db5a5..8998cf7c1 100644
+--- a/src/api/include/projectM-4/render_opengl.h
++++ b/src/api/include/projectM-4/render_opengl.h
+@@ -77,6 +77,20 @@ PROJECTM_EXPORT void projectm_set_feedback_mix(projectm_handle instance, float m
+  */
+ PROJECTM_EXPORT void projectm_set_feedback_luma_gate(projectm_handle instance, float luma_min);
+ 
++/**
++ * @brief Sets the contrast of the feedback texture, applied before the luma gate.
++ * @param instance The projectM instance handle.
++ * @param contrast 1 = unchanged (default), 0 = flat grey, 2 = double; clamped to 0..4.
++ */
++PROJECTM_EXPORT void projectm_set_feedback_contrast(projectm_handle instance, float contrast);
++
++/**
++ * @brief Sets the saturation of the feedback texture, applied before the luma gate.
++ * @param instance The projectM instance handle.
++ * @param saturation 1 = unchanged (default), 0 = greyscale, 2 = double; clamped to 0..4.
++ */
++PROJECTM_EXPORT void projectm_set_feedback_saturation(projectm_handle instance, float saturation);
++
+ #ifdef __cplusplus
+ } // extern "C"
+ #endif
+diff --git a/src/libprojectM/ProjectM.cpp b/src/libprojectM/ProjectM.cpp
+index c204875ba..934d792c1 100644
+--- a/src/libprojectM/ProjectM.cpp
++++ b/src/libprojectM/ProjectM.cpp
+@@ -216,6 +216,16 @@ void ProjectM::SetFeedbackLumaGate(float lumaMin)
+     m_feedback.lumaMin = std::max(0.0f, std::min(1.0f, lumaMin));
+ }
+ 
++void ProjectM::SetFeedbackContrast(float contrast)
++{
++    m_feedback.contrast = std::max(0.0f, std::min(4.0f, contrast));
++}
++
++void ProjectM::SetFeedbackSaturation(float saturation)
++{
++    m_feedback.saturation = std::max(0.0f, std::min(4.0f, saturation));
++}
++
+ void ProjectM::Initialize()
+ {
+     /** Initialise start time */
+diff --git a/src/libprojectM/ProjectM.hpp b/src/libprojectM/ProjectM.hpp
+index 7606bd7bd..58ba5b060 100644
+--- a/src/libprojectM/ProjectM.hpp
++++ b/src/libprojectM/ProjectM.hpp
+@@ -115,6 +115,8 @@ public:
+     void SetFeedbackTexture(uint32_t texture);
+     void SetFeedbackMix(float mix);
+     void SetFeedbackLumaGate(float lumaMin);
++    void SetFeedbackContrast(float contrast);
++    void SetFeedbackSaturation(float saturation);
+ 
+     void SetBeatSensitivity(float sensitivity);
+ 
+diff --git a/src/libprojectM/ProjectMCWrapper.cpp b/src/libprojectM/ProjectMCWrapper.cpp
+index c23cd6e5d..d31bc38da 100644
+--- a/src/libprojectM/ProjectMCWrapper.cpp
++++ b/src/libprojectM/ProjectMCWrapper.cpp
+@@ -192,6 +192,16 @@ void projectm_set_feedback_luma_gate(projectm_handle instance, float luma_min)
+     handle_to_instance(instance)->SetFeedbackLumaGate(luma_min);
+ }
+ 
++void projectm_set_feedback_contrast(projectm_handle instance, float contrast)
++{
++    handle_to_instance(instance)->SetFeedbackContrast(contrast);
++}
++
++void projectm_set_feedback_saturation(projectm_handle instance, float saturation)
++{
++    handle_to_instance(instance)->SetFeedbackSaturation(saturation);
++}
++
+ void projectm_set_beat_sensitivity(projectm_handle instance, float sensitivity)
+ {
+     auto projectMInstance = handle_to_instance(instance);
+diff --git a/src/libprojectM/Renderer/FeedbackBlend.cpp b/src/libprojectM/Renderer/FeedbackBlend.cpp
+index 483fc0f11..473d89e5e 100644
+--- a/src/libprojectM/Renderer/FeedbackBlend.cpp
++++ b/src/libprojectM/Renderer/FeedbackBlend.cpp
+@@ -22,14 +22,20 @@ const char* kFragmentShader = R"GLSL(
+ uniform sampler2D uTexture;
+ uniform float uMix;
+ uniform float uLumaMin;
++uniform float uContrast;
++uniform float uSaturation;
+ in vec2 vUv;
+ out vec4 fragColor;
+ void main()
+ {
+-    vec4 color = texture(uTexture, vUv);
+-    float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
++    const vec3 lumaWeights = vec3(0.299, 0.587, 0.114);
++    vec3 color = texture(uTexture, vUv).rgb;
++    color = (color - 0.5) * uContrast + 0.5;
++    color = mix(vec3(dot(color, lumaWeights)), color, uSaturation);
++    color = clamp(color, 0.0, 1.0);
++    float luma = dot(color, lumaWeights);
+     float gate = smoothstep(uLumaMin - 0.05, uLumaMin + 0.05, luma);
+-    fragColor = vec4(color.rgb, uMix * gate);
++    fragColor = vec4(color, uMix * gate);
+ }
+ )GLSL";
+ 
+@@ -82,6 +88,8 @@ FeedbackBlend::FeedbackBlend()
+     m_textureLocation = glGetUniformLocation(m_program, "uTexture");
+     m_mixLocation = glGetUniformLocation(m_program, "uMix");
+     m_lumaMinLocation = glGetUniformLocation(m_program, "uLumaMin");
++    m_contrastLocation = glGetUniformLocation(m_program, "uContrast");
++    m_saturationLocation = glGetUniformLocation(m_program, "uSaturation");
+     glGenVertexArrays(1, &m_vao);
+ }
+ 
+@@ -127,6 +135,8 @@ void FeedbackBlend::Draw(const FeedbackSettings& settings)
+     glUniform1i(m_textureLocation, 0);
+     glUniform1f(m_mixLocation, settings.mix);
+     glUniform1f(m_lumaMinLocation, settings.lumaMin);
++    glUniform1f(m_contrastLocation, settings.contrast);
++    glUniform1f(m_saturationLocation, settings.saturation);
+ 
+     glActiveTexture(GL_TEXTURE0);
+     GLint previousTexture = 0;
+diff --git a/src/libprojectM/Renderer/FeedbackBlend.hpp b/src/libprojectM/Renderer/FeedbackBlend.hpp
+index 134d51406..d47f8270f 100644
+--- a/src/libprojectM/Renderer/FeedbackBlend.hpp
++++ b/src/libprojectM/Renderer/FeedbackBlend.hpp
+@@ -16,6 +16,8 @@ struct FeedbackSettings
+     GLuint texture{0};   //!< GL_TEXTURE_2D in bottom-up (GL) orientation, owned by the caller. 0 disables blending.
+     float mix{1.0f};     //!< Blend amount, 0..1.
+     float lumaMin{0.0f}; //!< Pixels darker than this (0..1) are transparent.
++    float contrast{1.0f};   //!< 1 = unchanged, 0 = flat grey, 2 = double contrast. Applied before the luma gate.
++    float saturation{1.0f}; //!< 1 = unchanged, 0 = greyscale, 2 = doubled.
+ };
+ 
+ /**
+@@ -43,6 +45,8 @@ private:
+     GLint m_textureLocation{-1};
+     GLint m_mixLocation{-1};
+     GLint m_lumaMinLocation{-1};
++    GLint m_contrastLocation{-1};
++    GLint m_saturationLocation{-1};
+ };
+ 
+ } // namespace Renderer
+-- 
+2.50.1 (Apple Git-155)
+

@@ -52,6 +52,8 @@ TEST_CASE("a performance survives a save/load round trip")
     a.video.mix = 0.5f;
     a.video.lumaMin = 0.25f;
     a.video.restartOnEnter = false;
+    a.video.contrast = 1.4f;
+    a.video.saturation = 0.0f;
     auto b = MakeScene("cave", 7);
     b.video.enabled = true;
     b.video.source.type = VideoSourceType::Syphon;
@@ -73,6 +75,9 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK(loaded.scenes[0].video.mix == 0.5f);
     CHECK(loaded.scenes[0].video.lumaMin == 0.25f);
     CHECK_FALSE(loaded.scenes[0].video.restartOnEnter);
+    CHECK(loaded.scenes[0].video.contrast == 1.4f);
+    CHECK(loaded.scenes[0].video.saturation == 0.0f);
+    CHECK(loaded.scenes[1].video.contrast == 1.0f); // defaults
     CHECK(loaded.scenes[1].cc20Value == 7);
     CHECK(loaded.scenes[1].video.source.type == VideoSourceType::Syphon);
     CHECK(loaded.scenes[1].video.source.appName == "Resolume");
@@ -122,15 +127,28 @@ TEST_CASE("validation rules")
         CHECK(HasIssueAt(issues, "/scenes/2/midi/cc20Value"));
         CHECK(HasIssueAt(issues, "/scenes/3/midi/cc20Value"));
     }
-    SECTION("mix and luma ranges")
+    SECTION("mix, luma, contrast and saturation ranges")
     {
         auto scene = MakeScene("a", 0);
         scene.video.mix = 1.5f;
         scene.video.lumaMin = -0.1f;
+        scene.video.contrast = 2.5f;
+        scene.video.saturation = -1.f;
         performance.scenes = {scene};
         const auto issues = Validate(performance);
         CHECK(HasIssueAt(issues, "/scenes/0/video/mix"));
         CHECK(HasIssueAt(issues, "/scenes/0/video/lumaMin"));
+        CHECK(HasIssueAt(issues, "/scenes/0/video/contrast"));
+        CHECK(HasIssueAt(issues, "/scenes/0/video/saturation"));
+    }
+
+    SECTION("files without contrast/saturation load with defaults")
+    {
+        const auto result = ParsePerformance(R"({"version": 1, "scenes": [{"id": "a", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 0},
+            "video": {"enabled": true, "source": {"type": "file", "path": "/v.mp4"}, "mix": 1, "lumaMin": 0}}]})");
+        REQUIRE(result.ok);
+        CHECK(result.performance.scenes[0].video.contrast == 1.0f);
+        CHECK(result.performance.scenes[0].video.saturation == 1.0f);
     }
     SECTION("enabled file video needs a path; Syphon without names means any server")
     {

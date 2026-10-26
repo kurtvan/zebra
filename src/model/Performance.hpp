@@ -30,6 +30,8 @@ struct SceneVideo
     VideoSource source;
     float mix{1.0f};     //!< 0..1
     float lumaMin{0.0f}; //!< 0..1
+    float contrast{1.0f};   //!< 0..2, 1 = unchanged. Applied before the luma gate.
+    float saturation{1.0f}; //!< 0..2, 1 = unchanged, 0 = greyscale.
     bool restartOnEnter{true};
 };
 

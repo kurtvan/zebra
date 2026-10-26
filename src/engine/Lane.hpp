@@ -29,6 +29,8 @@ struct VideoSettings
     bool enabled{false};
     float mix{1.0f};
     float lumaMin{0.0f};
+    float contrast{1.0f};
+    float saturation{1.0f};
 };
 
 /// The current frame of the live scene's video, if it has one.

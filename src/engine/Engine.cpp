@@ -193,9 +193,10 @@ void Engine::UpdatePerformance(const model::Performance& performance)
 
         // Video blend settings apply to the existing instances (including the live one) right away.
         if (!presetChanged[static_cast<size_t>(it->second)] &&
-            (before.video.enabled != after.video.enabled || before.video.mix != after.video.mix || before.video.lumaMin != after.video.lumaMin))
+            (before.video.enabled != after.video.enabled || before.video.mix != after.video.mix || before.video.lumaMin != after.video.lumaMin ||
+             before.video.contrast != after.video.contrast || before.video.saturation != after.video.saturation))
         {
-            const VideoSettings video{after.video.enabled, after.video.mix, after.video.lumaMin};
+            const VideoSettings video{after.video.enabled, after.video.mix, after.video.lumaMin, after.video.contrast, after.video.saturation};
             for (const auto& hosted : m_pool.InstancesOf(old))
                 m_lanes[static_cast<size_t>(hosted.lane)]->UpdateVideo(hosted.instance, video);
             if (m_handover.instance != 0 && m_handover.scene == old)
@@ -449,7 +450,7 @@ void Engine::Execute(std::vector<PoolCommand> commands)
             case PoolCommand::Type::Prepare:
             {
                 const auto& scene = m_performance.scenes[static_cast<size_t>(command.scene)];
-                VideoSettings video{scene.video.enabled, scene.video.mix, scene.video.lumaMin};
+                VideoSettings video{scene.video.enabled, scene.video.mix, scene.video.lumaMin, scene.video.contrast, scene.video.saturation};
                 lane.Prepare(command.instance, command.scene, scene.presetPath.string(), video, command.priority);
             }
                 break;
