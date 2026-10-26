@@ -82,6 +82,14 @@ void Shell::Draw(ShellState& state, AppActions& actions)
             }
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("View"))
+        {
+            if (ImGui::MenuItem(state.outputDisplay.empty() ? "Show Output" : "Hide Output", "Cmd+F"))
+            {
+                actions.ToggleOutput();
+            }
+            ImGui::EndMenu();
+        }
         ImGui::EndMainMenuBar();
     }
 
@@ -258,14 +266,17 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     ImGui::EndDisabled();
 
     ImGui::SeparatorText("Output");
-    const char* currentOutput = state.outputDisplay.empty() ? "Off" : state.outputDisplay.c_str();
-    if (ImGui::BeginCombo("Display", currentOutput))
+    auto displayLabel = [&](const std::string& name) {
+        return name == state.editorDisplay ? name + " (this screen)" : name;
+    };
+    const std::string currentOutput = settings.outputDisplay.empty() ? "Off" : displayLabel(settings.outputDisplay);
+    if (ImGui::BeginCombo("Display", currentOutput.c_str()))
     {
-        if (ImGui::Selectable("Off", state.outputDisplay.empty()))
+        if (ImGui::Selectable("Off", settings.outputDisplay.empty()))
             actions.SetOutputDisplay("");
         for (const auto& name : m_displays)
         {
-            if (ImGui::Selectable(name.c_str(), name == state.outputDisplay))
+            if (ImGui::Selectable(displayLabel(name).c_str(), name == settings.outputDisplay))
                 actions.SetOutputDisplay(name);
         }
         ImGui::EndCombo();
@@ -273,6 +284,12 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     ImGui::SameLine();
     if (ImGui::SmallButton("Refresh##displays"))
         m_displays = OutputWindow::DisplayNames();
+    if (ImGui::Button(state.outputDisplay.empty() ? "Show output" : "Hide output"))
+        actions.ToggleOutput();
+    ImGui::SameLine();
+    ImGui::TextColored(kDim, "Cmd+F");
+    if (!settings.outputDisplay.empty() && settings.outputDisplay == state.editorDisplay)
+        ImGui::TextColored(kAmber, "This is the editor's screen: the output will cover it.\nPress Esc or Cmd+F to come back.");
     ImGui::TextColored(kDim, "Rendering at %dx%d", state.engine->RenderWidth(), state.engine->RenderHeight());
 
     ImGui::SeparatorText("Audio input");

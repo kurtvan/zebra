@@ -36,7 +36,8 @@ projectM is built from a patched copy of the `third_party/projectm` submodule. S
 ./build/src/govtech-visualizer [performance.json]
 ```
 
-- **Setup panel:** choose the output display (opens a fullscreen output window on it), the audio input and gain, the MIDI channel, and the preset and texture folders. Settings are saved in `~/Library/Application Support/Govtech Visualizer/settings.json`.
+- **Setup panel:** choose the output display (opens a fullscreen output window on it), the audio input and gain, the MIDI channel, and the preset and texture folders.
+- **Cmd+F** shows or hides the output window. **Esc** also closes it, but only when it covers the editor's own screen; on a separate display Esc does nothing, so a stray key press can't take the show down. `--output ""` starts without the output window. Settings are saved in `~/Library/Application Support/Govtech Visualizer/settings.json`.
 - **Scenes panel:** click a scene, or use Left/Right, to trigger it. MIDI **CC 20** on the chosen channel triggers the scene whose CC value matches. Badges show heavy presets and each scene's drop rate.
 - Logs go to stderr and to `~/Library/Logs/Govtech Visualizer/`.
 

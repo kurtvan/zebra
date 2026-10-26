@@ -14,7 +14,8 @@ struct Settings
     std::string audioDevice; //!< Empty: system default input.
     float gain{1.0f};
     int midiChannel{0};      //!< 0-15 (shown as 1-16).
-    std::string outputDisplay; //!< Display name; empty: no output window.
+    std::string outputDisplay; //!< Chosen output display name; empty: none chosen.
+    bool outputOpen{false};    //!< Whether the output window was showing (reopened on launch).
     bool namesOnly{false};
     std::filesystem::path lastPerformance;
 

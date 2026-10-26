@@ -105,10 +105,18 @@ public:
             m_audio.Open("");
         }
 
-        const std::string outputName = m_options.output.value_or(m_settings.outputDisplay);
-        if (!outputName.empty() && !m_options.smoke)
+        // --output NAME shows the output on NAME; --output "" starts without it (keeping the saved choice).
+        if (m_options.smoke)
         {
-            SetOutputDisplay(outputName);
+        }
+        else if (m_options.output)
+        {
+            if (!m_options.output->empty())
+                SetOutputDisplay(*m_options.output);
+        }
+        else if (m_settings.outputOpen && !m_settings.outputDisplay.empty())
+        {
+            OpenOutput();
         }
 
         if (m_options.performance)
@@ -156,24 +164,23 @@ public:
 
     void SetOutputDisplay(const std::string& displayName) override
     {
-        m_output.Close();
-        m_settings.outputDisplay = displayName;
-        if (!displayName.empty())
+        if (displayName.empty())
         {
-            SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
-            if (m_output.Open(displayName))
-            {
-                m_engine.SetRenderSize(m_output.DrawableWidth(), m_output.DrawableHeight());
-            }
-            else
-            {
-                AddMessage("Display \"" + displayName + "\" isn't connected.");
-            }
+            CloseOutput();
+            m_settings.outputDisplay.clear();
+            SaveSettings();
+            return;
         }
-        // With an output window, its vsync paces the app and the editor swaps without waiting.
-        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
-        SDL_GL_SetSwapInterval(m_output.IsOpen() ? 0 : 1);
-        SaveSettings();
+        m_settings.outputDisplay = displayName;
+        OpenOutput();
+    }
+
+    void ToggleOutput() override
+    {
+        if (m_output.IsOpen())
+            CloseOutput();
+        else
+            OpenOutput();
     }
 
     void SetAudioDevice(const std::string& deviceName) override
@@ -215,6 +222,61 @@ public:
         m_engine.Trigger(scene);
     }
 
+    /// Shows the output on the chosen display (picking one if none is chosen yet).
+    void OpenOutput()
+    {
+        if (m_settings.outputDisplay.empty())
+        {
+            // Prefer a display other than the editor's.
+            const auto names = gv::app::OutputWindow::DisplayNames();
+            const std::string editor = EditorDisplayName();
+            for (const auto& name : names)
+            {
+                if (name != editor)
+                {
+                    m_settings.outputDisplay = name;
+                    break;
+                }
+            }
+            if (m_settings.outputDisplay.empty() && !names.empty())
+                m_settings.outputDisplay = names.front();
+        }
+
+        m_output.Close();
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        if (m_output.Open(m_settings.outputDisplay))
+        {
+            m_engine.SetRenderSize(m_output.DrawableWidth(), m_output.DrawableHeight());
+            m_settings.outputOpen = true;
+            if (m_output.DisplayName() == EditorDisplayName())
+                AddMessage("The output covers this screen. Press Esc or Cmd+F to get back to the editor.");
+        }
+        else
+        {
+            AddMessage("Display \"" + m_settings.outputDisplay + "\" isn't connected.");
+        }
+        // With an output window, its vsync paces the app and the editor swaps without waiting.
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        SDL_GL_SetSwapInterval(m_output.IsOpen() ? 0 : 1);
+        SaveSettings();
+    }
+
+    void CloseOutput()
+    {
+        m_output.Close();
+        m_settings.outputOpen = false;
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        SDL_GL_SetSwapInterval(1);
+        SaveSettings();
+    }
+
+    auto EditorDisplayName() const -> std::string
+    {
+        const int index = SDL_GetWindowDisplayIndex(m_editorWindow);
+        const auto names = gv::app::OutputWindow::DisplayNames();
+        return index >= 0 && index < static_cast<int>(names.size()) ? names[static_cast<size_t>(index)] : std::string();
+    }
+
     // --- Main loop ------------------------------------------------------------------------
 
     void HandleEvent(const SDL_Event& event, bool& running)
@@ -228,7 +290,7 @@ public:
             if (event.window.windowID == SDL_GetWindowID(m_editorWindow))
                 running = false;
             else if (event.window.windowID == m_output.WindowId())
-                SetOutputDisplay("");
+                CloseOutput();
         }
         else if (event.type == SDL_DISPLAYEVENT && event.display.event == SDL_DISPLAYEVENT_DISCONNECTED && m_output.IsOpen())
         {
@@ -237,9 +299,8 @@ public:
             if (std::find(names.begin(), names.end(), m_output.DisplayName()) == names.end())
             {
                 AddMessage("The output display was disconnected.");
-                const std::string name = m_output.DisplayName();
+                // Keep outputOpen so the output comes back when the display does (on next launch or Cmd+F).
                 m_output.Close();
-                m_settings.outputDisplay = name; // reopen it next launch
                 SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
                 SDL_GL_SetSwapInterval(1);
             }
@@ -252,6 +313,15 @@ public:
         {
             if (event.key.keysym.sym == SDLK_r)
                 ReloadPerformance();
+            else if (event.key.keysym.sym == SDLK_f && event.key.repeat == 0)
+                ToggleOutput();
+        }
+        else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE && m_output.IsOpen())
+        {
+            // Esc only closes the output when it hides the editor. On a separate display (the show setup)
+            // a stray Esc must not take the visuals down.
+            if (m_output.DisplayName() == EditorDisplayName())
+                CloseOutput();
         }
     }
 
@@ -331,6 +401,7 @@ private:
         state.midi = m_midi.get();
         state.audio = &m_audio;
         state.outputDisplay = m_output.IsOpen() ? m_output.DisplayName() : std::string();
+        state.editorDisplay = EditorDisplayName();
         state.preview = presented;
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;

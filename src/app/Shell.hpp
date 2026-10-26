@@ -22,7 +22,8 @@ public:
     virtual ~AppActions() = default;
     virtual void OpenPerformance(const std::filesystem::path& file) = 0;
     virtual void ReloadPerformance() = 0;
-    virtual void SetOutputDisplay(const std::string& displayName) = 0; //!< Empty closes the output.
+    virtual void SetOutputDisplay(const std::string& displayName) = 0; //!< Chooses and shows; empty closes and clears.
+    virtual void ToggleOutput() = 0;                                    //!< Shows/hides the output on the chosen display.
     virtual void SetAudioDevice(const std::string& deviceName) = 0;    //!< Empty: system default.
     virtual void SetMidiChannel(int channel) = 0;
     virtual void SetLibraryRoot(const std::filesystem::path& folder) = 0;
@@ -43,6 +44,7 @@ struct ShellState
     const io::MidiInput* midi{nullptr};
     const io::AudioInput* audio{nullptr};
     std::string outputDisplay; //!< Open output display, or empty.
+    std::string editorDisplay; //!< Display the editor window is on.
     int outputWidth{0};
     int outputHeight{0};
     GLuint preview{0};
