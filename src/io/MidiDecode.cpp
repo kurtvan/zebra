@@ -51,8 +51,22 @@ auto DecodeSystemMessages(const uint32_t* words, size_t wordCount) -> std::vecto
     return result;
 }
 
-void ClockTracker::OnMessage(const SystemMessage& message, double seconds)
+void ClockTracker::OnMessage(const SystemMessage& message, double seconds, uintptr_t source)
 {
+    const bool clockMessage = message.status == 0xF8 || message.status == 0xFA || message.status == 0xFB || message.status == 0xFC ||
+                              message.status == 0xF2;
+    if (!clockMessage)
+        return;
+    if (source != m_source)
+    {
+        // Another source: ignore it while the followed one is active; take over once that has gone quiet.
+        if (m_lastFromSource >= 0.0 && seconds - m_lastFromSource < 1.0)
+            return;
+        *this = ClockTracker();
+        m_source = source;
+    }
+    m_lastFromSource = seconds;
+
     switch (message.status)
     {
         case 0xF8: // timing clock
@@ -68,6 +82,7 @@ void ClockTracker::OnMessage(const SystemMessage& message, double seconds)
                 }
             }
             m_lastPulse = seconds;
+            m_totalPulses++;
             if (m_running)
                 m_pulses++;
             break;
@@ -101,6 +116,7 @@ auto ClockTracker::State(double nowSeconds) const -> ClockState
     state.running = m_transportSeen ? m_running : state.receiving;
     state.positionKnown = m_transportSeen;
     state.pulses = m_pulses;
+    state.totalPulses = m_totalPulses;
     if (m_intervalCount >= 6)
     {
         double sum = 0.0;

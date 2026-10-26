@@ -20,6 +20,16 @@
 
 namespace gv::engine {
 
+/// The incoming MIDI clock, as the engine needs it (set by the app each frame).
+struct ClockInput
+{
+    bool receiving{false};
+    bool running{false};
+    bool positionKnown{false}; //!< songPulses follows Ableton's song position.
+    long long songPulses{0};   //!< Since Start / song position, 24 per beat.
+    long long totalPulses{0};  //!< Every pulse received; used when the song position is unknown.
+};
+
 /// Supplies the current video frame of a scene (implemented by the app, which owns the video sources).
 class VideoProvider
 {
@@ -44,7 +54,9 @@ public:
         bool heavy{false};   //!< frameMs over the 60 fps budget.
         std::string error;   //!< Load error, if the preset failed.
         int playlistItem{-1};          //!< Live playlist scenes: the entry showing.
-        double secondsToNextItem{-1.0}; //!< Live playlist scenes: time until the next entry.
+        double secondsToNextItem{-1.0}; //!< Live playlist scenes counting seconds: time until the next entry.
+        double beatsToNextItem{-1.0};   //!< Live playlist scenes counting beats/bars: beats until the next entry.
+        bool waitingForClock{false};    //!< Live playlist scene counting beats/bars, but the MIDI clock isn't running.
     };
 
     struct Stats
@@ -85,6 +97,12 @@ public:
 
     /// Requests scene `index` (into the loaded performance) to go live.
     void Trigger(int index);
+
+    /// The MIDI clock, for playlists that count beats or bars. Call every frame before Tick().
+    void SetClock(const ClockInput& clock)
+    {
+        m_clock = clock;
+    }
 
     /// Where live scenes get their video frames from (may be null: no video).
     void SetVideoProvider(VideoProvider* provider)
@@ -166,10 +184,14 @@ private:
         InstanceId liveInstance{0};
         int item{0};
         int nextItem{-1};
-        std::chrono::steady_clock::time_point switchAt{};
+        std::chrono::steady_clock::time_point switchAt{}; //!< Unit seconds.
+        bool songGrid{false};      //!< Units beats/bars: counting on Ableton's song position (else since entry).
+        long long switchPulse{-1}; //!< Units beats/bars: the pulse to switch at; -1 until the clock runs.
+        long long lastPulse{0};
     };
     PlaylistState m_playlist;
     std::mt19937 m_random{std::random_device{}()};
+    ClockInput m_clock;
     ScenePool m_pool;
     model::Performance m_performance;
     int m_width{1920};

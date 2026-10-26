@@ -7,6 +7,7 @@
 #include <mach/mach_time.h>
 
 #include <atomic>
+#include <set>
 #include <mutex>
 
 namespace gv::io {
@@ -55,7 +56,7 @@ public:
             return;
         }
 
-        status = MIDIInputPortCreateWithProtocol(m_client, CFSTR("Scene triggers"), kMIDIProtocol_1_0, &m_port, ^(const MIDIEventList* list, void*) {
+        status = MIDIInputPortCreateWithProtocol(m_client, CFSTR("Scene triggers"), kMIDIProtocol_1_0, &m_port, ^(const MIDIEventList* list, void* sourceRef) {
             const MIDIEventPacket* packet = &list->packet[0];
             for (UInt32 i = 0; i < list->numPackets; ++i)
             {
@@ -70,7 +71,7 @@ public:
                     const double seconds = HostSeconds(packet->timeStamp != 0 ? packet->timeStamp : mach_absolute_time());
                     std::lock_guard<std::mutex> lock(m_clockMutex);
                     for (const auto& message : system)
-                        m_clock.OnMessage(message, seconds);
+                        m_clock.OnMessage(message, seconds, reinterpret_cast<uintptr_t>(sourceRef));
                 }
                 packet = MIDIEventPacketNext(packet);
             }
@@ -112,8 +113,16 @@ public:
 
     auto Clock() const -> ClockState override
     {
-        std::lock_guard<std::mutex> lock(m_clockMutex);
-        return m_clock.State(HostSeconds(mach_absolute_time()));
+        uintptr_t source = 0;
+        ClockState state;
+        {
+            std::lock_guard<std::mutex> lock(m_clockMutex);
+            state = m_clock.State(HostSeconds(mach_absolute_time()));
+            source = m_clock.Source();
+        }
+        if (state.receiving && source != 0)
+            state.sourceName = ObjectName(static_cast<MIDIEndpointRef>(source));
+        return state;
     }
 
     auto LastControlChange() const -> std::optional<ControlChange> override
@@ -134,16 +143,34 @@ private:
         }
     }
 
-    /// (Re)connects every source. Connecting an already connected source is harmless.
+    /// Connects sources that appeared and disconnects ones that went away. Connecting a source that is
+    /// already connected makes CoreMIDI deliver its messages twice (which doubled MIDI clock counts), so
+    /// connections are tracked by endpoint.
     void ConnectAllSources()
     {
         std::vector<std::string> names;
+        std::set<MIDIEndpointRef> present;
         const ItemCount count = MIDIGetNumberOfSources();
         for (ItemCount i = 0; i < count; ++i)
         {
             MIDIEndpointRef source = MIDIGetSource(i);
-            MIDIPortConnectSource(m_port, source, nullptr);
+            present.insert(source);
+            // The endpoint is passed back to the read block, so the clock can follow one source.
+            if (m_connected.insert(source).second)
+                MIDIPortConnectSource(m_port, source, reinterpret_cast<void*>(static_cast<uintptr_t>(source)));
             names.push_back(ObjectName(source));
+        }
+        for (auto it = m_connected.begin(); it != m_connected.end();)
+        {
+            if (present.count(*it) == 0)
+            {
+                MIDIPortDisconnectSource(m_port, *it);
+                it = m_connected.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
         }
         std::lock_guard<std::mutex> lock(m_sourcesMutex);
         if (names != m_sourceNames)
@@ -158,6 +185,7 @@ private:
 
     MIDIClientRef m_client{0};
     MIDIPortRef m_port{0};
+    std::set<MIDIEndpointRef> m_connected; //!< CoreMIDI notification thread / constructor only.
     std::atomic<int> m_channel{0};
     std::atomic<int> m_pendingTrigger{-1};
     std::atomic<int> m_lastControlChange{-1};

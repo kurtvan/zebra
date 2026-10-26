@@ -138,6 +138,7 @@ TEST_CASE("pulses without a Start mean playing, position unknown")
     const auto state = tracker.State(t);
     CHECK(state.running);
     CHECK_FALSE(state.positionKnown);
+    CHECK(state.totalPulses == 48);
     CHECK(std::abs(state.bpm - 120.0) < 0.01);
     tracker.OnMessage({0xFA}, t);
     CHECK(tracker.State(t).positionKnown);
@@ -160,4 +161,27 @@ TEST_CASE("a pause between pulses doesn't count as tempo")
         tracker.OnMessage({0xF8}, t);
     }
     CHECK(std::abs(tracker.State(t).bpm - 100.0) < 0.01);
+}
+
+TEST_CASE("the clock follows one source and ignores a second one while the first is active")
+{
+    ClockTracker tracker;
+    double t = 0.0;
+    const double pulse = 60.0 / 120.0 / 24.0;
+    tracker.OnMessage({0xFA}, t, 1);
+    for (int i = 0; i < 96; ++i)
+    {
+        t += pulse;
+        tracker.OnMessage({0xF8}, t, 1);
+        tracker.OnMessage({0xF8}, t + pulse * 0.5, 2); // a second source's clock, interleaved
+    }
+    auto state = tracker.State(t);
+    CHECK(state.pulses == 96); // not 192
+    CHECK(std::abs(state.bpm - 120.0) < 0.01);
+    CHECK(tracker.Source() == 1);
+
+    // Source 1 goes quiet; source 2 takes over after a second.
+    t += 1.5;
+    tracker.OnMessage({0xF8}, t, 2);
+    CHECK(tracker.Source() == 2);
 }

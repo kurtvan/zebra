@@ -37,6 +37,8 @@ struct ClockState
     bool positionKnown{false}; //!< Start or a song position was received (bars/beats are meaningful).
     double bpm{0.0};       //!< Tempo from the pulse spacing (24 per beat); 0 until known.
     long long pulses{0};   //!< Pulses since Start (or the song position), 24 per beat.
+    long long totalPulses{0}; //!< Every pulse received, never reset (counts beats when the song position is unknown).
+    std::string sourceName;   //!< The source being followed (set by the MIDI input).
 
     /// Position in beats since the start (4/4 assumed for bars).
     auto Beats() const -> double
@@ -54,18 +56,28 @@ struct ClockState
 };
 
 /// Follows MIDI clock, start/stop/continue and song position. Not thread-safe by itself.
+///
+/// Follows one source at a time: the first that sends clock, until it has been quiet for a second.
+/// (Two sources' clocks merged into one count would run at double speed.)
 class ClockTracker
 {
 public:
-    /// `seconds` is when the message arrived (any monotonic clock).
-    void OnMessage(const SystemMessage& message, double seconds);
+    /// `seconds` is when the message arrived (any monotonic clock); `source` identifies its MIDI source.
+    void OnMessage(const SystemMessage& message, double seconds, uintptr_t source = 0);
     auto State(double nowSeconds) const -> ClockState;
+    auto Source() const -> uintptr_t
+    {
+        return m_source;
+    }
 
 private:
     static constexpr int kWindow = 96; //!< Pulses averaged for the tempo (one 4/4 bar).
     bool m_running{false};
     bool m_transportSeen{false}; //!< Start/Continue/Stop/song position received at least once.
+    uintptr_t m_source{0};
+    double m_lastFromSource{-1.0};
     long long m_pulses{0};
+    long long m_totalPulses{0};
     double m_lastPulse{-1.0};
     double m_intervals[kWindow]{};
     int m_intervalCount{0};

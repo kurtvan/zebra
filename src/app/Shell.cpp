@@ -481,7 +481,15 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                     std::string list;
                     for (size_t p = 0; p < scene.playlist.presets.size(); ++p)
                         list += std::to_string(p + 1) + ". " + scene.playlist.presets[p].stem().string() + "\n";
-                    ImGui::SetTooltip("Every %.0f s%s:\n%s", scene.playlist.intervalSeconds, scene.playlist.shuffle ? ", shuffled" : "", list.c_str());
+                {
+                    const auto& p = scene.playlist;
+                    char every[48];
+                    if (p.unit == model::IntervalUnit::Seconds)
+                        std::snprintf(every, sizeof(every), "%.3g s", p.intervalSeconds);
+                    else
+                        std::snprintf(every, sizeof(every), "%d %s", p.intervalCount, p.unit == model::IntervalUnit::Bars ? (p.intervalCount == 1 ? "bar" : "bars") : (p.intervalCount == 1 ? "beat" : "beats"));
+                    ImGui::SetTooltip("Every %s%s:\n%s", every, p.shuffle ? ", shuffled" : "", list.c_str());
+                }
                 }
             }
             else
@@ -935,6 +943,8 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
             ImGui::BulletText("%s", source.c_str());
         const auto clock = state.midi->Clock();
         ImGui::Text("Clock: %s", ClockText(clock).c_str());
+        if (clock.receiving && !clock.sourceName.empty())
+            ImGui::TextColored(kDim, "from %s", clock.sourceName.c_str());
         if (!clock.receiving)
             ImGui::TextColored(kDim, "In Ableton: Preferences > Link, Tempo & MIDI, turn on\nSync for the IAC Driver output.");
     }
@@ -968,16 +978,50 @@ void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, cons
         actions.Edit(std::move(edited), label, key + ":" + scene.id);
     };
 
-    float interval = static_cast<float>(playlist.intervalSeconds);
-    ImGui::SetNextItemWidth(-140);
-    if (ImGui::SliderFloat("Seconds per preset", &interval, 1.f, 300.f, "%.3g s", ImGuiSliderFlags_Logarithmic))
-        edit("Change Interval", "interval", [&](model::ScenePlaylist& p) {
-            p.intervalSeconds = std::clamp(static_cast<double>(interval), model::kMinPlaylistInterval, model::kMaxPlaylistInterval);
-        });
-    if (ImGui::IsItemDeactivatedAfterEdit())
+    // Every [N] [seconds | beats | bars].
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Change every");
+    ImGui::SameLine();
+    if (playlist.unit == model::IntervalUnit::Seconds)
+    {
+        float interval = static_cast<float>(playlist.intervalSeconds);
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::SliderFloat("##seconds", &interval, 1.f, 300.f, "%.3g", ImGuiSliderFlags_Logarithmic))
+            edit("Change Interval", "interval", [&](model::ScenePlaylist& p) {
+                p.intervalSeconds = std::clamp(static_cast<double>(interval), model::kMinPlaylistInterval, model::kMaxPlaylistInterval);
+            });
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            actions.EndEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Double-click (or Cmd+click) to type an exact value, up to 3600 s.");
+    }
+    else
+    {
+        int count = playlist.intervalCount;
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::InputInt("##count", &count, 1, 4))
+            edit("Change Interval", "interval-count", [&](model::ScenePlaylist& p) { p.intervalCount = std::clamp(count, 1, model::kMaxPlaylistCount); });
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            actions.EndEdit();
+    }
+    ImGui::SameLine();
+    const char* units[] = {"seconds", "beats", "bars"};
+    int unit = static_cast<int>(playlist.unit);
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::Combo("##unit", &unit, units, 3))
+    {
+        edit("Change Interval Unit", "interval-unit", [&](model::ScenePlaylist& p) { p.unit = static_cast<model::IntervalUnit>(unit); });
         actions.EndEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Double-click (or Cmd+click) to type an exact value, up to 3600 s.");
+    }
+    if (playlist.unit != model::IntervalUnit::Seconds)
+    {
+        const auto clock = state.midi != nullptr ? state.midi->Clock() : io::ClockState();
+        if (clock.receiving && clock.running && !clock.positionKnown)
+            ImGui::TextColored(kAmber, "Counting from when the scene started: Ableton was already playing.\nStop and play Ableton once to line changes up with its %s lines.",
+                               playlist.unit == model::IntervalUnit::Bars ? "bar" : "beat");
+        else
+            ImGui::TextColored(kDim, "Follows Ableton's MIDI clock; changes land on %s lines.", playlist.unit == model::IntervalUnit::Bars ? "bar" : "beat");
+    }
     bool shuffle = playlist.shuffle;
     if (ImGui::Checkbox("Shuffle", &shuffle))
     {
@@ -987,7 +1031,12 @@ void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, cons
     ImGui::SameLine();
     ImGui::TextColored(kDim, shuffle ? "random order, never the same twice in a row" : "top to bottom, then around again");
 
-    if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()))
+    if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()) && info.waitingForClock)
+        ImGui::TextColored(kAmber, "Now %d of %zu, waiting for MIDI clock (Ableton stopped, or Sync off)", info.playlistItem + 1, playlist.presets.size());
+    else if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()) && info.beatsToNextItem >= 0.0)
+        ImGui::TextColored(kGreen, "Now %d of %zu, next in %.0f beat%s", info.playlistItem + 1, playlist.presets.size(), std::ceil(info.beatsToNextItem),
+                           std::ceil(info.beatsToNextItem) == 1.0 ? "" : "s");
+    else if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()))
         ImGui::TextColored(kGreen, "Now %d of %zu, next in %.0f s", info.playlistItem + 1, playlist.presets.size(), info.secondsToNextItem);
     else if (playlist.presets.size() < 2)
         ImGui::TextColored(kAmber, "Add at least two presets to cycle.");
@@ -1567,6 +1616,8 @@ void Shell::DrawStatusBar(const ShellState& state)
             {
                 const auto clock = state.midi->Clock();
                 ImGui::TextColored(clock.receiving ? (clock.running ? kGreen : kDim) : kDim, "%s", ClockText(clock).c_str());
+                if (clock.receiving && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("MIDI clock from %s", clock.sourceName.c_str());
                 ImGui::SameLine(0, 28);
             }
             ImGui::TextColored(kDim, "Audio");

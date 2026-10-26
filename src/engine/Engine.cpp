@@ -1,6 +1,7 @@
 #include "engine/Engine.hpp"
 
 #include "common/log.hpp"
+#include "engine/BeatGrid.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -203,7 +204,8 @@ void Engine::UpdatePerformance(const model::Performance& performance)
         // An edited playlist on the live scene: restart its cycle (the next entry is planned again).
         if (old == m_pool.LiveScene() &&
             (before.IsPlaylist() != after.IsPlaylist() || before.playlist.presets != after.playlist.presets ||
-             before.playlist.intervalSeconds != after.playlist.intervalSeconds || before.playlist.shuffle != after.playlist.shuffle))
+             before.playlist.intervalSeconds != after.playlist.intervalSeconds || before.playlist.shuffle != after.playlist.shuffle ||
+             before.playlist.unit != after.playlist.unit || before.playlist.intervalCount != after.playlist.intervalCount))
         {
             Execute(m_pool.ClearItem());
             m_playlist = {};
@@ -416,8 +418,20 @@ auto Engine::Scene(int index) const -> SceneInfo
         info.heavy = info.frameMs > kFrameBudgetMs;
         if (index == m_pool.LiveScene() && m_playlist.scene == index)
         {
+            const auto& playlist = m_performance.scenes[static_cast<size_t>(index)].playlist;
             info.playlistItem = m_playlist.item;
-            info.secondsToNextItem = std::max(0.0, std::chrono::duration<double>(m_playlist.switchAt - std::chrono::steady_clock::now()).count());
+            if (playlist.unit == model::IntervalUnit::Seconds)
+            {
+                info.secondsToNextItem = std::max(0.0, std::chrono::duration<double>(m_playlist.switchAt - std::chrono::steady_clock::now()).count());
+            }
+            else if (!(m_clock.receiving && m_clock.running) || m_playlist.switchPulse < 0)
+            {
+                info.waitingForClock = true;
+            }
+            else
+            {
+                info.beatsToNextItem = std::max(0.0, static_cast<double>(m_playlist.switchPulse - m_playlist.lastPulse) / kPulsesPerBeat);
+            }
         }
         if (auto ticks = m_liveTicksByScene.find(index); ticks != m_liveTicksByScene.end() && ticks->second > 60)
         {
@@ -612,8 +626,16 @@ void Engine::UpdatePlaylist()
         return;
     }
 
+    const auto& playlist = scene->playlist;
     const auto now = Clock::now();
-    const auto interval = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(scene->playlist.intervalSeconds));
+    const auto interval = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(playlist.intervalSeconds));
+    const bool countsBeats = playlist.unit != model::IntervalUnit::Seconds;
+    const long long grid = playlist.unit == model::IntervalUnit::Bars ? kPulsesPerBar : kPulsesPerBeat;
+    const long long intervalPulses = grid * std::max(1, playlist.intervalCount);
+    const bool clockRunning = m_clock.receiving && m_clock.running;
+    // Ableton's song position when we have it (cycles land on its bar lines), else pulses since entry.
+    const bool songGrid = m_clock.positionKnown;
+    const long long pulses = songGrid ? m_clock.songPulses : m_clock.totalPulses;
 
     // Entered (or re-entered) the scene, or something else replaced its instance: start the cycle over.
     if (m_playlist.scene != live || m_playlist.liveInstance != m_pool.LiveInstance())
@@ -626,6 +648,17 @@ void Engine::UpdatePlaylist()
         m_playlist.switchAt = now + interval;
     }
 
+    // Beats/bars: (re)anchor the cycle to the grid when the clock starts, jumps (Start, song position) or the
+    // counter changes; holds while the clock is stopped.
+    if (countsBeats && clockRunning &&
+        (m_playlist.switchPulse < 0 || m_playlist.songGrid != songGrid || pulses < m_playlist.lastPulse ||
+         pulses > m_playlist.switchPulse + intervalPulses))
+    {
+        m_playlist.songGrid = songGrid;
+        m_playlist.switchPulse = (songGrid ? CycleStart(pulses, grid) : pulses) + intervalPulses;
+    }
+    m_playlist.lastPulse = pulses;
+
     // Prepare the next entry in the background on a non-live lane.
     if (m_pool.NextItemInstance() == 0)
     {
@@ -634,8 +667,9 @@ void Engine::UpdatePlaylist()
             Execute(m_pool.PrepareItem(live, m_playlist.nextItem));
     }
 
-    // Time's up and the next entry is ready: cut to it (if it isn't ready yet, the current one keeps playing).
-    if (now >= m_playlist.switchAt && m_pool.IsReady(m_pool.NextItemInstance()))
+    // Due and the next entry is ready: cut to it (if it isn't ready yet, the current one keeps playing).
+    const bool due = countsBeats ? (clockRunning && m_playlist.switchPulse >= 0 && pulses >= m_playlist.switchPulse) : now >= m_playlist.switchAt;
+    if (due && m_pool.IsReady(m_pool.NextItemInstance()))
     {
         const int item = m_playlist.nextItem;
         Execute(m_pool.ActivateItem(m_pool.NextItemInstance()));
@@ -643,8 +677,14 @@ void Engine::UpdatePlaylist()
         m_playlist.item = item;
         m_playlist.nextItem = -1;
         m_playlist.switchAt = now + interval;
-        GV_LOG_INFO(kLogCategory, "playlist: scene %d (%s) now on preset %d of %zu: %s", live, scene->DisplayName().c_str(), item + 1,
-                    scene->playlist.presets.size(), scene->playlist.presets[static_cast<size_t>(item)].filename().c_str());
+        if (countsBeats)
+            m_playlist.switchPulse += intervalPulses; // stay on the grid
+        if (countsBeats)
+            GV_LOG_INFO(kLogCategory, "playlist: scene %d (%s) now on preset %d of %zu at beat %.2f: %s", live, scene->DisplayName().c_str(), item + 1,
+                        playlist.presets.size(), static_cast<double>(pulses) / kPulsesPerBeat, playlist.presets[static_cast<size_t>(item)].filename().c_str());
+        else
+            GV_LOG_INFO(kLogCategory, "playlist: scene %d (%s) now on preset %d of %zu: %s", live, scene->DisplayName().c_str(), item + 1,
+                        playlist.presets.size(), playlist.presets[static_cast<size_t>(item)].filename().c_str());
     }
 }
 

@@ -677,6 +677,10 @@ public:
         const size_t samples = m_ring.Read(m_pcm.data(), m_pcm.size());
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
         m_video.BeginFrame(m_engine.LiveScene(), m_engine.PendingScene(), m_engine.HandoverScene());
+        {
+            const auto clock = m_midi->Clock();
+            m_engine.SetClock({clock.receiving, clock.running, clock.positionKnown, clock.pulses, clock.totalPulses});
+        }
         m_engine.Tick(m_pcm.data(), samples / 2, m_settings.gain);
 
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
@@ -902,6 +906,9 @@ private:
                             performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held,
                             dropped, video ? gv::io::ToString(*video) : "-");
             }
+            const auto clock = m_midi->Clock();
+            GV_LOG_INFO(kLogCategory, "smoke: MIDI clock %s, %.1f BPM, %s, position %s, source %s", clock.receiving ? "receiving" : "absent", clock.bpm,
+                        clock.running ? "running" : "stopped", clock.positionKnown ? "known" : "unknown", clock.sourceName.c_str());
             m_smokeOk = stats.presentedFrames > liveTicks / 2;
             m_smokeDone = true;
         }

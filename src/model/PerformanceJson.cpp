@@ -84,6 +84,17 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
         const std::string playlistPath = path + "/playlist";
         ReadField(*playlist, "enabled", scene.playlist.enabled, playlistPath, issues);
         ReadField(*playlist, "intervalSeconds", scene.playlist.intervalSeconds, playlistPath, issues);
+        ReadField(*playlist, "intervalCount", scene.playlist.intervalCount, playlistPath, issues);
+        std::string unit = "seconds";
+        ReadField(*playlist, "intervalUnit", unit, playlistPath, issues);
+        if (unit == "seconds")
+            scene.playlist.unit = IntervalUnit::Seconds;
+        else if (unit == "beats")
+            scene.playlist.unit = IntervalUnit::Beats;
+        else if (unit == "bars")
+            scene.playlist.unit = IntervalUnit::Bars;
+        else
+            issues.push_back(Error(playlistPath + "/intervalUnit", "unknown unit \"" + unit + "\" (expected \"seconds\", \"beats\" or \"bars\")"));
         ReadField(*playlist, "shuffle", scene.playlist.shuffle, playlistPath, issues);
         if (auto presets = playlist->find("presets"); presets != playlist->end() && presets->is_array())
         {
@@ -246,7 +257,9 @@ auto SerializePerformance(const Performance& performance) -> std::string
             object["playlist"] = {
                 {"enabled", scene.playlist.enabled},
                 {"presets", presets},
+                {"intervalUnit", scene.playlist.unit == IntervalUnit::Seconds ? "seconds" : scene.playlist.unit == IntervalUnit::Beats ? "beats" : "bars"},
                 {"intervalSeconds", scene.playlist.intervalSeconds},
+                {"intervalCount", scene.playlist.intervalCount},
                 {"shuffle", scene.playlist.shuffle}};
         }
 
@@ -330,8 +343,11 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
                 if (scene.playlist.presets[i].empty())
                     issues.push_back(Error(path + "/playlist/presets/" + std::to_string(i) + "/path", "is empty"));
             }
-            if (scene.playlist.intervalSeconds < kMinPlaylistInterval || scene.playlist.intervalSeconds > kMaxPlaylistInterval)
+            if (scene.playlist.unit == IntervalUnit::Seconds &&
+                (scene.playlist.intervalSeconds < kMinPlaylistInterval || scene.playlist.intervalSeconds > kMaxPlaylistInterval))
                 issues.push_back(Error(path + "/playlist/intervalSeconds", "must be between 1 and 3600 seconds"));
+            if (scene.playlist.unit != IntervalUnit::Seconds && (scene.playlist.intervalCount < 1 || scene.playlist.intervalCount > kMaxPlaylistCount))
+                issues.push_back(Error(path + "/playlist/intervalCount", "must be between 1 and 256"));
         }
         else if (scene.presetPath.empty())
         {

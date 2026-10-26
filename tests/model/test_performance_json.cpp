@@ -258,6 +258,30 @@ TEST_CASE("playlists round-trip, validate and report missing entries")
         CHECK(HasIssueAt(issues, "/scenes/0/playlist/presets"));
         CHECK(HasIssueAt(issues, "/scenes/0/playlist/intervalSeconds"));
     }
+    SECTION("beat and bar intervals round-trip and validate")
+    {
+        auto bars = performance;
+        bars.scenes[0].playlist.unit = IntervalUnit::Bars;
+        bars.scenes[0].playlist.intervalCount = 8;
+        bars.scenes[0].playlist.intervalSeconds = 0.0; // ignored for bars
+        CHECK(Validate(bars).empty());
+        const auto reloaded = ParsePerformance(SerializePerformance(bars));
+        REQUIRE(reloaded.ok);
+        CHECK(reloaded.performance.scenes[0].playlist.unit == IntervalUnit::Bars);
+        CHECK(reloaded.performance.scenes[0].playlist.intervalCount == 8);
+
+        bars.scenes[0].playlist.intervalCount = 0;
+        CHECK(HasIssueAt(Validate(bars), "/scenes/0/playlist/intervalCount"));
+        CHECK(HasIssueAt(ParsePerformance(R"({"version": 1, "scenes": [{"id": "a", "midi": {"cc20Value": 0},
+            "playlist": {"enabled": true, "presets": [{"path": "/a.milk"}], "intervalUnit": "fortnights"}}]})"), "/scenes/0/playlist/intervalUnit"));
+    }
+    SECTION("older playlists without a unit are in seconds")
+    {
+        const auto result = ParsePerformance(R"({"version": 1, "scenes": [{"id": "a", "midi": {"cc20Value": 0},
+            "playlist": {"enabled": true, "presets": [{"path": "/a.milk"}], "intervalSeconds": 20}}]})");
+        REQUIRE(result.ok);
+        CHECK(result.performance.scenes[0].playlist.unit == IntervalUnit::Seconds);
+    }
     SECTION("a disabled playlist falls back to the single preset")
     {
         auto plain = performance;
