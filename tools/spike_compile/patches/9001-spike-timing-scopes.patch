@@ -1,4 +1,4 @@
-From baf3623a42449f5584e9dd592b7c38cc737371c4 Mon Sep 17 00:00:00 2001
+From c15d225c4c4ef2bce4f89e21e1e3f3880b97beb3 Mon Sep 17 00:00:00 2001
 From: kurtvan <kurtv7348@gmail.com>
 Date: Thu, 22 Oct 2026 18:02:26 -0400
 Subject: [PATCH] Spike-only: timing scopes for preset load phases
@@ -220,7 +220,7 @@ index c23cd6e5d..dc1b1e7cc 100644
 +    return out.size();
 +}
 diff --git a/src/libprojectM/Renderer/Shader.cpp b/src/libprojectM/Renderer/Shader.cpp
-index 4a64ab9db..bafac7cb2 100644
+index e0fcf04a8..e5f24875d 100644
 --- a/src/libprojectM/Renderer/Shader.cpp
 +++ b/src/libprojectM/Renderer/Shader.cpp
 @@ -1,3 +1,4 @@
@@ -228,10 +228,10 @@ index 4a64ab9db..bafac7cb2 100644
  #include "Shader.hpp"
  
  #include <glm/gtc/type_ptr.hpp>
-@@ -23,6 +24,7 @@ Shader::~Shader()
- void Shader::CompileProgram(const std::string& vertexShaderSource,
-                             const std::string& fragmentShaderSource)
- {
+@@ -57,6 +58,7 @@ void Shader::CompileProgram(const std::string& vertexShaderSource,
+         m_cachedProgram = false;
+     }
+ 
 +    GV_SPIKE_SCOPE("gl.compileprogram");
      auto vertexShader = CompileShader(vertexShaderSource, GL_VERTEX_SHADER);
      auto fragmentShader = CompileShader(fragmentShaderSource, GL_FRAGMENT_SHADER);

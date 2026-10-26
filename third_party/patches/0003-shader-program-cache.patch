@@ -1,0 +1,167 @@
+From b27cc4c9a2c45dd14369fbe745e30d12b83370dd Mon Sep 17 00:00:00 2001
+From: kurtvan <kurtv7348@gmail.com>
+Date: Sun, 25 Oct 2026 23:01:17 -0400
+Subject: [PATCH] Reuse linked shader programs; fix two GL buffer leaks
+
+macOS's OpenGL driver keeps about 35 KB of Metal pipeline state per shader
+program forever, even after glDeleteProgram. projectM compiles ~8 programs
+per instance (most of them identical built-ins), so an app that creates
+and destroys instances (Govtech Visualizer does on every scene cut) grows
+without bound: ~0.27 MB per instance, measured.
+
+Shader::CompileProgram now reuses linked programs by source from a
+per-thread cache (each GL context lives on one thread in the app, so a
+program is never used concurrently; all uniforms are set before each
+draw). Cached programs are never deleted. Memory is bounded by the number
+of distinct shaders, and re-preparing a preset skips its compile.
+
+Also: PerPixelMesh created its VAO/VBO twice (RenderItem::Init already
+does), leaking the first pair; FinalComposite never deleted its element
+buffer.
+---
+ .../MilkdropPreset/FinalComposite.cpp         |  5 +++
+ .../MilkdropPreset/FinalComposite.hpp         |  2 +
+ .../MilkdropPreset/PerPixelMesh.cpp           |  6 +--
+ src/libprojectM/Renderer/Shader.cpp           | 42 +++++++++++++++++--
+ src/libprojectM/Renderer/Shader.hpp           |  2 +
+ 5 files changed, 49 insertions(+), 8 deletions(-)
+
+diff --git a/src/libprojectM/MilkdropPreset/FinalComposite.cpp b/src/libprojectM/MilkdropPreset/FinalComposite.cpp
+index 549c95043..e80e55dae 100644
+--- a/src/libprojectM/MilkdropPreset/FinalComposite.cpp
++++ b/src/libprojectM/MilkdropPreset/FinalComposite.cpp
+@@ -18,6 +18,11 @@ FinalComposite::FinalComposite()
+     RenderItem::Init();
+ }
+ 
++FinalComposite::~FinalComposite()
++{
++    glDeleteBuffers(1, &m_elementBuffer);
++}
++
+ void FinalComposite::InitVertexAttrib()
+ {
+     glGenBuffers(1, &m_elementBuffer);
+diff --git a/src/libprojectM/MilkdropPreset/FinalComposite.hpp b/src/libprojectM/MilkdropPreset/FinalComposite.hpp
+index b9cf50b40..0f930fbce 100644
+--- a/src/libprojectM/MilkdropPreset/FinalComposite.hpp
++++ b/src/libprojectM/MilkdropPreset/FinalComposite.hpp
+@@ -20,6 +20,8 @@ class FinalComposite : public Renderer::RenderItem
+ public:
+     FinalComposite();
+ 
++    ~FinalComposite();
++
+     void InitVertexAttrib() override;
+ 
+     /**
+diff --git a/src/libprojectM/MilkdropPreset/PerPixelMesh.cpp b/src/libprojectM/MilkdropPreset/PerPixelMesh.cpp
+index d1f031411..4f8c53933 100644
+--- a/src/libprojectM/MilkdropPreset/PerPixelMesh.cpp
++++ b/src/libprojectM/MilkdropPreset/PerPixelMesh.cpp
+@@ -32,11 +32,7 @@ void PerPixelMesh::InitVertexAttrib()
+ {
+     m_drawVertices.resize(VerticesPerDrawCall); // Fixed size, may scale it later depending on GPU caps.
+ 
+-    glGenVertexArrays(1, &m_vaoID);
+-    glGenBuffers(1, &m_vboID);
+-
+-    glBindVertexArray(m_vaoID);
+-    glBindBuffer(GL_ARRAY_BUFFER, m_vboID);
++    // RenderItem::Init() has already created and bound m_vaoID / m_vboID.
+ 
+     glEnableVertexAttribArray(0);
+     glEnableVertexAttribArray(1);
+diff --git a/src/libprojectM/Renderer/Shader.cpp b/src/libprojectM/Renderer/Shader.cpp
+index 4a64ab9db..e0fcf04a8 100644
+--- a/src/libprojectM/Renderer/Shader.cpp
++++ b/src/libprojectM/Renderer/Shader.cpp
+@@ -2,19 +2,36 @@
+ 
+ #include <glm/gtc/type_ptr.hpp>
+ 
++#include <string>
++#include <unordered_map>
+ #include <vector>
+ 
+ namespace libprojectM {
+ namespace Renderer {
+ 
+-Shader::Shader()
+-    : m_shaderProgram(glCreateProgram())
++namespace {
++
++/// Linked programs by source, for the GL context of the calling thread.
++///
++/// Govtech Visualizer patch: macOS's OpenGL driver never releases the Metal pipeline state behind a program,
++/// even after glDeleteProgram (about 35 KB per program), and every projectM instance compiles the same ~8
++/// built-in programs. Reusing linked programs keeps memory bounded by the number of distinct shaders instead
++/// of growing with every instance, and skips recompiling. Programs are cached per thread because each GL
++/// context in the app lives on one thread, so instances sharing a program never use it concurrently.
++/// Cached programs are never deleted (deleting wouldn't free the driver state anyway).
++auto ProgramCache() -> std::unordered_map<std::string, GLuint>&
+ {
++    thread_local std::unordered_map<std::string, GLuint> cache;
++    return cache;
+ }
+ 
++} // namespace
++
++Shader::Shader() = default;
++
+ Shader::~Shader()
+ {
+-    if (m_shaderProgram)
++    if (m_shaderProgram != 0 && !m_cachedProgram)
+     {
+         glDeleteProgram(m_shaderProgram);
+     }
+@@ -23,6 +40,23 @@ Shader::~Shader()
+ void Shader::CompileProgram(const std::string& vertexShaderSource,
+                             const std::string& fragmentShaderSource)
+ {
++    const std::string key = vertexShaderSource + '\0' + fragmentShaderSource;
++    if (auto cached = ProgramCache().find(key); cached != ProgramCache().end())
++    {
++        if (m_shaderProgram != 0 && !m_cachedProgram)
++        {
++            glDeleteProgram(m_shaderProgram);
++        }
++        m_shaderProgram = cached->second;
++        m_cachedProgram = true;
++        return;
++    }
++    if (m_shaderProgram == 0 || m_cachedProgram)
++    {
++        m_shaderProgram = glCreateProgram();
++        m_cachedProgram = false;
++    }
++
+     auto vertexShader = CompileShader(vertexShaderSource, GL_VERTEX_SHADER);
+     auto fragmentShader = CompileShader(fragmentShaderSource, GL_FRAGMENT_SHADER);
+ 
+@@ -41,6 +75,8 @@ void Shader::CompileProgram(const std::string& vertexShaderSource,
+     glGetProgramiv(m_shaderProgram, GL_LINK_STATUS, &programLinked);
+     if (programLinked == GL_TRUE)
+     {
++        ProgramCache().emplace(key, m_shaderProgram);
++        m_cachedProgram = true;
+         return;
+     }
+ 
+diff --git a/src/libprojectM/Renderer/Shader.hpp b/src/libprojectM/Renderer/Shader.hpp
+index e3b0e6639..be797703b 100644
+--- a/src/libprojectM/Renderer/Shader.hpp
++++ b/src/libprojectM/Renderer/Shader.hpp
+@@ -190,6 +190,8 @@ private:
+     auto CompileShader(const std::string& source, GLenum type) -> GLuint;
+ 
+     GLuint m_shaderProgram{}; //!< The program ID.
++
++    bool m_cachedProgram{false}; //!< m_shaderProgram belongs to the per-thread program cache (not deleted here).
+ };
+ 
+ } // namespace Renderer
+-- 
+2.50.1 (Apple Git-155)
+
