@@ -249,6 +249,13 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 
 **Acceptance:** the full library indexes in the background on first run without blocking the UI. Browsing, filtering and searching 10k presets is smooth (no dropped editor frames). Favourites persist. A preset can be assigned to a scene in two actions.
 
+**M5 as built (2026-10-25):**
+- `src/library`: `PresetParsing` (category/subcategory from the first two folders; author = text before the first " - " if it looks like a name: at most three words, or joined with +, & or commas; texture names from `sampler_*`, minus prefixes and built-ins), `Library` (index, JSON persistence with a format version that forces a re-parse when parsing changes, incremental scan by mtime/size, search, categories), `Favourites`, `Indexer` (background thread). 13 new unit tests.
+- **Measured on the author's library:** 9,795 presets, first scan 2.2 s (background), rescan 59 ms, search 0.7 ms. 1,682 presets use image textures; 8,070 have an author.
+- **What's learned while playing is kept:** the engine's frame-time measurements and load failures are written into the index, so heavy and broken presets stay flagged in the browser across launches.
+- **Browser** (Presets tab): search, a category tree with counts, Favourites and Hide broken filters, a virtualized list (stars, name, author, category, notes: broken, heavy, missing textures). Double-click uses the preset in the selected scene; drag it onto a scene or below the scene list to add one; right-click for more. Thumbnails replace the list in M6.
+- The library folder can be chosen from the browser when none is set (first run).
+
 ### M6: Live mini-previews (M–L)
 **Goal:** visible tiles show tiny ~1 fps live previews without ever affecting the output.
 

@@ -7,6 +7,7 @@
 #include <imgui_stdlib.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <vector>
@@ -23,6 +24,7 @@ constexpr const char* kBrowser = "Presets";
 constexpr const char* kStatus = "Status";
 constexpr const char* kMessages = "Messages";
 constexpr const char* kSceneDragPayload = "GV_SCENE";
+constexpr const char* kPresetDragPayload = "GV_PRESET"; //!< Payload: a preset's absolute path (NUL-terminated).
 
 const ImVec4 kAccent{0.29f, 0.72f, 0.70f, 1.f};
 const ImVec4 kGreen{0.36f, 0.82f, 0.48f, 1.f};
@@ -73,6 +75,42 @@ auto StateLabel(const engine::Engine::SceneInfo& info, bool pending, ImVec4& col
             return "";
     }
     return "";
+}
+
+/// A small star toggle drawn with the draw list (the UI font has no star glyph).
+auto StarButton(const char* id, bool on, float size = 15.f) -> bool
+{
+    const ImVec2 position = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(id, ImVec2(size, size));
+    const bool hovered = ImGui::IsItemHovered();
+    const ImVec2 center(position.x + size * 0.5f, position.y + size * 0.5f + 0.5f);
+    ImVec2 points[10];
+    for (int i = 0; i < 10; ++i)
+    {
+        const float radius = (i % 2 == 0) ? size * 0.5f : size * 0.21f;
+        const float angle = -1.5707963f + static_cast<float>(i) * 0.6283185f;
+        points[i] = ImVec2(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius);
+    }
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImU32 colour = ImGui::GetColorU32(on ? kAmber : (hovered ? ImVec4(0.8f, 0.8f, 0.85f, 1.f) : ImVec4(0.42f, 0.44f, 0.48f, 1.f)));
+    if (on)
+        draw->AddConcavePolyFilled(points, 10, colour);
+    else
+        draw->AddPolyline(points, 10, colour, ImDrawFlags_Closed, 1.2f);
+    return pressed;
+}
+
+/// Starts dragging a preset (to drop it on a scene).
+void PresetDragSource(const std::filesystem::path& preset, const std::string& label)
+{
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+    {
+        const std::string path = preset.string();
+        ImGui::SetDragDropPayload(kPresetDragPayload, path.c_str(), path.size() + 1);
+        ImGui::Text("%s", label.c_str());
+        ImGui::TextColored(kDim, "Drop on a scene to use it, or below the list to add a scene");
+        ImGui::EndDragDropSource();
+    }
 }
 
 /// A one-line help marker.
@@ -185,7 +223,7 @@ void Shell::Draw(ShellState& state, AppActions& actions)
     DrawScenes(state, actions);
     DrawSceneProperties(state, actions);
     DrawSetup(state, actions);
-    DrawBrowser(state);
+    DrawBrowser(state, actions);
     DrawStatus(state);
     DrawMessages(state);
 }
@@ -204,7 +242,7 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     ImGuiID center = dockspace;
     const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.27f, nullptr, &center);
     const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.31f, nullptr, &center);
-    const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
+    const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.40f, nullptr, &center);
 
     ImGui::DockBuilderDockWindow(kScenes, left);
     ImGui::DockBuilderDockWindow(kProperties, right);
@@ -214,6 +252,7 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     ImGui::DockBuilderDockWindow(kMessages, bottom);
     ImGui::DockBuilderDockWindow(kPreview, center);
     ImGui::DockBuilderFinish(dockspace);
+    m_showBrowserTab = 2; // the browser, not the last docked tab, should be in front (after docking settles)
 }
 
 void Shell::DrawPreview(const ShellState& state, AppActions& actions)
@@ -366,6 +405,10 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                     moveFrom = *static_cast<const int*>(payload->Data);
                     moveTo = i;
                 }
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPresetDragPayload))
+                {
+                    AssignPreset(state, actions, static_cast<const char*>(payload->Data), i);
+                }
                 ImGui::EndDragDropTarget();
             }
             if (ImGui::BeginPopupContextItem("scene-menu"))
@@ -433,6 +476,18 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
             ImGui::PopID();
         }
         ImGui::EndTable();
+    }
+
+    // Presets dropped anywhere else in the panel add a scene at the end.
+    if (hoveredScene < 0 && ImGui::GetDragDropPayload() != nullptr && ImGui::GetDragDropPayload()->IsDataType(kPresetDragPayload))
+    {
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        if (ImGui::BeginDragDropTargetCustom(window->InnerRect, window->ID))
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPresetDragPayload))
+                AssignPreset(state, actions, static_cast<const char*>(payload->Data), -1);
+            ImGui::EndDragDropTarget();
+        }
     }
 
     if (moveFrom >= 0 && moveTo >= 0 && moveFrom != moveTo)
@@ -586,6 +641,17 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     }
 
     ImGui::SeparatorText("Preset");
+    if (state.library != nullptr && state.favourites != nullptr)
+    {
+        if (const std::string id = state.library->IdForPath(scene.presetPath); !id.empty() && state.library->Find(id) != nullptr)
+        {
+            if (StarButton("##favourite-scene-preset", state.favourites->Contains(id)))
+                actions.ToggleFavourite(id);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Favourite");
+            ImGui::SameLine();
+        }
+    }
     ImGui::TextWrapped("%s", scene.presetPath.empty() ? "(none)" : scene.presetPath.filename().c_str());
     if (scene.presetMissing)
         ImGui::TextColored(kRed, "File not found.");
@@ -780,11 +846,211 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     ImGui::End();
 }
 
-void Shell::DrawBrowser(const ShellState& state)
+void Shell::AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene)
 {
+    auto edited = state.document->Get();
+    if (scene >= 0 && scene < static_cast<int>(edited.scenes.size()))
+    {
+        edited.scenes[static_cast<size_t>(scene)].presetPath = preset;
+        actions.Edit(std::move(edited), "Change Preset");
+        *state.selectedScene = scene;
+    }
+    else if (const int index = model::AddScene(edited, static_cast<int>(edited.scenes.size()) - 1, preset); index >= 0)
+    {
+        actions.Edit(std::move(edited), "Add Scene");
+        *state.selectedScene = index;
+        m_scrollToScene = index;
+    }
+    actions.EndEdit();
+}
+
+void Shell::DrawBrowser(ShellState& state, AppActions& actions)
+{
+    if (m_showBrowserTab > 0 && --m_showBrowserTab == 0)
+    {
+        ImGui::SetNextWindowFocus();
+    }
     ImGui::Begin(kBrowser);
-    ImGui::TextColored(kDim, "The preset browser arrives in milestone 5.");
-    ImGui::TextColored(kDim, "For now: choose a preset in the Scene panel, or drop .milk files onto the scene list.");
+    const auto* library = state.library;
+    if (library == nullptr || state.settings->libraryRoot.empty())
+    {
+        ImGui::TextColored(kDim, "Choose the folder with your MilkDrop presets (e.g. the Cream of the Crop pack).");
+        if (ImGui::Button("Choose Preset Folder..."))
+        {
+            if (auto folder = ChooseFolder("Choose the preset library folder"))
+                actions.SetLibraryRoot(*folder);
+        }
+        ImGui::End();
+        return;
+    }
+
+    // Toolbar: search, toggles, count, rescan.
+    ImGui::SetNextItemWidth(260);
+    ImGui::InputTextWithHint("##search", "Search name, author, category", &m_query.text);
+    ImGui::SameLine();
+    ImGui::Checkbox("Favourites", &m_query.favouritesOnly);
+    ImGui::SameLine();
+    ImGui::Checkbox("Hide broken", &m_query.hideBroken);
+
+    if (!(m_query == m_lastQuery) || m_lastLibraryVersion != state.libraryVersion)
+    {
+        static const std::set<std::string> noFavourites;
+        m_results = library::Search(*library, m_query, state.favourites != nullptr ? state.favourites->Ids() : noFavourites);
+        m_lastQuery = m_query;
+        m_lastLibraryVersion = state.libraryVersion;
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(kDim, "%zu of %zu", m_results.size(), library->Presets().size());
+    ImGui::SameLine();
+    if (state.indexing)
+    {
+        ImGui::TextColored(kAmber, "Indexing... %d", state.indexProgress);
+    }
+    else if (ImGui::SmallButton("Rescan"))
+    {
+        actions.RescanLibrary();
+    }
+
+    // Left: categories. Right: results.
+    const float treeWidth = 230.f;
+    ImGui::BeginChild("categories", ImVec2(treeWidth, 0), ImGuiChildFlags_Borders);
+    if (ImGui::Selectable("All presets", m_query.category.empty()))
+    {
+        m_query.category.clear();
+        m_query.subcategory.clear();
+    }
+    for (const auto& category : library->Categories())
+    {
+        const std::string label = (category.name.empty() ? std::string("(no category)") : category.name) + "  " + std::to_string(category.count);
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (category.subcategories.empty())
+            flags |= ImGuiTreeNodeFlags_Leaf;
+        if (m_query.category == category.name && m_query.subcategory.empty())
+            flags |= ImGuiTreeNodeFlags_Selected;
+        const bool open = ImGui::TreeNodeEx(category.name.c_str(), flags, "%s", label.c_str());
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+        {
+            m_query.category = category.name;
+            m_query.subcategory.clear();
+        }
+        if (open)
+        {
+            for (const auto& [name, count] : category.subcategories)
+            {
+                const std::string subLabel = name + "  " + std::to_string(count);
+                const bool selected = m_query.category == category.name && m_query.subcategory == name;
+                if (ImGui::Selectable((subLabel + "##" + category.name).c_str(), selected))
+                {
+                    m_query.category = category.name;
+                    m_query.subcategory = name;
+                }
+            }
+            ImGui::TreePop();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    ImGui::BeginChild("results", ImVec2(0, 0));
+    if (m_results.empty())
+    {
+        ImGui::TextColored(kDim, state.indexing && library->Presets().empty() ? "Indexing your presets..." : "No presets match.");
+    }
+    else if (ImGui::BeginTable("presets", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+    {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, 20.f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+        ImGui::TableSetupColumn("Author", ImGuiTableColumnFlags_WidthStretch, 0.8f);
+        ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Notes", ImGuiTableColumnFlags_WidthStretch, 0.9f);
+        ImGui::TableHeadersRow();
+
+        const int selectedScene = *state.selectedScene;
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(m_results.size()));
+        while (clipper.Step())
+        {
+            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+            {
+                const auto& preset = library->Presets()[static_cast<size_t>(m_results[static_cast<size_t>(row)])];
+                const auto path = library->PathForId(preset.id);
+                ImGui::TableNextRow();
+                ImGui::PushID(preset.id.c_str());
+
+                ImGui::TableNextColumn();
+                const bool favourite = state.favourites != nullptr && state.favourites->Contains(preset.id);
+                if (StarButton("##fav", favourite))
+                    actions.ToggleFavourite(preset.id);
+
+                ImGui::TableNextColumn();
+                if (ImGui::Selectable(preset.name.c_str(), m_selectedPreset == preset.id,
+                                      ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick))
+                {
+                    m_selectedPreset = preset.id;
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                        AssignPreset(state, actions, path, selectedScene);
+                }
+                if (ImGui::IsItemHovered() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                    ImGui::SetTooltip("%s\nDouble-click to use it in the selected scene, or drag it onto a scene.", preset.id.c_str());
+                PresetDragSource(path, preset.name);
+                if (ImGui::BeginPopupContextItem("preset-menu"))
+                {
+                    m_selectedPreset = preset.id;
+                    if (ImGui::MenuItem("Use in Selected Scene", nullptr, false, selectedScene >= 0))
+                        AssignPreset(state, actions, path, selectedScene);
+                    if (ImGui::MenuItem("Add as New Scene"))
+                        AssignPreset(state, actions, path, -1);
+                    if (ImGui::MenuItem(favourite ? "Remove from Favourites" : "Add to Favourites"))
+                        actions.ToggleFavourite(preset.id);
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Reveal in Finder"))
+                        RevealInFinder(path);
+                    ImGui::EndPopup();
+                }
+
+                ImGui::TableNextColumn();
+                ImGui::TextColored(kDim, "%s", preset.author.c_str());
+
+                ImGui::TableNextColumn();
+                ImGui::TextColored(kDim, "%s%s%s", preset.category.c_str(), preset.subcategory.empty() ? "" : " / ", preset.subcategory.c_str());
+
+                ImGui::TableNextColumn();
+                if (preset.broken)
+                {
+                    ImGui::TextColored(kRed, "broken");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", preset.error.c_str());
+                    ImGui::SameLine();
+                }
+                if (preset.frameMs > 1000.0 / 60.0)
+                {
+                    ImGui::TextColored(kAmber, "heavy %.0f ms", preset.frameMs);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Measured %.0f ms per frame: can't reach 60 fps on this machine.", preset.frameMs);
+                    ImGui::SameLine();
+                }
+                if (state.availableTextures != nullptr && !preset.textures.empty())
+                {
+                    const auto missing = library::MissingTextures(preset, *state.availableTextures);
+                    if (!missing.empty())
+                    {
+                        ImGui::TextColored(kAmber, "%zu texture%s missing", missing.size(), missing.size() == 1 ? "" : "s");
+                        if (ImGui::IsItemHovered())
+                        {
+                            std::string list;
+                            for (const auto& name : missing)
+                                list += (list.empty() ? "" : ", ") + name;
+                            ImGui::SetTooltip("Not in your texture folder: %s\nThose parts render black.", list.c_str());
+                        }
+                    }
+                }
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
     ImGui::End();
 }
 

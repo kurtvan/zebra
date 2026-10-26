@@ -236,6 +236,12 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - Search: case-insensitive substring over name, author and tags; fast enough in memory for 10k entries.
 - **Textures:** a user-supplied texture folder (normally the projectM MilkDrop texture pack) is passed to every instance via `projectm_set_texture_search_paths`. The indexer records each preset's referenced-but-missing texture names so the UI can flag them. Measured: 17% of presets use image textures; with the pack, 78% of those are fully covered.
 
+### As built (M5, 2026-10-25)
+- Index: `library.json` in Application Support (format 2), about 2.5 MB for 9,795 presets. Entries are reused when a file's mtime and size are unchanged; bumping the format version forces a full re-parse.
+- Author heuristic: the text before the first " - " counts as the author only if it's at most three words or contains +, & or a comma (so "Fast transition to black - …" has no author).
+- Engine measurements (steady frame time; load errors) are recorded into the index every two seconds and saved periodically and on exit.
+- Missing textures are computed at display time against the texture folder's image stems (recursive, case-insensitive).
+
 ## 8. Thumbnail previews
 
 Goal: **instant-feeling, no upfront wait.** Never pre-generate the whole library.

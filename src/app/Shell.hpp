@@ -5,6 +5,7 @@
 #include "engine/Engine.hpp"
 #include "io/AudioInput.hpp"
 #include "io/MidiInput.hpp"
+#include "library/Library.hpp"
 #include "model/Document.hpp"
 #include "model/PerformanceJson.hpp"
 
@@ -43,6 +44,8 @@ public:
     virtual void SetMidiChannel(int channel) = 0;
     virtual void SetLibraryRoot(const std::filesystem::path& folder) = 0;
     virtual void SetTextureFolder(const std::filesystem::path& folder) = 0;
+    virtual void ToggleFavourite(const std::string& presetId) = 0;
+    virtual void RescanLibrary() = 0;
     virtual void SettingsChanged() = 0;
 };
 
@@ -60,6 +63,12 @@ struct ShellState
     const io::MidiInput* midi{nullptr};
     const io::AudioInput* audio{nullptr};
     const VideoManager* video{nullptr};
+    const library::Library* library{nullptr};
+    const library::Favourites* favourites{nullptr};
+    const std::set<std::string>* availableTextures{nullptr};
+    uint64_t libraryVersion{0}; //!< Changes whenever the library or favourites change.
+    bool indexing{false};
+    int indexProgress{0};
     GLuint preview{0};
     const std::deque<float>* frameIntervalsMs{nullptr};
     long long slowFrames{0};
@@ -80,16 +89,25 @@ private:
     void DrawScenes(ShellState& state, AppActions& actions);
     void DrawSceneProperties(ShellState& state, AppActions& actions);
     void DrawSetup(ShellState& state, AppActions& actions);
-    void DrawBrowser(const ShellState& state);
+    void DrawBrowser(ShellState& state, AppActions& actions);
+    void AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene);
     void DrawStatus(const ShellState& state);
     void DrawMessages(const ShellState& state);
     void DrawStatusBar(const ShellState& state);
     void HandleDrops(ShellState& state, AppActions& actions, int hoveredScene);
 
     bool m_layoutBuilt{false};
+    int m_showBrowserTab{0}; //!< Frames until the browser tab is brought to front.
     std::vector<std::string> m_audioDevices;
     bool m_listsLoaded{false};
     int m_scrollToScene{-1};
+
+    // Preset browser.
+    library::Query m_query;
+    library::Query m_lastQuery;
+    uint64_t m_lastLibraryVersion{~0ull};
+    std::vector<int> m_results;
+    std::string m_selectedPreset;
 };
 
 } // namespace gv::app

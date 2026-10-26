@@ -398,6 +398,21 @@ auto Engine::Scene(int index) const -> SceneInfo
     return info;
 }
 
+auto Engine::PresetMeasurements() const -> std::vector<PresetMeasurement>
+{
+    std::map<std::string, PresetMeasurement> byPath;
+    for (const auto& [path, ms] : m_frameMsByPreset)
+        byPath[path] = {path, ms, {}};
+    for (const auto& [path, ms] : m_liveMsByPreset)
+        byPath[path] = {path, ms, {}};
+    for (const auto& [path, error] : m_errorByPreset)
+        byPath[path] = {path, 0.0, error};
+    std::vector<PresetMeasurement> result;
+    for (auto& [path, measurement] : byPath)
+        result.push_back(std::move(measurement));
+    return result;
+}
+
 auto Engine::GetStats() const -> Stats
 {
     Stats stats;

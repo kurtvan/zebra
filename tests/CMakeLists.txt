@@ -4,8 +4,9 @@ add_executable(gv_tests
     model/test_performance_json.cpp
     model/test_document.cpp
     io/test_midi_decode.cpp
-    engine/test_scene_pool.cpp)
-target_link_libraries(gv_tests PRIVATE gv_warnings gv_common gv_model gv_io gv_engine Catch2::Catch2WithMain)
+    engine/test_scene_pool.cpp
+    library/test_library.cpp)
+target_link_libraries(gv_tests PRIVATE gv_warnings gv_common gv_model gv_io gv_engine gv_library Catch2::Catch2WithMain)
 
 include(Catch)
 catch_discover_tests(gv_tests)
