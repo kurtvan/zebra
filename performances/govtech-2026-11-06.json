@@ -18,8 +18,8 @@
         "restartOnEnter": true,
         "saturation": 1.0,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/2H-intro-hearts.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "2h-intro-hearts"
         }
       }
     },
@@ -40,8 +40,8 @@
         "restartOnEnter": true,
         "saturation": 1.0,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "2h-reveal"
         }
       }
     },
@@ -62,8 +62,8 @@
         "restartOnEnter": true,
         "saturation": 1.0,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "2h-reveal"
         }
       }
     },
@@ -84,8 +84,8 @@
         "restartOnEnter": true,
         "saturation": 1.0,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "2h-reveal"
         }
       }
     },
@@ -106,8 +106,8 @@
         "restartOnEnter": true,
         "saturation": 1.0,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "2h-reveal"
         }
       }
     },
@@ -128,8 +128,8 @@
         "restartOnEnter": true,
         "saturation": 1.0,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "2h-reveal"
         }
       }
     },
@@ -150,8 +150,8 @@
         "restartOnEnter": true,
         "saturation": 0.2199999988079071,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/spirit-level.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "spirit-level"
         }
       }
     },
@@ -172,8 +172,8 @@
         "restartOnEnter": true,
         "saturation": 0.0,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/spirit-level.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "spirit-level"
         }
       }
     },
@@ -183,6 +183,24 @@
         "cc20Value": 8
       },
       "name": "Cave in Prague 1",
+      "playlist": {
+        "enabled": true,
+        "intervalCount": 4,
+        "intervalSeconds": 30.0,
+        "intervalUnit": "beats",
+        "presets": [
+          {
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Waveform/Wire Circular/fed's blur 5! massive trip mix.milk"
+          },
+          {
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Aurora/$$$ Royal - Mashup (257).milk"
+          },
+          {
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Aurora/Jc - Crystal Shards.milk"
+          }
+        ],
+        "shuffle": false
+      },
       "preset": {
         "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Waveform/Wire Circular/fed's blur 5! massive trip mix.milk"
       },
@@ -194,11 +212,37 @@
         "restartOnEnter": true,
         "saturation": 1.0,
         "source": {
-          "path": "/Users/kurt/Movies/govtech-visuals/cave-in-prague.mp4",
-          "type": "file"
+          "type": "file",
+          "video": "cave-in-prague"
         }
       }
     }
   ],
-  "version": 1
+  "version": 2,
+  "videos": [
+    {
+      "id": "2h-intro-hearts",
+      "path": "/Users/kurt/Movies/govtech-visuals/2H-intro-hearts.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "id": "2h-reveal",
+      "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "id": "spirit-level",
+      "path": "/Users/kurt/Movies/govtech-visuals/spirit-level.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "id": "cave-in-prague",
+      "path": "/Users/kurt/Movies/govtech-visuals/cave-in-prague.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    }
+  ]
 }
