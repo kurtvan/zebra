@@ -8,6 +8,7 @@
 #include "library/Library.hpp"
 #include "model/Document.hpp"
 #include "model/PerformanceJson.hpp"
+#include "thumbnails/ThumbnailService.hpp"
 
 #include <OpenGL/gl3.h>
 
@@ -68,6 +69,7 @@ struct ShellState
     const std::set<std::string>* availableTextures{nullptr};
     uint64_t libraryVersion{0}; //!< Changes whenever the library or favourites change.
     bool indexing{false};
+    thumbnails::ThumbnailService* thumbnails{nullptr};
     int indexProgress{0};
     GLuint preview{0};
     const std::deque<float>* frameIntervalsMs{nullptr};
@@ -90,6 +92,7 @@ private:
     void DrawSceneProperties(ShellState& state, AppActions& actions);
     void DrawSetup(ShellState& state, AppActions& actions);
     void DrawBrowser(ShellState& state, AppActions& actions);
+    void DrawPresetGrid(ShellState& state, AppActions& actions);
     void AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene);
     void DrawStatus(const ShellState& state);
     void DrawMessages(const ShellState& state);
