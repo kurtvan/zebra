@@ -49,14 +49,13 @@ public:
         m_player.muted = YES;
         m_player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
 
-        // Loop forever.
-        AVPlayer* player = m_player;
+        // Loop forever, back to the start point. The observer is removed before this object goes away.
+        FileVideoSource* owner = this;
         m_loopObserver = [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
                                                                            object:item
                                                                             queue:[NSOperationQueue mainQueue]
                                                                        usingBlock:^(NSNotification*) {
-                                                                           [player seekToTime:kCMTimeZero toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-                                                                           [player play];
+                                                                           owner->SeekToStart();
                                                                        }];
         GV_LOG_INFO(kLogCategory, "opened %s", file.c_str());
     }
@@ -115,18 +114,42 @@ public:
             return;
         m_active = active;
         if (active)
-            [m_player play];
+            m_player.rate = static_cast<float>(m_speed);
         else
             [m_player pause];
     }
 
     void Restart() override
     {
+        SeekToStart();
+    }
+
+    void SetPlayback(double startSeconds, double speed) override
+    {
+        const bool startChanged = !m_playbackSet || startSeconds != m_startSeconds;
+        m_playbackSet = true;
+        m_startSeconds = startSeconds;
+        m_speed = speed;
+        if (startChanged)
+            SeekToStart();
+        else if (m_player != nil && m_active)
+            m_player.rate = static_cast<float>(m_speed);
+    }
+
+    auto DurationSeconds() const -> double override
+    {
         if (m_player == nil)
-            return;
-        [m_player seekToTime:kCMTimeZero toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-        if (m_active)
-            [m_player play];
+            return 0.0;
+        const CMTime duration = m_player.currentItem.duration;
+        return CMTIME_IS_NUMERIC(duration) ? CMTimeGetSeconds(duration) : 0.0;
+    }
+
+    auto PositionSeconds() const -> double override
+    {
+        if (m_player == nil)
+            return 0.0;
+        const CMTime time = m_player.currentTime;
+        return CMTIME_IS_NUMERIC(time) ? CMTimeGetSeconds(time) : 0.0;
     }
 
     auto State() const -> VideoState override
@@ -140,7 +163,22 @@ public:
     }
 
 private:
+    void SeekToStart()
+    {
+        if (m_player == nil)
+            return;
+        // A start point past the end (or a length not known yet) plays from the beginning.
+        const double duration = DurationSeconds();
+        const double start = duration > 0.0 && m_startSeconds < duration ? m_startSeconds : (duration > 0.0 ? 0.0 : m_startSeconds);
+        [m_player seekToTime:CMTimeMakeWithSeconds(start, 600) toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+        if (m_active)
+            m_player.rate = static_cast<float>(m_speed);
+    }
+
     std::filesystem::path m_file;
+    double m_startSeconds{0.0};
+    double m_speed{1.0};
+    bool m_playbackSet{false};
     VideoState m_state{VideoState::Starting};
     AVPlayer* m_player{nil};
     AVPlayerItemVideoOutput* m_output{nil};

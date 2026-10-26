@@ -38,16 +38,32 @@ public:
     {
     }
 
-    /// Jumps back to the start (file sources).
+    /// Jumps back to the start point (file sources).
     virtual void Restart()
     {
+    }
+
+    /// Where playback starts, restarts and loops back to, and how fast it plays (file sources). Moving the
+    /// start point jumps there, so an edit shows straight away.
+    virtual void SetPlayback(double startSeconds, double speed)
+    {
+    }
+
+    /// Length and current position in seconds (file sources), or 0 if not known (yet).
+    virtual auto DurationSeconds() const -> double
+    {
+        return 0.0;
+    }
+    virtual auto PositionSeconds() const -> double
+    {
+        return 0.0;
     }
 
     virtual auto State() const -> VideoState = 0;
     virtual auto Describe() const -> std::string = 0;
 };
 
-/// AVFoundation playback of a file, muted and looping, decoded straight into GL textures (no CPU copies).
+/// AVFoundation playback of a file, muted and looping from its start point, decoded straight into GL textures (no CPU copies).
 auto CreateFileVideoSource(const std::filesystem::path& file) -> std::unique_ptr<VideoSource>;
 
 /// Syphon input from the server matching `appName` and `serverName` (an empty field matches anything).

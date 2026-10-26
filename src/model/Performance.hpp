@@ -7,7 +7,7 @@
 
 namespace gv::model {
 
-constexpr int kCurrentFormatVersion = 1;
+constexpr int kCurrentFormatVersion = 2; //!< 2: video files live in a shared pool (Performance::videos).
 constexpr int kMaxScenes = 128; //!< One MIDI CC (CC 20) on one channel.
 constexpr float kMaxContrast = 100.0f; //!< At ~50-100 the video becomes a hard split at mid-grey.
 
@@ -20,7 +20,8 @@ enum class VideoSourceType
 struct VideoSource
 {
     VideoSourceType type{VideoSourceType::File};
-    std::filesystem::path path; //!< File sources.
+    std::string videoId;        //!< File sources: the pool video (Performance::videos).
+    std::filesystem::path path; //!< Format 1 only (a file path per scene); turned into a pool video when loading.
     std::string appName;        //!< Syphon sources: matched together with serverName (server UUIDs change per launch).
     std::string serverName;     //!< An empty name matches any; both empty connects to the first server found.
 };
@@ -56,6 +57,27 @@ struct ScenePlaylist
 };
 
 constexpr int kMaxPlaylistCount = 256;
+
+constexpr double kMinVideoSpeed = 0.1;
+constexpr double kMaxVideoSpeed = 4.0;
+
+/// A video file in the performance's shared pool. Scenes refer to it by id; scenes using the same video
+/// share one player, so it carries on from where it was unless a scene restarts it.
+struct PoolVideo
+{
+    std::string id;   //!< Stable and unique within the performance.
+    std::string name; //!< Display label; empty: the file name.
+    std::filesystem::path path;
+    double startSeconds{0.0}; //!< Where playback starts, restarts and loops back to.
+    double speed{1.0};        //!< kMinVideoSpeed..kMaxVideoSpeed, forward only.
+
+    bool missing{false}; //!< Set by the file checks, not serialized.
+
+    auto DisplayName() const -> std::string
+    {
+        return name.empty() ? path.stem().string() : name;
+    }
+};
 
 constexpr double kMinPlaylistInterval = 1.0;
 constexpr double kMaxPlaylistInterval = 3600.0;
@@ -103,6 +125,12 @@ struct Performance
     int version{kCurrentFormatVersion};
     std::string name;
     std::vector<Scene> scenes;
+    std::vector<PoolVideo> videos;
+
+    auto FindVideo(const std::string& id) const -> const PoolVideo*;
+
+    /// The pool video a scene's video uses, if it's a file source that exists in the pool.
+    auto VideoFor(const Scene& scene) const -> const PoolVideo*;
 
     /// Index of the scene triggered by CC 20 value `value`, if any.
     auto SceneForCc20(int value) const -> std::optional<size_t>;

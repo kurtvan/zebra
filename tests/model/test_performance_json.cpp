@@ -1,5 +1,7 @@
 #include "model/PerformanceJson.hpp"
 
+#include "model/Document.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
@@ -48,7 +50,8 @@ TEST_CASE("a performance survives a save/load round trip")
     a.name = "Intro";
     a.video.enabled = true;
     a.video.source.type = VideoSourceType::File;
-    a.video.source.path = "/videos/intro.mp4";
+    a.video.source.videoId = "intro";
+    performance.videos = {PoolVideo{"intro", "Intro loop", "/videos/intro.mp4", 12.5, 0.5}};
     a.video.mix = 0.5f;
     a.video.lumaMin = 0.25f;
     a.video.restartOnEnter = false;
@@ -71,7 +74,13 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK(loaded.scenes[0].name == "Intro");
     CHECK(loaded.scenes[0].presetPath == "/presets/intro.milk");
     CHECK(loaded.scenes[0].video.enabled);
-    CHECK(loaded.scenes[0].video.source.path == "/videos/intro.mp4");
+    CHECK(loaded.scenes[0].video.source.videoId == "intro");
+    REQUIRE(loaded.videos.size() == 1);
+    CHECK(loaded.videos[0].id == "intro");
+    CHECK(loaded.videos[0].name == "Intro loop");
+    CHECK(loaded.videos[0].path == "/videos/intro.mp4");
+    CHECK(loaded.videos[0].startSeconds == 12.5);
+    CHECK(loaded.videos[0].speed == 0.5);
     CHECK(loaded.scenes[0].video.mix == 0.5f);
     CHECK(loaded.scenes[0].video.lumaMin == 0.25f);
     CHECK_FALSE(loaded.scenes[0].video.restartOnEnter);
@@ -150,7 +159,7 @@ TEST_CASE("validation rules")
         CHECK(result.performance.scenes[0].video.contrast == 1.0f);
         CHECK(result.performance.scenes[0].video.saturation == 1.0f);
     }
-    SECTION("enabled file video needs a path; Syphon without names means any server")
+    SECTION("enabled file video needs a pool video; Syphon without names means any server")
     {
         auto file = MakeScene("a", 0);
         file.video.enabled = true;
@@ -159,8 +168,20 @@ TEST_CASE("validation rules")
         syphon.video.source.type = VideoSourceType::Syphon;
         performance.scenes = {file, syphon};
         const auto issues = Validate(performance);
-        CHECK(HasIssueAt(issues, "/scenes/0/video/source/path"));
+        CHECK(HasIssueAt(issues, "/scenes/0/video/source/video"));
         CHECK_FALSE(HasIssueAt(issues, "/scenes/1/video/source"));
+        performance.scenes[0].video.source.videoId = "gone";
+        CHECK(HasIssueAt(Validate(performance), "/scenes/0/video/source/video"));
+    }
+    SECTION("pool videos: unique ids, speed 0.1-4, start not negative")
+    {
+        performance.videos = {PoolVideo{"a", "", "/a.mp4", -1.0, 1.0}, PoolVideo{"a", "", "/b.mp4", 0.0, 5.0}, PoolVideo{"c", "", "/c.mp4", 0.0, 0.05}};
+        const auto issues = Validate(performance);
+        CHECK(HasIssueAt(issues, "/videos/0/startSeconds"));
+        CHECK(HasIssueAt(issues, "/videos/1/id"));
+        CHECK(HasIssueAt(issues, "/videos/1/speed"));
+        CHECK(HasIssueAt(issues, "/videos/2/speed"));
+        CHECK_FALSE(HasIssueAt(issues, "/videos/0/id"));
     }
     SECTION("more than 128 scenes")
     {
@@ -190,7 +211,7 @@ TEST_CASE("missing files are warnings and the performance still loads")
     auto missing = MakeScene("missing", 1);
     missing.presetPath = dir / "nope.milk";
     missing.video.enabled = true;
-    missing.video.source.path = dir / "nope.mp4";
+    missing.video.source.videoId = AddPoolVideo(performance, dir / "nope.mp4");
     performance.scenes = {present, missing};
 
     const auto file = dir / "performance.json";
@@ -202,7 +223,8 @@ TEST_CASE("missing files are warnings and the performance still loads")
     CHECK(result.performance.scenes[1].presetMissing);
     CHECK(result.performance.scenes[1].videoMissing);
     CHECK(HasIssueAt(result, "/scenes/1/preset/path", Issue::Severity::Warning));
-    CHECK(HasIssueAt(result, "/scenes/1/video/source/path", Issue::Severity::Warning));
+    CHECK(result.performance.videos[0].missing);
+    CHECK(HasIssueAt(result, "/videos/0/path", Issue::Severity::Warning));
 
     std::filesystem::remove_all(dir);
 }
@@ -292,4 +314,55 @@ TEST_CASE("playlists round-trip, validate and report missing entries")
         CHECK(plain.scenes[0].FirstPreset() == dir / "b.milk");
     }
     std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("format 1 file videos become pool videos, one per file")
+{
+    const auto result = ParsePerformance(R"({"version": 1, "scenes": [
+        {"id": "a", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 0}, "video": {"enabled": true, "source": {"type": "file", "path": "/v/Hearts Intro.mp4"}}},
+        {"id": "b", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 1}, "video": {"enabled": true, "source": {"type": "file", "path": "/v/Hearts Intro.mp4"}}},
+        {"id": "c", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 2}, "video": {"enabled": false, "source": {"type": "file", "path": "/other/hearts intro.mp4"}}},
+        {"id": "d", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 3}}]})");
+    REQUIRE(result.ok);
+    const auto& performance = result.performance;
+    CHECK(performance.version == kCurrentFormatVersion);
+    REQUIRE(performance.videos.size() == 2);
+    CHECK(performance.videos[0].id == "hearts-intro");
+    CHECK(performance.videos[0].path == "/v/Hearts Intro.mp4");
+    CHECK(performance.videos[0].startSeconds == 0.0);
+    CHECK(performance.videos[0].speed == 1.0);
+    CHECK(performance.videos[1].id == "hearts-intro-2");
+    CHECK(performance.scenes[0].video.source.videoId == "hearts-intro");
+    CHECK(performance.scenes[1].video.source.videoId == "hearts-intro");
+    CHECK(performance.scenes[2].video.source.videoId == "hearts-intro-2"); // kept for when it's switched on
+    CHECK(performance.scenes[3].video.source.videoId.empty());
+    CHECK(performance.scenes[0].video.source.path.empty());
+
+    // Saved in the new format, without per-scene paths.
+    const std::string saved = SerializePerformance(performance);
+    CHECK(saved.find("\"version\": 2") != std::string::npos);
+    CHECK(saved.find("\"video\": \"hearts-intro\"") != std::string::npos);
+    const auto reloaded = ParsePerformance(saved);
+    REQUIRE(reloaded.ok);
+    CHECK(reloaded.performance.videos.size() == 2);
+}
+
+TEST_CASE("the video pool: adding dedupes by file, removing needs it unused")
+{
+    Performance performance;
+    const std::string id = AddPoolVideo(performance, "/v/clip.mov");
+    CHECK(id == "clip");
+    CHECK(AddPoolVideo(performance, "/v/clip.mov") == "clip");
+    CHECK(AddPoolVideo(performance, "/w/clip.mov") == "clip-2");
+    REQUIRE(performance.videos.size() == 2);
+
+    auto scene = MakeScene("a", 0);
+    scene.video.source.videoId = id;
+    performance.scenes = {scene};
+    CHECK(VideoUsage(performance, id) == 1);
+    CHECK(performance.VideoFor(performance.scenes[0]) == &performance.videos[0]);
+    CHECK_FALSE(RemovePoolVideo(performance, id));
+    CHECK(RemovePoolVideo(performance, "clip-2"));
+    CHECK_FALSE(RemovePoolVideo(performance, "nope"));
+    CHECK(performance.videos.size() == 1);
 }
