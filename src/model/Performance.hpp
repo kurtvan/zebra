@@ -36,14 +36,26 @@ struct SceneVideo
     bool restartOnEnter{true};
 };
 
+/// What a playlist's interval counts.
+enum class IntervalUnit
+{
+    Seconds,
+    Beats, //!< MIDI clock beats.
+    Bars,  //!< MIDI clock bars (4/4).
+};
+
 /// A scene that cycles through several presets instead of showing one.
 struct ScenePlaylist
 {
     bool enabled{false};
     std::vector<std::filesystem::path> presets;
-    double intervalSeconds{30.0}; //!< 1..3600
+    IntervalUnit unit{IntervalUnit::Seconds};
+    double intervalSeconds{30.0}; //!< Unit Seconds: 1..3600.
+    int intervalCount{4};         //!< Units Beats/Bars: 1..256, switching on beat/bar lines of the MIDI clock.
     bool shuffle{false};          //!< Random order (never the same preset twice in a row) instead of top to bottom.
 };
+
+constexpr int kMaxPlaylistCount = 256;
 
 constexpr double kMinPlaylistInterval = 1.0;
 constexpr double kMaxPlaylistInterval = 3600.0;

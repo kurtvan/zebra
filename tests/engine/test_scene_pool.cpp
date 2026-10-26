@@ -363,3 +363,15 @@ TEST_CASE("an item instance finishing first doesn't hijack a pending live-preset
     CHECK(Find(h.pool.OnPrepared(again.back().instance, true), Type::Activate, 1) == nullptr);
     CHECK(h.pool.LiveItem() == 0);
 }
+
+#include "engine/BeatGrid.hpp"
+
+TEST_CASE("beat and bar cycles start on the grid line, or the next one when well past it")
+{
+    using gv::engine::CycleStart;
+    CHECK(CycleStart(0, 96) == 0);
+    CHECK(CycleStart(96 * 3, 96) == 96 * 3);      // exactly on a bar line
+    CHECK(CycleStart(96 * 3 + 4, 96) == 96 * 3);  // a moment after it
+    CHECK(CycleStart(96 * 3 + 30, 96) == 96 * 4); // mid-bar: the next bar line
+    CHECK(CycleStart(24 * 5 + 20, 24) == 24 * 6); // late in a beat: the next beat
+}
