@@ -14,6 +14,7 @@
 
 #include <OpenGL/gl3.h>
 #include <mach/mach.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -74,6 +75,9 @@ struct Options
     double secondsPerScene{2.0};
     std::filesystem::path textures{"/Users/kurt/projects/visualizers/milkdrop-textures/textures"};
     bool textureControl{false}; //!< textures mode: compare two renders without textures (randomness baseline).
+    bool leakSamePreset{false}; //!< leak mode: always the same preset.
+    bool leakNoLoad{false};     //!< leak mode: don't load a preset (the idle preset renders).
+    int leakHoldSeconds{0};     //!< leak mode: stay alive this long afterwards (to inspect with footprint/vmmap).
     std::string mode{"timing"}; //!< "timing" (load phases + memory) or "lanes" (background prepare on a shared context).
 };
 
@@ -118,6 +122,12 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.textures = value;
         else if (key == "--texture-control")
             options.textureControl = value == "1";
+        else if (key == "--leak-same")
+            options.leakSamePreset = value == "1";
+        else if (key == "--leak-hold")
+            options.leakHoldSeconds = std::stoi(value);
+        else if (key == "--leak-no-load")
+            options.leakNoLoad = value == "1";
         else if (key == "--mode")
             options.mode = value;
     }
@@ -459,6 +469,74 @@ int RunFeedbackCheck(const Options& options, const std::vector<std::filesystem::
     return 0;
 }
 
+/// Creates, loads, renders and destroys instances in a loop and reports the memory footprint.
+int RunLeakCheck(const Options& options, const std::vector<std::filesystem::path>& presets)
+{
+    Target target(options.width, options.height);
+    const uint64_t start = PhysicalFootprintBytes();
+    for (int round = 1; round <= options.count; ++round)
+    {
+        const auto& preset = options.leakSamePreset ? presets.front() : presets[static_cast<size_t>(round) % presets.size()];
+        projectm_handle instance = projectm_create();
+        projectm_set_window_size(instance, static_cast<size_t>(options.width), static_cast<size_t>(options.height));
+        if (!options.leakNoLoad)
+            projectm_load_preset_file(instance, preset.c_str(), false);
+        for (int f = 0; f < 3; ++f)
+            RenderTimed(instance, target, options.width, options.height, f);
+        projectm_destroy(instance);
+        glFinish();
+        if (round % 25 == 0)
+            std::printf("after %4d create/destroy cycles: footprint %+.1f MB\n", round, (static_cast<double>(PhysicalFootprintBytes()) - static_cast<double>(start)) / 1048576.0);
+    }
+    if (options.leakHoldSeconds > 0)
+    {
+        std::printf("holding for %d s (pid %d)\n", options.leakHoldSeconds, getpid());
+        std::fflush(stdout);
+        std::this_thread::sleep_for(std::chrono::seconds(options.leakHoldSeconds));
+    }
+    return 0;
+}
+
+/// Driver check: compile, draw with and delete a trivial program over and over. Does memory come back?
+int RunProgramChurn(const Options& options)
+{
+    Target target(64, 64);
+    GLuint vao = 0;
+    glGenVertexArrays(1, &vao);
+    const uint64_t start = PhysicalFootprintBytes();
+    for (int round = 1; round <= options.count; ++round)
+    {
+        // A slightly different source each round, like projectM's per-preset shaders; or the same one.
+        const std::string fragment = "#version 330 core\nout vec4 c;\nvoid main() { c = vec4(" +
+                                     std::to_string(options.leakSamePreset ? 0.5 : (round % 1000) / 1000.0) + ", 0.0, 0.0, 1.0); }\n";
+        const char* vertex = "#version 330 core\nvoid main() { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }\n";
+        auto compile = [](GLenum type, const char* source) {
+            GLuint shader = glCreateShader(type);
+            glShaderSource(shader, 1, &source, nullptr);
+            glCompileShader(shader);
+            return shader;
+        };
+        GLuint vs = compile(GL_VERTEX_SHADER, vertex);
+        GLuint fs = compile(GL_FRAGMENT_SHADER, fragment.c_str());
+        GLuint program = glCreateProgram();
+        glAttachShader(program, vs);
+        glAttachShader(program, fs);
+        glLinkProgram(program);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        glBindFramebuffer(GL_FRAMEBUFFER, target.fbo);
+        glUseProgram(program);
+        glBindVertexArray(vao);
+        glDrawArrays(GL_POINTS, 0, 1);
+        glUseProgram(0);
+        glDeleteProgram(program);
+        glFinish();
+        if (round % 500 == 0)
+            std::printf("after %5d programs: footprint %+.1f MB\n", round, (static_cast<double>(PhysicalFootprintBytes()) - static_cast<double>(start)) / 1048576.0);
+    }
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -486,6 +564,24 @@ int main(int argc, char* argv[])
 
     const auto presets = SamplePresets(options.library, options.count, options.seed);
     GV_LOG_INFO(kLogCategory, "sampled %zu presets from %s", presets.size(), options.library.c_str());
+
+    if (options.mode == "programs")
+    {
+        const int result = RunProgramChurn(options);
+        SDL_GL_DeleteContext(context);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return result;
+    }
+
+    if (options.mode == "leak")
+    {
+        const int result = RunLeakCheck(options, SamplePresets(options.library, 12, options.seed));
+        SDL_GL_DeleteContext(context);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return result;
+    }
 
     if (options.mode == "feedback")
     {
