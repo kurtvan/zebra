@@ -288,3 +288,78 @@ TEST_CASE("changing the live scene's preset prepares a replacement and swaps it 
         releasedOld = releasedOld || (c.type == Type::Release && c.instance == old);
     CHECK(releasedOld);
 }
+
+TEST_CASE("playlist entries: the next entry is prepared beside the live one and swapped in")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(5, std::vector<bool>(5, false)));
+    h.Run(h.pool.Trigger(1));
+    const auto first = h.pool.LiveInstance();
+    CHECK(h.pool.LiveItem() == 0);
+
+    auto commands = h.pool.PrepareItem(1, 2);
+    const auto* prepare = Find(commands, Type::Prepare, 1);
+    REQUIRE(prepare != nullptr);
+    CHECK(prepare->item == 2);
+    CHECK(prepare->lane != h.pool.LiveLane());
+    CHECK(h.pool.ActivateItem(prepare->instance).empty()); // not ready yet
+
+    h.pool.OnPrepared(prepare->instance, true);
+    CHECK(h.pool.LiveScene() == 1); // still the first entry until activated
+    auto activated = h.pool.ActivateItem(prepare->instance);
+    CHECK(Find(activated, Type::Activate, 1) != nullptr);
+    bool releasedFirst = false;
+    for (const auto& c : activated)
+        releasedFirst = releasedFirst || (c.type == Type::Release && c.instance == first);
+    CHECK(releasedFirst);
+    CHECK(h.pool.LiveItem() == 2);
+    CHECK(h.pool.LiveScene() == 1);
+}
+
+TEST_CASE("playlist entries are dropped when the scene stops being live, and scenes re-enter at entry 0")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(5, std::vector<bool>(5, false)));
+    h.Run(h.pool.Trigger(1));
+    auto commands = h.pool.PrepareItem(1, 1);
+    const auto itemInstance = commands.back().instance;
+    h.pool.OnPrepared(itemInstance, true);
+
+    h.log.clear();
+    h.Run(h.pool.Trigger(2));
+    bool releasedItem = false;
+    for (const auto& c : h.log)
+        releasedItem = releasedItem || (c.type == Type::Release && c.instance == itemInstance);
+    CHECK(releasedItem);
+    CHECK(h.pool.NextItemInstance() == 0);
+
+    // Scene 1 is back in the window: it's re-prepared at entry 0.
+    const auto* reprepare = Find(h.log, Type::Prepare, 1);
+    REQUIRE(reprepare != nullptr);
+    CHECK(reprepare->item == 0);
+    h.Run(h.pool.Trigger(1));
+    CHECK(h.pool.LiveItem() == 0);
+}
+
+TEST_CASE("an item instance finishing first doesn't hijack a pending live-preset swap")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(4, std::vector<bool>(4, false)));
+    h.Run(h.pool.Trigger(1));
+    auto item = h.pool.PrepareItem(1, 1);
+    std::vector<bool> changed(4, false);
+    changed[1] = true;
+    auto remap = h.pool.Remap(4, {0, 1, 2, 3}, std::vector<bool>(4, false), changed);
+    // The stale next-entry instance is released and forgotten (the engine plans a new one).
+    bool released = false;
+    for (const auto& c : remap)
+        released = released || (c.type == Type::Release && c.instance == item.back().instance);
+    CHECK(released);
+    CHECK(h.pool.NextItemInstance() == 0);
+
+    // A new next entry prepared while the replacement is pending doesn't get activated as the replacement.
+    auto again = h.pool.PrepareItem(1, 1);
+    REQUIRE(again.back().type == Type::Prepare);
+    CHECK(Find(h.pool.OnPrepared(again.back().instance, true), Type::Activate, 1) == nullptr);
+    CHECK(h.pool.LiveItem() == 0);
+}

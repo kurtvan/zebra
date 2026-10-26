@@ -26,6 +26,8 @@ auto ScenePool::Reset(int sceneCount, const std::vector<bool>& unusable) -> std:
     m_live = -1;
     m_liveInstance = 0;
     m_pending = -1;
+    m_liveItem = 0;
+    m_itemInstance = 0;
     Rebalance(commands);
     return commands;
 }
@@ -77,7 +79,7 @@ auto ScenePool::OnPrepared(InstanceId instance, bool ok) -> std::vector<PoolComm
         return commands;
     }
     it->second.ready = true;
-    if (m_pending == it->second.scene)
+    if (m_pending == it->second.scene && it->second.item == 0)
     {
         return Activate(instance);
     }
@@ -95,7 +97,9 @@ auto ScenePool::OnCancelled(const std::vector<InstanceId>& instances) -> std::ve
         {
             continue;
         }
-        pendingLost = pendingLost || it->second.scene == m_pending;
+        pendingLost = pendingLost || (it->second.scene == m_pending && it->second.item == 0);
+        if (id == m_itemInstance)
+            m_itemInstance = 0; // re-planned by the engine
         m_instances.erase(it);
     }
     if (pendingLost)
@@ -139,7 +143,9 @@ auto ScenePool::Remap(int sceneCount, const std::vector<int>& oldToNew, const st
         }
         else if (scene < 0 || changed(scene))
         {
-            commands.push_back({PoolCommand::Type::Release, it->second.scene, it->second.lane, it->first, false});
+            commands.push_back({PoolCommand::Type::Release, it->second.scene, it->second.lane, it->first, false, it->second.item});
+            if (it->first == m_itemInstance)
+                m_itemInstance = 0; // stale next entry: the engine plans a new one
             it = m_instances.erase(it);
         }
         else
@@ -164,6 +170,43 @@ auto ScenePool::Remap(int sceneCount, const std::vector<int>& oldToNew, const st
     }
     Rebalance(commands);
     return commands;
+}
+
+auto ScenePool::PrepareItem(int scene, int item) -> std::vector<PoolCommand>
+{
+    std::vector<PoolCommand> commands = ClearItem();
+    if (scene != m_live || scene < 0)
+        return commands;
+    commands.push_back(Prepare(scene, false, item));
+    m_itemInstance = commands.back().instance;
+    return commands;
+}
+
+auto ScenePool::ActivateItem(InstanceId instance) -> std::vector<PoolCommand>
+{
+    auto it = m_instances.find(instance);
+    if (instance == 0 || instance != m_itemInstance || it == m_instances.end() || !it->second.ready || it->second.scene != m_live)
+        return {};
+    m_itemInstance = 0;
+    return Activate(instance);
+}
+
+auto ScenePool::ClearItem() -> std::vector<PoolCommand>
+{
+    std::vector<PoolCommand> commands;
+    if (auto it = m_instances.find(m_itemInstance); it != m_instances.end())
+    {
+        commands.push_back({PoolCommand::Type::Release, it->second.scene, it->second.lane, it->first, false, it->second.item});
+        m_instances.erase(it);
+    }
+    m_itemInstance = 0;
+    return commands;
+}
+
+auto ScenePool::IsReady(InstanceId instance) const -> bool
+{
+    auto it = m_instances.find(instance);
+    return it != m_instances.end() && it->second.ready;
 }
 
 auto ScenePool::InstancesOf(int scene) const -> std::vector<HostedInstance>
@@ -213,7 +256,7 @@ auto ScenePool::InstanceFor(int scene) const -> std::optional<InstanceId>
 {
     for (const auto& [id, instance] : m_instances)
     {
-        if (instance.scene == scene && id != m_liveInstance)
+        if (instance.scene == scene && id != m_liveInstance && instance.item == 0)
         {
             return id;
         }
@@ -264,12 +307,12 @@ auto ScenePool::PickLane(bool priority) const -> int
     return best;
 }
 
-auto ScenePool::Prepare(int scene, bool priority) -> PoolCommand
+auto ScenePool::Prepare(int scene, bool priority, int item) -> PoolCommand
 {
     const InstanceId id = m_nextId++;
     const int lane = PickLane(priority);
-    m_instances[id] = {scene, lane, false};
-    return {PoolCommand::Type::Prepare, scene, lane, id, priority};
+    m_instances[id] = {scene, lane, false, item};
+    return {PoolCommand::Type::Prepare, scene, lane, id, priority, item};
 }
 
 auto ScenePool::Activate(InstanceId instance) -> std::vector<PoolCommand>
@@ -287,6 +330,7 @@ auto ScenePool::Activate(InstanceId instance) -> std::vector<PoolCommand>
 
     m_live = next.scene;
     m_liveInstance = instance;
+    m_liveItem = next.item;
     m_pending = -1;
     commands.push_back({PoolCommand::Type::Activate, m_live, next.lane, instance, false});
     Rebalance(commands);
@@ -295,11 +339,21 @@ auto ScenePool::Activate(InstanceId instance) -> std::vector<PoolCommand>
 
 void ScenePool::Rebalance(std::vector<PoolCommand>& commands)
 {
-    // Release instances outside the window (never the live one or the pending trigger).
+    // A next-entry instance only makes sense while its scene is live.
+    if (auto it = m_instances.find(m_itemInstance); it != m_instances.end() && it->second.scene != m_live)
+    {
+        commands.push_back({PoolCommand::Type::Release, it->second.scene, it->second.lane, it->first, false, it->second.item});
+        m_instances.erase(it);
+        m_itemInstance = 0;
+    }
+
+    // Release instances outside the window (never the live one or the pending trigger), and stray playlist entries.
     for (auto it = m_instances.begin(); it != m_instances.end();)
     {
         const auto& instance = it->second;
-        if (it->first != m_liveInstance && instance.scene != m_pending && !InWindow(instance.scene))
+        const bool strayItem = instance.item != 0 && it->first != m_itemInstance && it->first != m_liveInstance;
+        if (it->first != m_liveInstance && it->first != m_itemInstance &&
+            (strayItem || (instance.scene != m_pending && !InWindow(instance.scene))))
         {
             commands.push_back({PoolCommand::Type::Release, instance.scene, instance.lane, it->first, false});
             it = m_instances.erase(it);

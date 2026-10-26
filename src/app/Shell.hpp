@@ -90,6 +90,7 @@ private:
     void DrawPreview(const ShellState& state, AppActions& actions);
     void DrawScenes(ShellState& state, AppActions& actions);
     void DrawSceneProperties(ShellState& state, AppActions& actions);
+    void DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info);
     void DrawSetup(ShellState& state, AppActions& actions);
     void DrawBrowser(ShellState& state, AppActions& actions);
     void DrawPresetGrid(ShellState& state, AppActions& actions);

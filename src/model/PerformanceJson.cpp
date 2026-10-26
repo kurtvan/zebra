@@ -79,6 +79,24 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
         scene.presetPath = presetPath;
     }
 
+    if (auto playlist = object.find("playlist"); playlist != object.end() && playlist->is_object())
+    {
+        const std::string playlistPath = path + "/playlist";
+        ReadField(*playlist, "enabled", scene.playlist.enabled, playlistPath, issues);
+        ReadField(*playlist, "intervalSeconds", scene.playlist.intervalSeconds, playlistPath, issues);
+        ReadField(*playlist, "shuffle", scene.playlist.shuffle, playlistPath, issues);
+        if (auto presets = playlist->find("presets"); presets != playlist->end() && presets->is_array())
+        {
+            for (size_t i = 0; i < presets->size(); ++i)
+            {
+                std::string presetPath;
+                if ((*presets)[i].is_object())
+                    ReadField((*presets)[i], "path", presetPath, playlistPath + "/presets/" + std::to_string(i), issues);
+                scene.playlist.presets.emplace_back(presetPath);
+            }
+        }
+    }
+
     if (auto video = object.find("video"); video != object.end() && video->is_object())
     {
         const std::string videoPath = path + "/video";
@@ -220,6 +238,17 @@ auto SerializePerformance(const Performance& performance) -> std::string
             object["name"] = scene.name;
         }
         object["preset"] = {{"path", scene.presetPath.string()}};
+        if (scene.playlist.enabled || !scene.playlist.presets.empty())
+        {
+            json presets = json::array();
+            for (const auto& preset : scene.playlist.presets)
+                presets.push_back({{"path", preset.string()}});
+            object["playlist"] = {
+                {"enabled", scene.playlist.enabled},
+                {"presets", presets},
+                {"intervalSeconds", scene.playlist.intervalSeconds},
+                {"shuffle", scene.playlist.shuffle}};
+        }
 
         json source;
         if (scene.video.source.type == VideoSourceType::File)
@@ -292,7 +321,19 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
             issues.push_back(Error(path + "/id", "\"" + scene.id + "\" is used by another scene"));
         }
 
-        if (scene.presetPath.empty())
+        if (scene.playlist.enabled)
+        {
+            if (scene.playlist.presets.empty())
+                issues.push_back(Error(path + "/playlist/presets", "a playlist needs at least one preset"));
+            for (size_t i = 0; i < scene.playlist.presets.size(); ++i)
+            {
+                if (scene.playlist.presets[i].empty())
+                    issues.push_back(Error(path + "/playlist/presets/" + std::to_string(i) + "/path", "is empty"));
+            }
+            if (scene.playlist.intervalSeconds < kMinPlaylistInterval || scene.playlist.intervalSeconds > kMaxPlaylistInterval)
+                issues.push_back(Error(path + "/playlist/intervalSeconds", "must be between 1 and 3600 seconds"));
+        }
+        else if (scene.presetPath.empty())
         {
             issues.push_back(Error(path + "/preset/path", "is empty"));
         }
@@ -339,10 +380,18 @@ auto CheckFiles(Performance& performance) -> std::vector<Issue>
         const std::string path = "/scenes/" + std::to_string(i);
         std::error_code ec;
 
-        scene.presetMissing = !scene.presetPath.empty() && !std::filesystem::is_regular_file(scene.presetPath, ec);
-        if (scene.presetMissing)
+        scene.presetMissing = !scene.FirstPreset().empty() && !std::filesystem::is_regular_file(scene.FirstPreset(), ec);
+        if (scene.presetMissing && !scene.IsPlaylist())
         {
             issues.push_back(Warning(path + "/preset/path", "file not found: " + scene.presetPath.string()));
+        }
+        scene.playlistMissing.assign(scene.playlist.presets.size(), false);
+        for (size_t p = 0; p < scene.playlist.presets.size(); ++p)
+        {
+            const auto& preset = scene.playlist.presets[p];
+            scene.playlistMissing[p] = !preset.empty() && !std::filesystem::is_regular_file(preset, ec);
+            if (scene.playlistMissing[p] && scene.playlist.enabled)
+                issues.push_back(Warning(path + "/playlist/presets/" + std::to_string(p) + "/path", "file not found: " + preset.string()));
         }
 
         scene.videoMissing = scene.video.enabled && scene.video.source.type == VideoSourceType::File &&

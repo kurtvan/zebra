@@ -35,17 +35,49 @@ struct SceneVideo
     bool restartOnEnter{true};
 };
 
+/// A scene that cycles through several presets instead of showing one.
+struct ScenePlaylist
+{
+    bool enabled{false};
+    std::vector<std::filesystem::path> presets;
+    double intervalSeconds{30.0}; //!< 1..3600
+    bool shuffle{false};          //!< Random order (never the same preset twice in a row) instead of top to bottom.
+};
+
+constexpr double kMinPlaylistInterval = 1.0;
+constexpr double kMaxPlaylistInterval = 3600.0;
+
 struct Scene
 {
     std::string id;   //!< Stable and unique within the performance.
     std::string name; //!< Display label; may be empty (the UI falls back to id).
-    std::filesystem::path presetPath;
+    std::filesystem::path presetPath; //!< The preset, when the scene isn't a playlist.
+    ScenePlaylist playlist;
     SceneVideo video;
     int cc20Value{0}; //!< 0..127, unique within the performance. Doesn't change when scenes are reordered.
 
     /// Set by the loader / file checks, not serialized.
-    bool presetMissing{false};
+    bool presetMissing{false};          //!< The first preset (see Presets()) is missing.
     bool videoMissing{false};
+    std::vector<bool> playlistMissing;  //!< Per playlist entry.
+
+    /// True if the scene cycles through a playlist.
+    auto IsPlaylist() const -> bool
+    {
+        return playlist.enabled && !playlist.presets.empty();
+    }
+
+    /// The presets the scene shows: the playlist, or just presetPath.
+    auto Presets() const -> std::vector<std::filesystem::path>
+    {
+        return IsPlaylist() ? playlist.presets : std::vector<std::filesystem::path>{presetPath};
+    }
+
+    /// The preset shown when the scene starts.
+    auto FirstPreset() const -> const std::filesystem::path&
+    {
+        return IsPlaylist() ? playlist.presets.front() : presetPath;
+    }
 
     auto DisplayName() const -> const std::string&
     {

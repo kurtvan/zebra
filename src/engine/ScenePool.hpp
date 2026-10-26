@@ -31,6 +31,7 @@ struct PoolCommand
     int lane{-1};
     InstanceId instance{0};
     bool priority{false}; //!< Prepare: run before other queued work on that lane.
+    int item{0};          //!< Prepare: which of the scene's presets (playlist entry); 0 for ordinary scenes.
 };
 
 /// Decides which scenes are prepared on which lane, and when the live scene switches.
@@ -82,6 +83,33 @@ public:
     auto Remap(int sceneCount, const std::vector<int>& oldToNew, const std::vector<bool>& unusable,
                const std::vector<bool>& presetChanged) -> std::vector<PoolCommand>;
 
+    // --- Playlist scenes ---------------------------------------------------------------------
+    // The live scene's next playlist entry is prepared as an extra instance and swapped in when its
+    // time comes. Any other scene is always prepared at entry 0 (every entry starts at the top).
+
+    /// Prepares entry `item` of the live scene `scene` as the next one (replacing a previous next-entry instance).
+    auto PrepareItem(int scene, int item) -> std::vector<PoolCommand>;
+
+    /// Makes the prepared next-entry instance live (it must be ready). Releases the outgoing instance.
+    auto ActivateItem(InstanceId instance) -> std::vector<PoolCommand>;
+
+    /// Drops the prepared next-entry instance, if any (e.g. the playlist was edited).
+    auto ClearItem() -> std::vector<PoolCommand>;
+
+    auto NextItemInstance() const -> InstanceId
+    {
+        return m_itemInstance;
+    }
+    auto IsReady(InstanceId instance) const -> bool;
+    auto LiveItem() const -> int
+    {
+        return m_liveItem;
+    }
+    auto LiveInstance() const -> InstanceId
+    {
+        return m_liveInstance;
+    }
+
     struct HostedInstance
     {
         InstanceId instance{0};
@@ -112,12 +140,13 @@ private:
         int scene{-1};
         int lane{-1};
         bool ready{false};
+        int item{0};
     };
 
     auto InstanceFor(int scene) const -> std::optional<InstanceId>;
     auto InWindow(int scene) const -> bool;
     auto PickLane(bool priority) const -> int;
-    auto Prepare(int scene, bool priority) -> PoolCommand;
+    auto Prepare(int scene, bool priority, int item = 0) -> PoolCommand;
     auto Activate(InstanceId instance) -> std::vector<PoolCommand>;
     void Rebalance(std::vector<PoolCommand>& commands);
 
@@ -130,6 +159,8 @@ private:
     int m_live{-1};
     InstanceId m_liveInstance{0};
     int m_pending{-1};
+    int m_liveItem{0};
+    InstanceId m_itemInstance{0}; //!< The live playlist scene's next entry, or 0.
 };
 
 } // namespace gv::engine

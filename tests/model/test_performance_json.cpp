@@ -215,3 +215,57 @@ TEST_CASE("CC 20 lookup and free values")
     CHECK_FALSE(performance.SceneForCc20(2).has_value());
     CHECK(performance.FreeCc20Value() == 2);
 }
+
+TEST_CASE("playlists round-trip, validate and report missing entries")
+{
+    const auto dir = std::filesystem::temp_directory_path() / "gv_test_playlist";
+    std::filesystem::create_directories(dir);
+    std::ofstream(dir / "a.milk") << "[preset00]\n";
+    std::ofstream(dir / "b.milk") << "[preset00]\n";
+
+    Performance performance;
+    auto scene = MakeScene("p", 0);
+    scene.presetPath.clear();
+    scene.playlist.enabled = true;
+    scene.playlist.presets = {dir / "a.milk", dir / "missing.milk", dir / "b.milk"};
+    scene.playlist.intervalSeconds = 12.5;
+    scene.playlist.shuffle = true;
+    performance.scenes = {scene, MakeScene("plain", 1)};
+    CHECK(Validate(performance).empty());
+
+    const auto file = dir / "performance.json";
+    REQUIRE(SavePerformance(performance, file).empty());
+    const auto result = LoadPerformance(file);
+    REQUIRE(result.ok);
+    const auto& loaded = result.performance.scenes[0];
+    CHECK(loaded.IsPlaylist());
+    CHECK(loaded.playlist.presets.size() == 3);
+    CHECK(loaded.playlist.intervalSeconds == 12.5);
+    CHECK(loaded.playlist.shuffle);
+    CHECK(loaded.FirstPreset() == dir / "a.milk");
+    CHECK_FALSE(loaded.presetMissing);
+    CHECK(loaded.playlistMissing == std::vector<bool>{false, true, false});
+    CHECK(HasIssueAt(result, "/scenes/0/playlist/presets/1/path", Issue::Severity::Warning));
+    CHECK_FALSE(result.performance.scenes[1].IsPlaylist());
+    CHECK(result.performance.scenes[1].Presets().size() == 1);
+
+    SECTION("an enabled playlist needs presets and a sane interval")
+    {
+        auto bad = performance;
+        bad.scenes[0].playlist.presets.clear();
+        bad.scenes[0].playlist.intervalSeconds = 0.2;
+        const auto issues = Validate(bad);
+        CHECK(HasIssueAt(issues, "/scenes/0/playlist/presets"));
+        CHECK(HasIssueAt(issues, "/scenes/0/playlist/intervalSeconds"));
+    }
+    SECTION("a disabled playlist falls back to the single preset")
+    {
+        auto plain = performance;
+        plain.scenes[0].playlist.enabled = false;
+        CHECK(HasIssueAt(Validate(plain), "/scenes/0/preset/path")); // presetPath is empty
+        plain.scenes[0].presetPath = dir / "b.milk";
+        CHECK(Validate(plain).empty());
+        CHECK(plain.scenes[0].FirstPreset() == dir / "b.milk");
+    }
+    std::filesystem::remove_all(dir);
+}

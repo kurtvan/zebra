@@ -302,7 +302,7 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
     if (ImGui::Button("Add"))
     {
         auto edited = performance;
-        const auto preset = selected >= 0 ? performance.scenes[static_cast<size_t>(selected)].presetPath : std::filesystem::path();
+        const auto preset = selected >= 0 ? performance.scenes[static_cast<size_t>(selected)].FirstPreset() : std::filesystem::path();
         const int index = model::AddScene(edited, selected, preset);
         if (index >= 0)
         {
@@ -433,15 +433,34 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Reveal Preset in Finder", nullptr, false, !scene.presetMissing))
-                    RevealInFinder(scene.presetPath);
+                    RevealInFinder(scene.FirstPreset());
                 ImGui::EndPopup();
             }
 
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(scene.presetMissing ? kRed : kDim, "%s", scene.presetPath.stem().c_str());
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s%s", scene.presetPath.c_str(), scene.presetMissing ? "\n(file not found)" : "");
+            if (scene.IsPlaylist())
+            {
+                // Playlist: the entry showing (when live) or the number of presets.
+                const int item = i == live ? info.playlistItem : -1;
+                if (item >= 0 && item < static_cast<int>(scene.playlist.presets.size()))
+                    ImGui::TextColored(kAccent, "%d/%zu %s", item + 1, scene.playlist.presets.size(), scene.playlist.presets[static_cast<size_t>(item)].stem().c_str());
+                else
+                    ImGui::TextColored(scene.presetMissing ? kRed : kAccent, "Playlist: %zu presets", scene.playlist.presets.size());
+                if (ImGui::IsItemHovered())
+                {
+                    std::string list;
+                    for (size_t p = 0; p < scene.playlist.presets.size(); ++p)
+                        list += std::to_string(p + 1) + ". " + scene.playlist.presets[p].stem().string() + "\n";
+                    ImGui::SetTooltip("Every %.0f s%s:\n%s", scene.playlist.intervalSeconds, scene.playlist.shuffle ? ", shuffled" : "", list.c_str());
+                }
+            }
+            else
+            {
+                ImGui::TextColored(scene.presetMissing ? kRed : kDim, "%s", scene.presetPath.stem().c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s%s", scene.presetPath.c_str(), scene.presetMissing ? "\n(file not found)" : "");
+            }
 
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
@@ -547,7 +566,12 @@ void Shell::HandleDrops(ShellState& state, AppActions& actions, int hoveredScene
         const auto extension = Lower(file.extension().string());
         if (extension == ".milk")
         {
-            if (hoveredScene >= 0 && state.droppedFiles->size() == 1)
+            if (hoveredScene >= 0 && edited.scenes[static_cast<size_t>(hoveredScene)].IsPlaylist())
+            {
+                edited.scenes[static_cast<size_t>(hoveredScene)].playlist.presets.push_back(file);
+                selected = hoveredScene;
+            }
+            else if (hoveredScene >= 0 && state.droppedFiles->size() == 1)
             {
                 edited.scenes[static_cast<size_t>(hoveredScene)].presetPath = file;
                 selected = hoveredScene;
@@ -640,7 +664,27 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
         }
     }
 
-    ImGui::SeparatorText("Preset");
+    ImGui::SeparatorText(scene.playlist.enabled ? "Presets" : "Preset");
+    bool playlistEnabled = scene.playlist.enabled;
+    if (ImGui::Checkbox("Playlist: cycle through several presets", &playlistEnabled))
+    {
+        edit(playlistEnabled ? "Make Playlist" : "Make Single Preset", "playlist-enabled", [&](model::Scene& s) {
+            s.playlist.enabled = playlistEnabled;
+            // Carry the preset across, so switching back and forth loses nothing.
+            if (playlistEnabled && s.playlist.presets.empty() && !s.presetPath.empty())
+                s.playlist.presets.push_back(s.presetPath);
+            if (!playlistEnabled && s.presetPath.empty() && !s.playlist.presets.empty())
+                s.presetPath = s.playlist.presets.front();
+        });
+        actions.EndEdit();
+    }
+    const auto info = state.engine->Scene(index);
+    if (scene.playlist.enabled)
+    {
+        DrawPlaylist(state, actions, index, info);
+    }
+    else
+    {
     if (state.library != nullptr && state.favourites != nullptr)
     {
         if (const std::string id = state.library->IdForPath(scene.presetPath); !id.empty() && state.library->Find(id) != nullptr)
@@ -666,9 +710,9 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     if (ImGui::Button("Reveal"))
         RevealInFinder(scene.presetPath);
     ImGui::EndDisabled();
-    const auto info = state.engine->Scene(index);
     if (info.frameMs > 0.0)
         ImGui::TextColored(info.heavy ? kAmber : kDim, "%.1f ms per frame%s", info.frameMs, info.heavy ? ": too heavy for 60 fps" : "");
+    }
 
     ImGui::SeparatorText("Video");
     bool videoEnabled = scene.video.enabled;
@@ -868,10 +912,139 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     ImGui::End();
 }
 
+void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info)
+{
+    const auto& performance = state.document->Get();
+    const auto& scene = performance.scenes[static_cast<size_t>(index)];
+    const auto& playlist = scene.playlist;
+    auto edit = [&](const char* label, const std::string& key, auto&& change) {
+        auto edited = performance;
+        change(edited.scenes[static_cast<size_t>(index)].playlist);
+        actions.Edit(std::move(edited), label, key + ":" + scene.id);
+    };
+
+    float interval = static_cast<float>(playlist.intervalSeconds);
+    ImGui::SetNextItemWidth(-140);
+    if (ImGui::SliderFloat("Seconds per preset", &interval, 1.f, 300.f, "%.3g s", ImGuiSliderFlags_Logarithmic))
+        edit("Change Interval", "interval", [&](model::ScenePlaylist& p) {
+            p.intervalSeconds = std::clamp(static_cast<double>(interval), model::kMinPlaylistInterval, model::kMaxPlaylistInterval);
+        });
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        actions.EndEdit();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Double-click (or Cmd+click) to type an exact value, up to 3600 s.");
+    bool shuffle = playlist.shuffle;
+    if (ImGui::Checkbox("Shuffle", &shuffle))
+    {
+        edit("Change Shuffle", "shuffle", [&](model::ScenePlaylist& p) { p.shuffle = shuffle; });
+        actions.EndEdit();
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(kDim, shuffle ? "random order, never the same twice in a row" : "top to bottom, then around again");
+
+    if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()))
+        ImGui::TextColored(kGreen, "Now %d of %zu, next in %.0f s", info.playlistItem + 1, playlist.presets.size(), info.secondsToNextItem);
+    else if (playlist.presets.size() < 2)
+        ImGui::TextColored(kAmber, "Add at least two presets to cycle.");
+
+    // The list: reorder, remove, drop presets from the browser onto it.
+    const float rowHeight = ImGui::GetFrameHeightWithSpacing();
+    const float height = std::clamp(static_cast<float>(playlist.presets.size()) * rowHeight + 10.f, rowHeight * 2.f + 10.f, rowHeight * 9.f);
+    int moveFrom = -1;
+    int moveTo = -1;
+    int remove = -1;
+    ImGui::BeginChild("playlist", ImVec2(0, height), ImGuiChildFlags_Borders);
+    for (int i = 0; i < static_cast<int>(playlist.presets.size()); ++i)
+    {
+        ImGui::PushID(i);
+        const auto& preset = playlist.presets[static_cast<size_t>(i)];
+        const bool missing = i < static_cast<int>(scene.playlistMissing.size()) && scene.playlistMissing[static_cast<size_t>(i)];
+        const bool playing = i == info.playlistItem;
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(playing ? kGreen : kDim, "%d", i + 1);
+        ImGui::SameLine(30.f);
+        // The name, cut with an ellipsis before the buttons.
+        const float buttons = ImGui::GetFrameHeight() * 3.f + ImGui::GetStyle().ItemSpacing.x * 2.f;
+        const std::string name = preset.stem().string() + (missing ? "  (missing)" : "");
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        const float nameWidth = std::max(10.f, ImGui::GetContentRegionMax().x - buttons - ImGui::GetStyle().ItemSpacing.x - ImGui::GetCursorPosX());
+        ImGui::PushStyleColor(ImGuiCol_Text, missing ? kRed : (playing ? kGreen : ImGui::GetStyleColorVec4(ImGuiCol_Text)));
+        ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(start.x, start.y + ImGui::GetStyle().FramePadding.y),
+                                  ImVec2(start.x + nameWidth, start.y + ImGui::GetFrameHeight()), start.x + nameWidth, name.c_str(), nullptr, nullptr);
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(nameWidth, ImGui::GetFrameHeight()));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", preset.c_str());
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - buttons);
+        ImGui::BeginDisabled(i == 0);
+        if (ImGui::ArrowButton("##up", ImGuiDir_Up))
+        {
+            moveFrom = i;
+            moveTo = i - 1;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(i + 1 == static_cast<int>(playlist.presets.size()));
+        if (ImGui::ArrowButton("##down", ImGuiDir_Down))
+        {
+            moveFrom = i;
+            moveTo = i + 1;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("x", ImVec2(ImGui::GetFrameHeight(), 0)))
+            remove = i;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Remove from the playlist");
+        ImGui::PopID();
+    }
+    if (playlist.presets.empty())
+        ImGui::TextColored(kDim, "Drag presets here from the browser.");
+    ImGui::EndChild();
+    if (ImGui::BeginDragDropTarget())
+    {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPresetDragPayload))
+        {
+            const std::filesystem::path dropped(static_cast<const char*>(payload->Data));
+            edit("Add to Playlist", "playlist-add", [&](model::ScenePlaylist& p) { p.presets.push_back(dropped); });
+            actions.EndEdit();
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    if (moveFrom >= 0)
+    {
+        edit("Reorder Playlist", "playlist-move", [&](model::ScenePlaylist& p) {
+            std::swap(p.presets[static_cast<size_t>(moveFrom)], p.presets[static_cast<size_t>(moveTo)]);
+        });
+        actions.EndEdit();
+    }
+    if (remove >= 0)
+    {
+        edit("Remove from Playlist", "playlist-remove", [&](model::ScenePlaylist& p) { p.presets.erase(p.presets.begin() + remove); });
+        actions.EndEdit();
+    }
+
+    if (ImGui::Button("Add Preset..."))
+    {
+        if (auto file = ChooseFile("Add a preset to the playlist", {"milk"}))
+            edit("Add to Playlist", "playlist-add", [&](model::ScenePlaylist& p) { p.presets.push_back(*file); });
+        actions.EndEdit();
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(kDim, "or drag presets from the browser");
+}
+
 void Shell::AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene)
 {
     auto edited = state.document->Get();
-    if (scene >= 0 && scene < static_cast<int>(edited.scenes.size()))
+    if (scene >= 0 && scene < static_cast<int>(edited.scenes.size()) && edited.scenes[static_cast<size_t>(scene)].IsPlaylist())
+    {
+        edited.scenes[static_cast<size_t>(scene)].playlist.presets.push_back(preset);
+        actions.Edit(std::move(edited), "Add to Playlist");
+        *state.selectedScene = scene;
+    }
+    else if (scene >= 0 && scene < static_cast<int>(edited.scenes.size()))
     {
         edited.scenes[static_cast<size_t>(scene)].presetPath = preset;
         actions.Edit(std::move(edited), "Change Preset");
@@ -1011,6 +1184,9 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
         ImGui::TableHeadersRow();
 
         const int selectedScene = *state.selectedScene;
+    const auto& scenes = state.document->Get().scenes;
+    const bool selectedIsPlaylist = selectedScene >= 0 && selectedScene < static_cast<int>(scenes.size()) && scenes[static_cast<size_t>(selectedScene)].IsPlaylist();
+    const char* useLabel = selectedIsPlaylist ? "Add to Selected Scene's Playlist" : "Use in Selected Scene";
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(m_results.size()));
         while (clipper.Step())
@@ -1041,7 +1217,7 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
                 if (ImGui::BeginPopupContextItem("preset-menu"))
                 {
                     m_selectedPreset = preset.id;
-                    if (ImGui::MenuItem("Use in Selected Scene", nullptr, false, selectedScene >= 0))
+                    if (ImGui::MenuItem(useLabel, nullptr, false, selectedScene >= 0))
                         AssignPreset(state, actions, path, selectedScene);
                     if (ImGui::MenuItem("Add as New Scene"))
                         AssignPreset(state, actions, path, -1);
@@ -1148,6 +1324,9 @@ void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
     const int count = static_cast<int>(m_results.size());
     const int rows = (count + columns - 1) / columns;
     const int selectedScene = *state.selectedScene;
+    const auto& scenes = state.document->Get().scenes;
+    const bool selectedIsPlaylist = selectedScene >= 0 && selectedScene < static_cast<int>(scenes.size()) && scenes[static_cast<size_t>(selectedScene)].IsPlaylist();
+    const char* useLabel = selectedIsPlaylist ? "Add to Selected Scene's Playlist" : "Use in Selected Scene";
 
     std::vector<thumbnails::Request> visible;
     std::vector<thumbnails::Request> prefetch;
@@ -1194,7 +1373,7 @@ void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
                 if (ImGui::BeginPopupContextItem("preset-menu"))
                 {
                     m_selectedPreset = preset.id;
-                    if (ImGui::MenuItem("Use in Selected Scene", nullptr, false, selectedScene >= 0))
+                    if (ImGui::MenuItem(useLabel, nullptr, false, selectedScene >= 0))
                         AssignPreset(state, actions, path, selectedScene);
                     if (ImGui::MenuItem("Add as New Scene"))
                         AssignPreset(state, actions, path, -1);
