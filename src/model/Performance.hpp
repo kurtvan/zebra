@@ -9,6 +9,7 @@ namespace gv::model {
 
 constexpr int kCurrentFormatVersion = 1;
 constexpr int kMaxScenes = 128; //!< One MIDI CC (CC 20) on one channel.
+constexpr float kMaxContrast = 100.0f; //!< At ~50-100 the video becomes a hard split at mid-grey.
 
 enum class VideoSourceType
 {
@@ -30,7 +31,7 @@ struct SceneVideo
     VideoSource source;
     float mix{1.0f};     //!< 0..1
     float lumaMin{0.0f}; //!< 0..1
-    float contrast{1.0f};   //!< 0..2, 1 = unchanged. Applied before the luma gate.
+    float contrast{1.0f};   //!< 0..kMaxContrast, 1 = unchanged; very high = hard black/white (with saturation 0). Before the luma gate.
     float saturation{1.0f}; //!< 0..2, 1 = unchanged, 0 = greyscale.
     bool restartOnEnter{true};
 };

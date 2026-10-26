@@ -52,7 +52,7 @@ TEST_CASE("a performance survives a save/load round trip")
     a.video.mix = 0.5f;
     a.video.lumaMin = 0.25f;
     a.video.restartOnEnter = false;
-    a.video.contrast = 1.4f;
+    a.video.contrast = 80.0f; // high contrast is allowed
     a.video.saturation = 0.0f;
     auto b = MakeScene("cave", 7);
     b.video.enabled = true;
@@ -75,7 +75,7 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK(loaded.scenes[0].video.mix == 0.5f);
     CHECK(loaded.scenes[0].video.lumaMin == 0.25f);
     CHECK_FALSE(loaded.scenes[0].video.restartOnEnter);
-    CHECK(loaded.scenes[0].video.contrast == 1.4f);
+    CHECK(loaded.scenes[0].video.contrast == 80.0f);
     CHECK(loaded.scenes[0].video.saturation == 0.0f);
     CHECK(loaded.scenes[1].video.contrast == 1.0f); // defaults
     CHECK(loaded.scenes[1].cc20Value == 7);
@@ -132,7 +132,7 @@ TEST_CASE("validation rules")
         auto scene = MakeScene("a", 0);
         scene.video.mix = 1.5f;
         scene.video.lumaMin = -0.1f;
-        scene.video.contrast = 2.5f;
+        scene.video.contrast = 150.f;
         scene.video.saturation = -1.f;
         performance.scenes = {scene};
         const auto issues = Validate(performance);

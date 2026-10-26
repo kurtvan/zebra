@@ -355,9 +355,9 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
         {
             issues.push_back(Error(path + "/video/lumaMin", "must be between 0 and 1"));
         }
-        if (scene.video.contrast < 0.f || scene.video.contrast > 2.f)
+        if (scene.video.contrast < 0.f || scene.video.contrast > kMaxContrast)
         {
-            issues.push_back(Error(path + "/video/contrast", "must be between 0 and 2"));
+            issues.push_back(Error(path + "/video/contrast", "must be between 0 and 100"));
         }
         if (scene.video.saturation < 0.f || scene.video.saturation > 2.f)
         {
