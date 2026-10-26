@@ -14,7 +14,8 @@ namespace gv::app {
 
 /// Owns the performance's video sources and hands the engine the live scenes' frames.
 ///
-/// Scenes using the same file or Syphon server share one source. Main thread only, with the editor's GL
+/// There is one source per pool video and per Syphon server, shared by every scene using it: a scene
+/// whose video is already playing carries on from the same place unless the scene restarts it. Main thread only, with the editor's GL
 /// context current (the sources convert frames on it; lanes see the textures through the share group).
 class VideoManager final : public engine::VideoProvider
 {
@@ -29,8 +30,9 @@ public:
     /// releasing the rest. Also used after edits.
     void Load(const model::Performance& performance);
 
-    /// Once per frame, before the engine's Tick: plays the sources of the scenes around `liveScene`
-    /// (and `pendingScene`), pauses the rest, and drops old fences.
+    /// Once per frame, before the engine's Tick: plays the sources on screen (`liveScene`, `pendingScene`,
+    /// `handoverScene`), pauses the rest, keeps a frame ready for the scenes around the live one, and drops
+    /// old fences.
     void BeginFrame(int liveScene, int pendingScene, int handoverScene);
 
     /// Called just before a scene is triggered: restarts its video if the scene asks for that.
@@ -42,6 +44,11 @@ public:
     auto StateFor(int scene) const -> std::optional<io::VideoState>;
     auto DescribeFor(int scene) const -> std::string;
 
+    /// Pool video playback, for the Videos panel. 0 / nullopt if not known.
+    auto DurationOf(const std::string& videoId) const -> double;
+    auto PositionOf(const std::string& videoId) const -> double;
+    auto StateOf(const std::string& videoId) const -> std::optional<io::VideoState>;
+
 private:
     struct SourceEntry
     {
@@ -50,6 +57,7 @@ private:
         engine::VideoFrame frame;
     };
 
+    auto UpdateEntry(SourceEntry& entry) -> engine::VideoFrame;
     auto EntryFor(int scene) -> SourceEntry*;
     auto EntryFor(int scene) const -> const SourceEntry*;
     void Clear();

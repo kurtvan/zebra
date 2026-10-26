@@ -14,6 +14,23 @@ auto Performance::SceneForCc20(int value) const -> std::optional<size_t>
     return std::nullopt;
 }
 
+auto Performance::FindVideo(const std::string& id) const -> const PoolVideo*
+{
+    for (const auto& video : videos)
+    {
+        if (video.id == id)
+            return &video;
+    }
+    return nullptr;
+}
+
+auto Performance::VideoFor(const Scene& scene) const -> const PoolVideo*
+{
+    if (scene.video.source.type != VideoSourceType::File)
+        return nullptr;
+    return FindVideo(scene.video.source.videoId);
+}
+
 auto Performance::FreeCc20Value() const -> std::optional<int>
 {
     std::vector<bool> used(kMaxScenes, false);

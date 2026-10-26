@@ -23,8 +23,10 @@ constexpr const char* kSetup = "Setup";
 constexpr const char* kBrowser = "Presets";
 constexpr const char* kStatus = "Status";
 constexpr const char* kMessages = "Messages";
+constexpr const char* kVideos = "Videos";
 constexpr const char* kSceneDragPayload = "GV_SCENE";
 constexpr const char* kPresetDragPayload = "GV_PRESET"; //!< Payload: a preset's absolute path (NUL-terminated).
+constexpr const char* kVideoDragPayload = "GV_VIDEO";   //!< Payload: a pool video's id (NUL-terminated).
 
 const ImVec4 kAccent{0.29f, 0.72f, 0.70f, 1.f};
 const ImVec4 kGreen{0.36f, 0.82f, 0.48f, 1.f};
@@ -253,6 +255,7 @@ void Shell::Draw(ShellState& state, AppActions& actions)
     DrawSceneProperties(state, actions);
     DrawSetup(state, actions);
     DrawBrowser(state, actions);
+    DrawVideos(state, actions);
     DrawStatus(state);
     DrawMessages(state);
 }
@@ -277,6 +280,7 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     ImGui::DockBuilderDockWindow(kProperties, right);
     ImGui::DockBuilderDockWindow(kSetup, right);
     ImGui::DockBuilderDockWindow(kBrowser, bottom);
+    ImGui::DockBuilderDockWindow(kVideos, bottom);
     ImGui::DockBuilderDockWindow(kStatus, bottom);
     ImGui::DockBuilderDockWindow(kMessages, bottom);
     ImGui::DockBuilderDockWindow(kPreview, center);
@@ -437,6 +441,16 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPresetDragPayload))
                 {
                     AssignPreset(state, actions, static_cast<const char*>(payload->Data), i);
+                }
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kVideoDragPayload))
+                {
+                    auto edited = performance;
+                    auto& video = edited.scenes[static_cast<size_t>(i)].video;
+                    video.enabled = true;
+                    video.source.type = model::VideoSourceType::File;
+                    video.source.videoId = static_cast<const char*>(payload->Data);
+                    selected = i;
+                    actions.Edit(std::move(edited), "Assign Video");
                 }
                 ImGui::EndDragDropTarget();
             }
@@ -620,13 +634,19 @@ void Shell::HandleDrops(ShellState& state, AppActions& actions, int hoveredScene
             }
             changes++;
         }
-        else if (IsVideoFile(file) && (hoveredScene >= 0 || selected >= 0))
+        else if (IsVideoFile(file) && (m_videosHovered || (hoveredScene < 0 && selected < 0)))
+        {
+            // Dropped on the Videos panel (or nowhere useful): just add it to the pool.
+            model::AddPoolVideo(edited, file);
+            changes++;
+        }
+        else if (IsVideoFile(file))
         {
             const int target = hoveredScene >= 0 ? hoveredScene : selected;
             auto& video = edited.scenes[static_cast<size_t>(target)].video;
             video.enabled = true;
             video.source.type = model::VideoSourceType::File;
-            video.source.path = file;
+            video.source.videoId = model::AddPoolVideo(edited, file);
             selected = target;
             changes++;
         }
@@ -774,17 +794,40 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     }
     if (scene.video.source.type == model::VideoSourceType::File)
     {
-        ImGui::TextWrapped("%s", scene.video.source.path.empty() ? "(no file)" : scene.video.source.path.filename().c_str());
+        const model::PoolVideo* current = performance.VideoFor(scene);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##video", current != nullptr ? current->DisplayName().c_str() : "(no video)"))
+        {
+            for (const auto& video : performance.videos)
+            {
+                ImGui::PushID(video.id.c_str());
+                if (ImGui::Selectable(video.DisplayName().c_str(), current == &video))
+                {
+                    const std::string id = video.id;
+                    edit("Change Video", "video-file", [&](model::Scene& s) { s.video.source.videoId = id; });
+                    actions.EndEdit();
+                }
+                ImGui::PopID();
+            }
+            if (performance.videos.empty())
+                ImGui::TextColored(kDim, "The video pool is empty.");
+            ImGui::EndCombo();
+        }
         if (scene.videoMissing)
             ImGui::TextColored(kRed, "File not found.");
-        if (ImGui::Button("Choose Video..."))
+        if (ImGui::Button("Add Video..."))
         {
-            if (auto file = ChooseFile("Choose a video", kVideoExtensions))
-                edit("Change Video", "video-file", [&](model::Scene& s) { s.video.source.path = *file; });
+            if (auto file = ChooseFile("Add a video", kVideoExtensions))
+            {
+                auto edited = performance;
+                const std::string id = model::AddPoolVideo(edited, *file);
+                edited.scenes[static_cast<size_t>(index)].video.source.videoId = id;
+                actions.Edit(std::move(edited), "Change Video");
+            }
             actions.EndEdit();
         }
         ImGui::SameLine();
-        ImGui::TextColored(kDim, "or drop one on the scene");
+        ImGui::TextColored(kDim, "Start point and speed: Videos panel");
     }
     else
     {
@@ -1543,6 +1586,157 @@ void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
         }
     }
     state.thumbnails->SetWanted(std::move(visible), std::move(prefetch));
+}
+
+void Shell::DrawVideos(ShellState& state, AppActions& actions)
+{
+    // Layouts saved before this panel existed don't place it: put it with the preset browser.
+    if (ImGui::FindWindowSettingsByID(ImHashStr(kVideos)) == nullptr)
+    {
+        if (ImGuiWindow* browser = ImGui::FindWindowByName(kBrowser); browser != nullptr && browser->DockId != 0)
+            ImGui::SetNextWindowDockID(browser->DockId, ImGuiCond_FirstUseEver);
+    }
+    m_videosHovered = false;
+    if (!ImGui::Begin(kVideos))
+    {
+        ImGui::End();
+        return;
+    }
+    m_videosHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    const auto& performance = state.document->Get();
+    auto edit = [&](const char* label, const std::string& field, size_t video, auto&& change) {
+        auto edited = performance;
+        change(edited.videos[video]);
+        actions.Edit(std::move(edited), label, field + ":" + performance.videos[video].id);
+    };
+
+    if (ImGui::Button("Add Video..."))
+    {
+        if (auto file = ChooseFile("Add a video", kVideoExtensions))
+        {
+            auto edited = performance;
+            model::AddPoolVideo(edited, *file);
+            actions.Edit(std::move(edited), "Add Video");
+        }
+        actions.EndEdit();
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(kDim, "Drop video files here; drag a row onto a scene. Scenes sharing a video carry on from where it was, unless they restart it.");
+
+    std::string removeId;
+    const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable("videos", 6, flags))
+    {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+        ImGui::TableSetupColumn("Length", ImGuiTableColumnFlags_WidthFixed, 110.f);
+        ImGui::TableSetupColumn("Start", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("Used by", ImGuiTableColumnFlags_WidthFixed, 70.f);
+        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 130.f);
+        ImGui::TableHeadersRow();
+        for (size_t i = 0; i < performance.videos.size(); ++i)
+        {
+            const auto& video = performance.videos[i];
+            ImGui::PushID(video.id.c_str());
+            ImGui::TableNextRow();
+
+            ImGui::TableNextColumn();
+            std::string name = video.name;
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::InputTextWithHint("##name", video.path.stem().c_str(), &name))
+                edit("Rename Video", "video-name", i, [&](model::PoolVideo& v) { v.name = name; });
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                actions.EndEdit();
+            // The file name doubles as the drag handle.
+            ImGui::TextColored(video.missing ? kRed : kDim, "%s%s", video.path.filename().c_str(), video.missing ? " (not found)" : "");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s\nDrag onto a scene to use it.", video.path.c_str());
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+            {
+                ImGui::SetDragDropPayload(kVideoDragPayload, video.id.c_str(), video.id.size() + 1);
+                ImGui::Text("Video \"%s\"", video.DisplayName().c_str());
+                ImGui::EndDragDropSource();
+            }
+
+            ImGui::TableNextColumn();
+            const double duration = state.video != nullptr ? state.video->DurationOf(video.id) : 0.0;
+            if (duration > 0.0)
+            {
+                const double position = state.video->PositionOf(video.id);
+                ImGui::Text("%d:%02d", static_cast<int>(duration) / 60, static_cast<int>(duration) % 60);
+                ImGui::TextColored(kDim, "at %d:%04.1f", static_cast<int>(position) / 60, std::fmod(position, 60.0));
+            }
+            else
+            {
+                ImGui::TextColored(kDim, "-");
+            }
+
+            ImGui::TableNextColumn();
+            float start = static_cast<float>(video.startSeconds);
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::DragFloat("##start", &start, 0.05f, 0.f, duration > 0.0 ? static_cast<float>(duration) : 3600.f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
+                edit("Change Video Start", "video-start", i, [&](model::PoolVideo& v) { v.startSeconds = start; });
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                actions.EndEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Seconds into the file where playback starts, restarts and loops back to.\nDrag, or double-click to type.");
+
+            ImGui::TableNextColumn();
+            float speed = static_cast<float>(video.speed);
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::SliderFloat("##speed", &speed, static_cast<float>(model::kMinVideoSpeed), static_cast<float>(model::kMaxVideoSpeed), "%.2fx",
+                                   ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+                edit("Change Video Speed", "video-speed", i, [&](model::PoolVideo& v) { v.speed = speed; });
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                actions.EndEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Playback speed. Double-click (or Cmd+click) to type a value.");
+            if (video.speed != 1.0 && ImGui::SmallButton("1x"))
+            {
+                edit("Change Video Speed", "video-speed", i, [&](model::PoolVideo& v) { v.speed = 1.0; });
+                actions.EndEdit();
+            }
+
+            ImGui::TableNextColumn();
+            const int usage = model::VideoUsage(performance, video.id);
+            ImGui::TextColored(usage > 0 ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : kDim, usage == 1 ? "1 scene" : "%d scenes", usage);
+            if (usage > 0 && ImGui::IsItemHovered())
+            {
+                std::string names;
+                for (const auto& scene : performance.scenes)
+                {
+                    if (scene.video.source.type == model::VideoSourceType::File && scene.video.source.videoId == video.id)
+                        names += (names.empty() ? "" : "\n") + scene.DisplayName();
+                }
+                ImGui::SetTooltip("%s", names.c_str());
+            }
+
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(video.missing);
+            if (ImGui::SmallButton("Reveal"))
+                RevealInFinder(video.path);
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(usage > 0);
+            if (ImGui::SmallButton("Remove"))
+                removeId = video.id;
+            ImGui::EndDisabled();
+            if (usage > 0 && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Used by scenes: change their video first.");
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (performance.videos.empty())
+        ImGui::TextColored(kDim, "No videos yet.");
+    if (!removeId.empty())
+    {
+        auto edited = performance;
+        if (model::RemovePoolVideo(edited, removeId))
+            actions.Edit(std::move(edited), "Remove Video");
+    }
+    ImGui::End();
 }
 
 void Shell::DrawStatus(const ShellState& state)

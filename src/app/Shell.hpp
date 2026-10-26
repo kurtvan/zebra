@@ -95,6 +95,7 @@ private:
     void DrawBrowser(ShellState& state, AppActions& actions);
     void DrawPresetGrid(ShellState& state, AppActions& actions);
     void AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene);
+    void DrawVideos(ShellState& state, AppActions& actions);
     void DrawStatus(const ShellState& state);
     void DrawMessages(const ShellState& state);
     void DrawStatusBar(const ShellState& state);
@@ -105,6 +106,7 @@ private:
     std::vector<std::string> m_audioDevices;
     bool m_listsLoaded{false};
     int m_scrollToScene{-1};
+    bool m_videosHovered{false}; //!< Last frame: Finder drops add to the pool instead of a scene.
 
     // Preset browser.
     library::Query m_query;

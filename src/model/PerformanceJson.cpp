@@ -1,5 +1,7 @@
 #include "model/PerformanceJson.hpp"
 
+#include "model/Document.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <fstream>
@@ -49,7 +51,8 @@ auto ParseVideoSource(const json& object, const std::string& path, std::vector<I
     if (type == "file")
     {
         std::string filePath;
-        ReadField(object, "path", filePath, path, issues);
+        ReadField(object, "video", source.videoId, path, issues);
+        ReadField(object, "path", filePath, path, issues); // format 1
         source.type = VideoSourceType::File;
         source.path = filePath;
     }
@@ -134,9 +137,18 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
     return scene;
 }
 
-/// Hook for upgrading older files. Version 1 is the first format, so there's nothing to do yet.
-void Migrate(json& /*root*/, int /*fromVersion*/)
+/// Format 1 stored a file path per scene. Each distinct file becomes one pool video (start 0, speed 1).
+void MigrateFileSources(Performance& performance)
 {
+    for (auto& scene : performance.scenes)
+    {
+        auto& source = scene.video.source;
+        if (source.type == VideoSourceType::File && source.videoId.empty() && !source.path.empty())
+        {
+            source.videoId = AddPoolVideo(performance, source.path);
+            source.path.clear();
+        }
+    }
 }
 
 } // namespace
@@ -184,14 +196,32 @@ auto ParsePerformance(const std::string& text) -> LoadResult
         result.issues.push_back(Error("/version", "file format version " + std::to_string(version) + " is newer than this app supports (" + std::to_string(kCurrentFormatVersion) + ")"));
         return result;
     }
-    if (version < kCurrentFormatVersion)
-    {
-        Migrate(root, version);
-    }
 
     Performance& performance = result.performance;
     performance.version = kCurrentFormatVersion;
     ReadField(root, "name", performance.name, "", result.issues);
+
+    if (auto videos = root.find("videos"); videos != root.end() && videos->is_array())
+    {
+        for (size_t i = 0; i < videos->size(); ++i)
+        {
+            const std::string videoPath = "/videos/" + std::to_string(i);
+            if (!(*videos)[i].is_object())
+            {
+                result.issues.push_back(Error(videoPath, "video must be an object"));
+                continue;
+            }
+            PoolVideo video;
+            std::string filePath;
+            ReadField((*videos)[i], "id", video.id, videoPath, result.issues);
+            ReadField((*videos)[i], "name", video.name, videoPath, result.issues);
+            ReadField((*videos)[i], "path", filePath, videoPath, result.issues);
+            ReadField((*videos)[i], "startSeconds", video.startSeconds, videoPath, result.issues);
+            ReadField((*videos)[i], "speed", video.speed, videoPath, result.issues);
+            video.path = filePath;
+            performance.videos.push_back(std::move(video));
+        }
+    }
 
     auto scenes = root.find("scenes");
     if (scenes == root.end() || !scenes->is_array())
@@ -209,6 +239,7 @@ auto ParsePerformance(const std::string& text) -> LoadResult
         }
         performance.scenes.push_back(ParseScene((*scenes)[i], path, result.issues));
     }
+    MigrateFileSources(performance);
 
     auto validation = Validate(performance);
     result.issues.insert(result.issues.end(), validation.begin(), validation.end());
@@ -266,7 +297,7 @@ auto SerializePerformance(const Performance& performance) -> std::string
         json source;
         if (scene.video.source.type == VideoSourceType::File)
         {
-            source = {{"type", "file"}, {"path", scene.video.source.path.string()}};
+            source = {{"type", "file"}, {"video", scene.video.source.videoId}};
         }
         else
         {
@@ -282,6 +313,14 @@ auto SerializePerformance(const Performance& performance) -> std::string
             {"restartOnEnter", scene.video.restartOnEnter}};
         object["midi"] = {{"cc20Value", scene.cc20Value}};
         root["scenes"].push_back(object);
+    }
+    root["videos"] = json::array();
+    for (const auto& video : performance.videos)
+    {
+        json object = {{"id", video.id}, {"path", video.path.string()}, {"startSeconds", video.startSeconds}, {"speed", video.speed}};
+        if (!video.name.empty())
+            object["name"] = video.name;
+        root["videos"].push_back(std::move(object));
     }
     return root.dump(2) + "\n";
 }
@@ -379,10 +418,28 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
         {
             issues.push_back(Error(path + "/video/saturation", "must be between 0 and 2"));
         }
-        if (scene.video.enabled && scene.video.source.type == VideoSourceType::File && scene.video.source.path.empty())
+        if (scene.video.enabled && scene.video.source.type == VideoSourceType::File && performance.FindVideo(scene.video.source.videoId) == nullptr)
         {
-            issues.push_back(Error(path + "/video/source/path", "is empty but video is enabled"));
+            issues.push_back(Error(path + "/video/source/video",
+                                   scene.video.source.videoId.empty() ? "no video chosen but video is enabled"
+                                                                      : "video \"" + scene.video.source.videoId + "\" isn't in the video pool"));
         }
+    }
+    std::set<std::string> videoIds;
+    for (size_t i = 0; i < performance.videos.size(); ++i)
+    {
+        const auto& video = performance.videos[i];
+        const std::string path = "/videos/" + std::to_string(i);
+        if (video.id.empty())
+            issues.push_back(Error(path + "/id", "is empty"));
+        else if (!videoIds.insert(video.id).second)
+            issues.push_back(Error(path + "/id", "\"" + video.id + "\" is used by another video"));
+        if (video.path.empty())
+            issues.push_back(Error(path + "/path", "is empty"));
+        if (video.speed < kMinVideoSpeed || video.speed > kMaxVideoSpeed)
+            issues.push_back(Error(path + "/speed", "must be between 0.1 and 4"));
+        if (video.startSeconds < 0.0)
+            issues.push_back(Error(path + "/startSeconds", "can't be negative"));
     }
     return issues;
 }
@@ -390,6 +447,14 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
 auto CheckFiles(Performance& performance) -> std::vector<Issue>
 {
     std::vector<Issue> issues;
+    for (size_t i = 0; i < performance.videos.size(); ++i)
+    {
+        auto& video = performance.videos[i];
+        std::error_code ec;
+        video.missing = !video.path.empty() && !std::filesystem::is_regular_file(video.path, ec);
+        if (video.missing)
+            issues.push_back(Warning("/videos/" + std::to_string(i) + "/path", "file not found: " + video.path.string()));
+    }
     for (size_t i = 0; i < performance.scenes.size(); ++i)
     {
         auto& scene = performance.scenes[i];
@@ -410,12 +475,8 @@ auto CheckFiles(Performance& performance) -> std::vector<Issue>
                 issues.push_back(Warning(path + "/playlist/presets/" + std::to_string(p) + "/path", "file not found: " + preset.string()));
         }
 
-        scene.videoMissing = scene.video.enabled && scene.video.source.type == VideoSourceType::File &&
-                             !scene.video.source.path.empty() && !std::filesystem::is_regular_file(scene.video.source.path, ec);
-        if (scene.videoMissing)
-        {
-            issues.push_back(Warning(path + "/video/source/path", "file not found: " + scene.video.source.path.string()));
-        }
+        const PoolVideo* video = performance.VideoFor(scene);
+        scene.videoMissing = scene.video.enabled && video != nullptr && !std::filesystem::is_regular_file(video->path, ec);
     }
     return issues;
 }

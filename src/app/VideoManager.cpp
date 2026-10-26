@@ -10,16 +10,21 @@ namespace {
 
 constexpr const char* kLogCategory = "video";
 constexpr long long kFenceLifetimeFrames = 8; //!< Lanes wait on a fence within a frame or two; keep a margin.
-constexpr int kPlayBehind = 1;                //!< Matches the scene pool window, so upcoming videos are already decoding.
-constexpr int kPlayAhead = 3;
+constexpr int kWarmBehind = 1; //!< Matches the scene pool window, so upcoming videos have a frame ready.
+constexpr int kWarmAhead = 3;
 
-auto KeyFor(const model::Scene& scene) -> std::string
+auto FileKey(const std::string& videoId) -> std::string
+{
+    return "file:" + videoId;
+}
+
+auto KeyFor(const model::Performance& performance, const model::Scene& scene) -> std::string
 {
     if (!scene.video.enabled)
         return {};
     const auto& source = scene.video.source;
     if (source.type == model::VideoSourceType::File)
-        return "file:" + source.path.string();
+        return performance.VideoFor(scene) != nullptr ? FileKey(source.videoId) : std::string{};
     return "syphon:" + source.appName + "\n" + source.serverName;
 }
 
@@ -42,25 +47,40 @@ void VideoManager::Clear()
 void VideoManager::Load(const model::Performance& performance)
 {
     // Keep sources that are still used (so an edit doesn't restart a playing video); create new ones; drop the rest.
+    // Every pool video gets a player, so the Videos panel can show its length and scenes switching to it
+    // carry on from where it was.
     m_performance = performance;
     m_sceneKeys.clear();
     std::map<std::string, SourceEntry> sources;
-    for (const auto& scene : m_performance.scenes)
-    {
-        const std::string key = KeyFor(scene);
-        m_sceneKeys.push_back(key);
-        if (key.empty() || sources.count(key) > 0)
-            continue;
+    auto keep = [&](const std::string& key) {
         if (auto existing = m_sources.find(key); existing != m_sources.end())
         {
             sources.emplace(key, std::move(existing->second));
-            continue;
+            return true;
         }
-        const auto& source = scene.video.source;
+        return false;
+    };
+    for (const auto& video : m_performance.videos)
+    {
+        const std::string key = FileKey(video.id);
+        if (sources.count(key) > 0)
+            continue;
+        if (!keep(key))
+        {
+            SourceEntry entry;
+            entry.source = io::CreateFileVideoSource(video.path);
+            sources.emplace(key, std::move(entry));
+        }
+        sources[key].source->SetPlayback(video.startSeconds, video.speed);
+    }
+    for (const auto& scene : m_performance.scenes)
+    {
+        const std::string key = KeyFor(m_performance, scene);
+        m_sceneKeys.push_back(key);
+        if (key.empty() || sources.count(key) > 0 || keep(key))
+            continue;
         SourceEntry entry;
-        entry.source = source.type == model::VideoSourceType::File
-                           ? io::CreateFileVideoSource(source.path)
-                           : io::CreateSyphonVideoSource(source.appName, source.serverName);
+        entry.source = io::CreateSyphonVideoSource(scene.video.source.appName, scene.video.source.serverName);
         sources.emplace(key, std::move(entry));
     }
     m_sources = std::move(sources);
@@ -76,23 +96,30 @@ void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene
         m_fences.pop_front();
     }
 
-    // Decode only what's live or about to be: the pool window around the live (or first) scene,
-    // plus a pending out-of-order trigger and the outgoing scene of a handover.
-    std::set<std::string> wanted;
-    const int anchor = liveScene >= 0 ? liveScene : 0;
-    for (int scene = anchor - kPlayBehind; scene <= anchor + kPlayAhead; ++scene)
+    // Only videos on screen play (the live scene, a pending out-of-order trigger and the outgoing scene of
+    // a handover), so a video that isn't showing keeps its place for the next scene that uses it. Videos
+    // of the scenes around the live one stay paused but keep their current frame converted, so a cut to
+    // them shows video straight away.
+    auto keyOf = [&](int scene) -> const std::string* {
+        if (scene < 0 || scene >= static_cast<int>(m_sceneKeys.size()) || m_sceneKeys[static_cast<size_t>(scene)].empty())
+            return nullptr;
+        return &m_sceneKeys[static_cast<size_t>(scene)];
+    };
+    std::set<std::string> playing;
+    for (int scene : {liveScene, pendingScene, handoverScene})
     {
-        if (scene >= 0 && scene < static_cast<int>(m_sceneKeys.size()) && !m_sceneKeys[static_cast<size_t>(scene)].empty())
-            wanted.insert(m_sceneKeys[static_cast<size_t>(scene)]);
-    }
-    for (int scene : {pendingScene, handoverScene})
-    {
-        if (scene >= 0 && scene < static_cast<int>(m_sceneKeys.size()) && !m_sceneKeys[static_cast<size_t>(scene)].empty())
-            wanted.insert(m_sceneKeys[static_cast<size_t>(scene)]);
+        if (const auto* key = keyOf(scene))
+            playing.insert(*key);
     }
     for (auto& [key, entry] : m_sources)
     {
-        entry.source->SetActive(wanted.count(key) > 0);
+        entry.source->SetActive(playing.count(key) > 0);
+    }
+    const int anchor = liveScene >= 0 ? liveScene : 0;
+    for (int scene = anchor - kWarmBehind; scene <= anchor + kWarmAhead; ++scene)
+    {
+        if (const auto* key = keyOf(scene); key != nullptr && playing.count(*key) == 0)
+            UpdateEntry(m_sources[*key]);
     }
 }
 
@@ -104,7 +131,6 @@ void VideoManager::OnTrigger(int scene, int liveScene)
         return;
     if (auto* entry = EntryFor(scene))
     {
-        entry->source->SetActive(true);
         entry->source->Restart();
     }
 }
@@ -116,11 +142,16 @@ auto VideoManager::FrameFor(int scene) -> engine::VideoFrame
     {
         return {};
     }
+    return UpdateEntry(*entry);
+}
+
+auto VideoManager::UpdateEntry(SourceEntry& entry) -> engine::VideoFrame
+{
     // Several scenes (live + handover) may share a source: convert once per frame.
-    if (entry->updatedFrame != m_frame)
+    if (entry.updatedFrame != m_frame)
     {
-        entry->updatedFrame = m_frame;
-        const GLuint texture = entry->source->Update();
+        entry.updatedFrame = m_frame;
+        const GLuint texture = entry.source->Update();
         GLsync fence = nullptr;
         if (texture != 0)
         {
@@ -128,9 +159,9 @@ auto VideoManager::FrameFor(int scene) -> engine::VideoFrame
             glFlush();
             m_fences.emplace_back(m_frame, fence);
         }
-        entry->frame = {texture, fence};
+        entry.frame = {texture, fence};
     }
-    return entry->frame;
+    return entry.frame;
 }
 
 auto VideoManager::StateFor(int scene) const -> std::optional<io::VideoState>
@@ -145,6 +176,26 @@ auto VideoManager::DescribeFor(int scene) const -> std::string
     if (const auto* entry = EntryFor(scene))
         return entry->source->Describe();
     return {};
+}
+
+auto VideoManager::DurationOf(const std::string& videoId) const -> double
+{
+    auto it = m_sources.find(FileKey(videoId));
+    return it == m_sources.end() ? 0.0 : it->second.source->DurationSeconds();
+}
+
+auto VideoManager::PositionOf(const std::string& videoId) const -> double
+{
+    auto it = m_sources.find(FileKey(videoId));
+    return it == m_sources.end() ? 0.0 : it->second.source->PositionSeconds();
+}
+
+auto VideoManager::StateOf(const std::string& videoId) const -> std::optional<io::VideoState>
+{
+    auto it = m_sources.find(FileKey(videoId));
+    if (it == m_sources.end())
+        return std::nullopt;
+    return it->second.source->State();
 }
 
 auto VideoManager::EntryFor(int scene) -> SourceEntry*

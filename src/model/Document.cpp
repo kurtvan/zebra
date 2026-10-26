@@ -2,6 +2,8 @@
 
 #include "model/PerformanceJson.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <set>
 
 namespace gv::model {
@@ -149,6 +151,51 @@ auto MoveScene(Performance& performance, int from, int to) -> bool
     Scene scene = std::move(performance.scenes[static_cast<size_t>(from)]);
     performance.scenes.erase(performance.scenes.begin() + from);
     performance.scenes.insert(performance.scenes.begin() + to, std::move(scene));
+    return true;
+}
+
+auto AddPoolVideo(Performance& performance, const std::filesystem::path& file) -> std::string
+{
+    for (const auto& video : performance.videos)
+    {
+        if (video.path == file)
+            return video.id;
+    }
+    // A readable, unique id from the file name ("cave-in-prague", "cave-in-prague-2", ...).
+    std::string base;
+    for (char c : file.stem().string())
+        base += std::isalnum(static_cast<unsigned char>(c)) ? static_cast<char>(std::tolower(static_cast<unsigned char>(c))) : '-';
+    if (base.empty())
+        base = "video";
+    std::string id = base;
+    for (int n = 2; performance.FindVideo(id) != nullptr; ++n)
+        id = base + "-" + std::to_string(n);
+    PoolVideo video;
+    video.id = id;
+    video.path = file;
+    performance.videos.push_back(std::move(video));
+    return id;
+}
+
+auto VideoUsage(const Performance& performance, const std::string& id) -> int
+{
+    int count = 0;
+    for (const auto& scene : performance.scenes)
+    {
+        if (scene.video.source.type == VideoSourceType::File && scene.video.source.videoId == id)
+            count++;
+    }
+    return count;
+}
+
+auto RemovePoolVideo(Performance& performance, const std::string& id) -> bool
+{
+    if (VideoUsage(performance, id) > 0)
+        return false;
+    auto it = std::find_if(performance.videos.begin(), performance.videos.end(), [&](const PoolVideo& video) { return video.id == id; });
+    if (it == performance.videos.end())
+        return false;
+    performance.videos.erase(it);
     return true;
 }
 

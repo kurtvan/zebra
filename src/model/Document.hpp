@@ -106,4 +106,13 @@ auto DeleteScene(Performance& performance, int index) -> bool;
 /// Moves scene `from` to position `to`. CC values move with their scenes. Returns false if out of range.
 auto MoveScene(Performance& performance, int from, int to) -> bool;
 
+/// The id of the pool video for `file`, adding it (start 0, speed 1) if it isn't in the pool yet.
+auto AddPoolVideo(Performance& performance, const std::filesystem::path& file) -> std::string;
+
+/// How many scenes use pool video `id`.
+auto VideoUsage(const Performance& performance, const std::string& id) -> int;
+
+/// Removes pool video `id` if no scene uses it. Returns false otherwise.
+auto RemovePoolVideo(Performance& performance, const std::string& id) -> bool;
+
 } // namespace gv::model
