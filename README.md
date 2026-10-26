@@ -58,6 +58,14 @@ scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.tx
 
 `./build/tools/syphon_test_server/gv_syphon_test_server [seconds]` publishes a server named "GV Test" (red top half, green bottom half, a sweeping white bar), for checking Syphon input.
 
+### MIDI test sender
+
+`./build/tools/midi_test_sender/gv_midi_test_sender 1 3@1 5@2` creates a virtual MIDI source and sends CC 20 = 3 after a second, then 5 two seconds later, on channel 1, then removes the source.
+
+### Show checklist
+
+See `docs/show-checklist.md` before a performance.
+
 ### Headless smoke run
 
 ```sh

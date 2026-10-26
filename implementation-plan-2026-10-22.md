@@ -292,6 +292,12 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 
 ---
 
+**M7 as built (2026-10-25):**
+- **Soak (first build):** 40 min of random cuts every 3 s (801 cuts), full show with videos and previews: no errors or crashes, but memory grew ~25 MB/min (1.1 GB → 2.1 GB). Cause: macOS's OpenGL driver keeps ~35 KB per shader program forever, even after deletion (reproduced without projectM), and projectM compiles ~8 programs per instance. **Fixed by patch 0003** (per-thread shader program cache); memory is flat over 300 instance create/destroy cycles. The author stopped the follow-up 2-hour soak with the fix, so the fixed build hasn't had a long run.
+- **Drills:** MIDI hot-plug and triggers (`tools/midi_test_sender`: a virtual source appearing after launch, out-of-order values, unknown value, removal and return); missing, empty and garbage presets, missing video and Syphon without a sender (no crash, each flagged); crash recovery (unsaved edit restored after a simulated crash). Audio-device and display unplugging need real hardware and are in the checklist's recovery table.
+- `docs/show-checklist.md`: day before, venue setup, during the show, recovery, harmless console messages.
+- Smoke options: `--smoke-random`, `--smoke-report-every`, `--smoke-cut-every 0`, `--smoke-crash` / `--smoke-recover`.
+
 ## 4. Patch set summary (target)
 
 | # | Patch | Milestone | Keep long-term? |
@@ -300,6 +306,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 | 0002 | Feedback texture API (`sampler_video` deferred, see technical doc §3) | M3 | Yes (candidate for upstreaming) |
 | ~~0003+~~ | ~~Background-prepare support~~: **not needed** (M1 chose lanes) | M1 | — |
 | (opt) | Reset preset without recompile | M2 if needed | Only if recycling is too slow |
+| 0003 | Per-thread shader program cache (works around a macOS GL driver leak); fixes two GL buffer leaks | M7 | Yes |
 
 Spike-only instrumentation patches live in `tools/spike_compile/patches/` and are never part of the main build.
 
