@@ -192,6 +192,25 @@
           "type": "syphon"
         }
       }
+    },
+    {
+      "id": "scene-11",
+      "midi": {
+        "cc20Value": 10
+      },
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Waveform/Wire Flower/Flexi - explosion .milk"
+      },
+      "video": {
+        "enabled": true,
+        "lumaMin": 0.4399999976158142,
+        "mix": 1.0,
+        "restartOnEnter": true,
+        "source": {
+          "path": "/Users/kurt/Movies/govtech-visuals/cave-in-prague.mp4",
+          "type": "file"
+        }
+      }
     }
   ],
   "version": 1
