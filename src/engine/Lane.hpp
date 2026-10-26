@@ -23,6 +23,21 @@ namespace gv::engine {
 
 using PcmChunk = std::shared_ptr<const std::vector<float>>; //!< Interleaved stereo float samples.
 
+/// A scene's video blend settings, applied to its instance when prepared.
+struct VideoSettings
+{
+    bool enabled{false};
+    float mix{1.0f};
+    float lumaMin{0.0f};
+};
+
+/// The current frame of the live scene's video, if it has one.
+struct VideoFrame
+{
+    GLuint texture{0};     //!< GL_TEXTURE_2D, bottom-up; 0 means nothing to blend this frame.
+    GLsync fence{nullptr}; //!< Signalled when `texture` is written; owned by the producer.
+};
+
 /// Something a lane finished, reported to the engine (from the lane thread).
 struct LaneEvent
 {
@@ -73,7 +88,7 @@ public:
     /// Render size and texture search paths, applied to slot textures and every hosted instance.
     void Configure(int width, int height, std::vector<std::string> texturePaths);
 
-    void Prepare(InstanceId instance, int scene, std::string presetPath, bool priority);
+    void Prepare(InstanceId instance, int scene, std::string presetPath, VideoSettings video, bool priority);
 
     /// Throwaway load + warm-up so the driver's shader cache is hot for `presetPath`.
     void Warm(int scene, std::string presetPath);
@@ -86,8 +101,9 @@ public:
     /// Which hosted instance renders on ticks (0: none).
     void SetLive(InstanceId instance);
 
-    /// Feeds `pcm` to every hosted instance and, if live, renders one frame. Coalesces with an unprocessed tick.
-    void Tick(PcmChunk pcm, long long tick);
+    /// Feeds `pcm` to every hosted instance and, if live, renders one frame blending `video` into it.
+    /// Coalesces with an unprocessed tick (the newest video frame wins).
+    void Tick(PcmChunk pcm, long long tick, VideoFrame video);
 
     /// The newest published frame not yet taken, or tick -1.
     auto TakeLatest() -> PublishedFrame;
@@ -122,6 +138,7 @@ private:
         int width{0};
         int height{0};
         std::vector<std::string> texturePaths;
+        VideoSettings video;
     };
 
     struct PendingTick
@@ -129,6 +146,7 @@ private:
         bool has{false};
         std::vector<PcmChunk> pcm;
         long long tick{-1};
+        VideoFrame video;
     };
 
     void Run();
@@ -158,7 +176,13 @@ private:
     int m_width{0};
     int m_height{0};
     std::vector<std::string> m_texturePaths;
-    std::map<InstanceId, projectm_handle> m_instances;
+    struct Hosted
+    {
+        projectm_handle handle{nullptr};
+        bool video{false}; //!< The scene blends video.
+    };
+    std::map<InstanceId, Hosted> m_instances;
+    GLuint m_placeholderVideo{0}; //!< 1x1 black texture used while warming up video scenes (compiles the blend).
     static constexpr int kSlots = 3;
     GLuint m_slotTexture[kSlots]{};
     GLuint m_slotFbo[kSlots]{};

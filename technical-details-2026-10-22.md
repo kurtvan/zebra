@@ -105,7 +105,7 @@ Keep patches minimal, additive and isolated so they can be rebased onto new upst
    - The caller normalises the input (Syphon rectangle textures → 2D, correct orientation), so the library sees only one kind of texture.
 
    Implementation: a small, self-contained blend step in `MilkdropPreset::RenderFrame` (where the fork's `BlendVideo` sits), drawn into the previous-frame FBO before the y-flip/warp. Uniform locations are cached at init, blend state (RGB and alpha) is fully saved and restored, and the GL program/VAO are owned by the projectM instance, **not per preset**.
-2. **Comp shader sampler, renamed `sampler_video`.** This matches MilkDrop's `sampler_*` naming (`sampler_main`, `sampler_noise_lq`, …). No presets in the fork use the old `samplerVideo` name, so the rename costs nothing. Declare it through the shader generator's normal sampler-declaration path rather than string insertion. Bind it to a reserved texture unit; when injection is off, bind a 1×1 black texture so the shader always has something valid.
+2. **Deferred (M3, 2026-10-25): comp shader sampler `sampler_video`.** Not built: no preset uses it, and projectM's `Renderer::Texture` takes ownership of the GL texture it wraps, so exposing a caller-owned video texture to comp shaders needs a larger patch (a non-owning texture or a per-frame copy). Revisit when someone wants presets that sample video directly. Original plan: This matches MilkDrop's `sampler_*` naming (`sampler_main`, `sampler_noise_lq`, …). No presets in the fork use the old `samplerVideo` name, so the rename costs nothing. Declare it through the shader generator's normal sampler-declaration path rather than string insertion. Bind it to a reserved texture unit; when injection is off, bind a 1×1 black texture so the shader always has something valid.
 3. ~~Split compile from per-context setup~~: **not needed** (M1 chose lanes, §4).
 4. **(Optional) Reset preset state without recompiling.** Fresh-on-entry is implemented by recycling instances (§4), so this patch is only needed if milestone 1 shows re-preparation is too slow. An API such as `projectm_reset_preset(instance)` that clears the preset's framebuffers, re-runs its init equations and resets preset time, **reusing the compiled shaders**.
 
@@ -155,8 +155,15 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - Mono/stereo float PCM into a lock-free ring buffer; the render thread feeds all pooled projectM instances.
 - The author routes Ableton in with Loopback today. Easier routing for non-technical users is a later effort.
 
+### Video as built (M3, 2026-10-25)
+- **Patch 0002** (`projectm_set_feedback_texture/_mix/_luma_gate`): settings persist on the `ProjectM` instance; `FeedbackBlend` (program + VAO, cached uniforms, full state restore) is owned by the instance and created on first use; the blend runs in `MilkdropPreset::RenderFrame` right after motion vectors, before the y-flip and warp. Verified with a test texture: orientation preserved (bottom-up in, bottom-up out).
+- **Sources** (`io/VideoSource.hpp`): `FileVideoSource` (AVPlayer + `AVPlayerItemVideoOutput` + `CVOpenGLTextureCache`, honouring `CVOpenGLTextureIsFlipped`) and `SyphonVideoSource` (matches app/server name, empty = any; polls for the server about twice a second while disconnected; returns no texture while disconnected). Both convert the rectangle texture to a double-buffered GL_TEXTURE_2D on the editor context (`RectToTexture`).
+- **VideoManager** (app): one source per distinct file/Syphon server; decodes only sources used by the pool window around the live scene, a pending trigger and the handover scene; restarts a scene's video when it's triggered (`restartOnEnter`); converts the live (and handover) scene's frame once per tick and creates a fence that the lane waits on (`glWaitSync`) before rendering.
+- **Lanes:** a scene's mix/luma are set when it's prepared, and warm-up uses a 1×1 black placeholder so the blend shader compiles during preparation.
+- **Measured:** CPU 40% with your show's videos vs 39% without (zero-copy decode). Syphon checked with `tools/syphon_test_server`: connect, frames upright, black while the sender is gone, reconnect.
+
 ### Syphon input (per scene)
-- A scene with source type `syphon` stores **`appName` + `serverName`** (Syphon server UUIDs change every launch, so don't store them).
+- A scene with source type `syphon` stores **`appName` + `serverName`** (Syphon server UUIDs change every launch, so don't store them). An empty name matches anything; both empty means "the first server found" (like the fork).
 - The scene editor shows a picker of currently available servers (`SyphonServerDirectory`, observing announce/retire notifications).
 - On scene entry, connect to the matching server. If it's absent or lost, report a **disconnected** state (no injection, a UI warning) and **do not show a stale frame**. Reconnect automatically when the server appears.
 - Keep the fork's `GL_TEXTURE_RECTANGLE` → `GL_TEXTURE_2D` blit (or sample the rectangle texture directly in the inject shader).

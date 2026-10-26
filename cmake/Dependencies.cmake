@@ -46,13 +46,13 @@ if(GV_BUILD_TESTS)
 endif()
 
 # --- Syphon.framework ---
-# Used from milestone 3. Looked up now so a missing framework is reported early.
+# Video input (milestone 3). Its install name is @rpath-relative, so targets add SYPHON_FRAMEWORK_DIR to their rpath.
 find_library(SYPHON_FRAMEWORK Syphon
     PATHS "${CMAKE_SOURCE_DIR}/third_party/Syphon" /Library/Frameworks "$ENV{HOME}/Library/Frameworks"
     NO_DEFAULT_PATH)
-if(SYPHON_FRAMEWORK)
-    message(STATUS "Syphon: ${SYPHON_FRAMEWORK}")
-else()
-    message(WARNING "Syphon.framework not found in third_party/Syphon, /Library/Frameworks or ~/Library/Frameworks. "
-                    "It will be required once Syphon input is built (milestone 3).")
+if(NOT SYPHON_FRAMEWORK)
+    message(FATAL_ERROR "Syphon.framework not found in third_party/Syphon, /Library/Frameworks or ~/Library/Frameworks. "
+                        "Install it from https://github.com/Syphon/Syphon-Framework/releases.")
 endif()
+get_filename_component(SYPHON_FRAMEWORK_DIR "${SYPHON_FRAMEWORK}" DIRECTORY)
+message(STATUS "Syphon: ${SYPHON_FRAMEWORK}")

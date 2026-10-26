@@ -314,10 +314,6 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
         {
             issues.push_back(Error(path + "/video/source/path", "is empty but video is enabled"));
         }
-        if (scene.video.enabled && scene.video.source.type == VideoSourceType::Syphon && scene.video.source.appName.empty() && scene.video.source.serverName.empty())
-        {
-            issues.push_back(Error(path + "/video/source", "Syphon source needs an appName or serverName"));
-        }
     }
     return issues;
 }

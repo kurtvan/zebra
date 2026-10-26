@@ -172,6 +172,27 @@
       "midi": {
         "cc20Value": 8
       }
+    },
+    {
+      "id": "syphon-test",
+      "name": "Syphon test (any sender)",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Geometric/Wire Circles/suksma - fine line between tolerance and death penalty lojitehk.milk"
+      },
+      "video": {
+        "enabled": true,
+        "source": {
+          "type": "syphon",
+          "appName": "",
+          "serverName": ""
+        },
+        "mix": 1.0,
+        "lumaMin": 0.0,
+        "restartOnEnter": false
+      },
+      "midi": {
+        "cc20Value": 9
+      }
     }
   ]
 }

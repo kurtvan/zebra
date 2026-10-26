@@ -409,6 +409,56 @@ int RunTextureCheck(const Options& options, const std::vector<std::filesystem::p
     return 0;
 }
 
+/// Patch 0002 check: blend a half-red/half-blue texture and see where the colours end up in the output.
+int RunFeedbackCheck(const Options& options, const std::vector<std::filesystem::path>& presets)
+{
+    const int size = 64;
+    std::vector<unsigned char> image(size * size * 4);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x)
+        {
+            unsigned char* p = &image[static_cast<size_t>((y * size + x) * 4)];
+            const bool top = y >= size / 2; // GL rows go bottom-up
+            p[0] = top ? 255 : 0;
+            p[1] = 0;
+            p[2] = top ? 0 : 255;
+            p[3] = 255;
+        }
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    Target target(320, 180);
+    for (const auto& preset : presets)
+    {
+        for (float mix : {0.0f, 1.0f})
+        {
+            projectm_handle instance = projectm_create();
+            projectm_set_window_size(instance, 320, 180);
+            projectm_set_preset_locked(instance, true);
+            projectm_load_preset_file(instance, preset.c_str(), false);
+            projectm_set_feedback_texture(instance, mix > 0 ? texture : 0);
+            projectm_set_feedback_mix(instance, mix);
+            for (int i = 0; i < 10; ++i)
+                RenderTimed(instance, target, 320, 180, i);
+            std::vector<unsigned char> pixels(320 * 180 * 4);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, target.fbo);
+            glReadPixels(0, 0, 320, 180, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            auto at = [&](int x, int y) { return &pixels[static_cast<size_t>((y * 320 + x) * 4)]; };
+            const unsigned char* top = at(160, 160);   // GL row 160 = near the top of the image
+            const unsigned char* bottom = at(160, 20); // near the bottom
+            std::printf("mix %.0f  top rgb(%3d,%3d,%3d)  bottom rgb(%3d,%3d,%3d)  %s\n", mix, top[0], top[1], top[2],
+                        bottom[0], bottom[1], bottom[2], preset.filename().c_str());
+            projectm_destroy(instance);
+        }
+    }
+    glDeleteTextures(1, &texture);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -436,6 +486,15 @@ int main(int argc, char* argv[])
 
     const auto presets = SamplePresets(options.library, options.count, options.seed);
     GV_LOG_INFO(kLogCategory, "sampled %zu presets from %s", presets.size(), options.library.c_str());
+
+    if (options.mode == "feedback")
+    {
+        const int result = RunFeedbackCheck(options, presets);
+        SDL_GL_DeleteContext(context);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return result;
+    }
 
     if (options.mode == "textures")
     {

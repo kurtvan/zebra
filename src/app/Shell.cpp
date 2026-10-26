@@ -231,12 +231,16 @@ void Shell::DrawScenes(const ShellState& state, AppActions& actions)
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Share of output frames without a new image while this scene was live.");
             }
-            if (scene.video.enabled)
+            if (scene.video.enabled && state.video != nullptr)
             {
+                const auto videoState = state.video->StateFor(i);
+                const bool bad = !videoState || *videoState == io::VideoState::Missing || *videoState == io::VideoState::Failed;
+                const bool waiting = videoState && *videoState == io::VideoState::Disconnected;
                 ImGui::SameLine();
-                ImGui::TextColored(scene.videoMissing ? kRed : kDim, scene.videoMissing ? "video missing" : "video");
+                ImGui::TextColored(bad ? kRed : (waiting ? kAmber : kDim), "video: %s", videoState ? io::ToString(*videoState) : "none");
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Video playback arrives in milestone 3.\n%s", scene.video.source.path.c_str());
+                    ImGui::SetTooltip("%s\nmix %.2f, luma gate %.2f%s", state.video->DescribeFor(i).c_str(), scene.video.mix,
+                                      scene.video.lumaMin, scene.video.restartOnEnter ? ", restarts on entry" : "");
             }
             if (!info.error.empty() && ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s", info.error.c_str());

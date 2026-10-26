@@ -33,3 +33,4 @@ To change an existing patch, amend or fix up its commit in the worktree and re-e
 | Patch | Purpose |
 |---|---|
 | `0001-render-to-target-fbo.patch` | Backport of `projectm_opengl_render_frame_fbo()` from upstream 4.2.0 so projectM draws into our offscreen FBO. |
+| `0002-feedback-texture-api.patch` | `projectm_set_feedback_texture/_mix/_luma_gate`: blends a caller's texture (video) into the preset's feedback buffer before the warp. |

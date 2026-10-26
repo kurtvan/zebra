@@ -30,6 +30,9 @@ target_compile_options(gv_warnings INTERFACE -Wall -Wextra -Wno-unused-parameter
 
 add_subdirectory(src)
 
+# Publishes a Syphon test pattern, for checking Syphon input by hand.
+add_subdirectory(tools/syphon_test_server)
+
 if(GV_SPIKE)
     add_subdirectory(tools/spike_compile)
 endif()
