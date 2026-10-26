@@ -60,7 +60,7 @@ scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.tx
 
 ### MIDI test sender
 
-`./build/tools/midi_test_sender/gv_midi_test_sender 1 3@1 5@2` creates a virtual MIDI source and sends CC 20 = 3 after a second, then 5 two seconds later, on channel 1, then removes the source.
+`./build/tools/midi_test_sender/gv_midi_test_sender 1 3@1 5@2` creates a virtual MIDI source and sends CC 20 = 3 after a second, then 5 two seconds later, on channel 1, then removes the source. `clock:128:8` sends Start, 8 seconds of MIDI clock at 128 BPM, then Stop.
 
 ### Show checklist
 
