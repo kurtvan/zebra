@@ -1,0 +1,226 @@
+#include "engine/ScenePool.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <algorithm>
+#include <set>
+
+using namespace gv::engine;
+using Type = PoolCommand::Type;
+
+namespace {
+
+auto Count(const std::vector<PoolCommand>& commands, Type type) -> size_t
+{
+    return static_cast<size_t>(std::count_if(commands.begin(), commands.end(), [&](const auto& c) { return c.type == type; }));
+}
+
+auto Find(const std::vector<PoolCommand>& commands, Type type, int scene) -> const PoolCommand*
+{
+    for (const auto& command : commands)
+    {
+        if (command.type == type && command.scene == scene)
+            return &command;
+    }
+    return nullptr;
+}
+
+/// Plays the role of the engine: completes every Prepare it is given.
+struct Harness
+{
+    ScenePool pool;
+    std::vector<PoolCommand> log;
+
+    explicit Harness(PoolConfig config = {})
+        : pool(config)
+    {
+    }
+
+    void Run(std::vector<PoolCommand> commands)
+    {
+        // Complete prepares one by one, feeding follow-up commands back in.
+        while (!commands.empty())
+        {
+            const auto command = commands.front();
+            commands.erase(commands.begin());
+            log.push_back(command);
+            if (command.type == Type::Prepare)
+            {
+                auto more = pool.OnPrepared(command.instance, true);
+                commands.insert(commands.end(), more.begin(), more.end());
+            }
+        }
+    }
+};
+
+} // namespace
+
+TEST_CASE("before the first trigger, the first scenes are prepared on different lanes")
+{
+    ScenePool pool({3, 1, 3});
+    const auto commands = pool.Reset(10, std::vector<bool>(10, false));
+    REQUIRE(Count(commands, Type::Prepare) == 4); // scenes 0..3
+    std::set<int> scenes;
+    std::set<int> lanes;
+    for (const auto& c : commands)
+    {
+        scenes.insert(c.scene);
+        lanes.insert(c.lane);
+    }
+    CHECK(scenes == std::set<int>{0, 1, 2, 3});
+    CHECK(lanes.size() == 3);
+    CHECK(pool.LiveScene() == -1);
+}
+
+TEST_CASE("triggering a ready scene activates it immediately and shifts the window")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(10, std::vector<bool>(10, false)));
+
+    auto commands = h.pool.Trigger(0);
+    const auto* activate = Find(commands, Type::Activate, 0);
+    REQUIRE(activate != nullptr);
+    CHECK(h.pool.LiveScene() == 0);
+    CHECK(Count(commands, Type::Prepare) == 0); // window [-1..3]: scenes 1-3 are already ready
+    CHECK(Count(commands, Type::Release) == 0); // nothing was live before
+
+    commands = h.pool.Trigger(1);
+    CHECK(Find(commands, Type::Activate, 1) != nullptr);
+    CHECK(Find(commands, Type::Prepare, 4) != nullptr); // window moved to [0..4]
+}
+
+TEST_CASE("sequential playback keeps prev 1 / next 3 prepared and never prepares on the live lane")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(20, std::vector<bool>(20, false)));
+    for (int scene = 0; scene < 20; ++scene)
+    {
+        h.log.clear();
+        h.Run(h.pool.Trigger(scene));
+        REQUIRE(h.pool.LiveScene() == scene);
+        const int liveLane = h.pool.LiveLane();
+        for (const auto& c : h.log)
+        {
+            if (c.type == Type::Prepare)
+                CHECK(c.lane != liveLane);
+        }
+        for (int s = scene - 1; s <= scene + 3; ++s)
+        {
+            if (s < 0 || s >= 20 || s == scene)
+                continue;
+            CHECK(h.pool.StatusOf(s).state == ScenePool::State::Ready);
+        }
+        CHECK(h.pool.StatusOf(scene + 4).state == ScenePool::State::None);
+        if (scene >= 2)
+            CHECK(h.pool.StatusOf(scene - 2).state == ScenePool::State::None);
+    }
+}
+
+TEST_CASE("leaving a scene releases its instance and re-prepares it fresh")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(10, std::vector<bool>(10, false)));
+    h.Run(h.pool.Trigger(0));
+    h.log.clear();
+    h.Run(h.pool.Trigger(1));
+    const auto* released = Find(h.log, Type::Release, 0);
+    const auto* reprepared = Find(h.log, Type::Prepare, 0);
+    REQUIRE(released != nullptr);
+    REQUIRE(reprepared != nullptr);
+    CHECK(reprepared->instance != released->instance);
+}
+
+TEST_CASE("an out-of-order jump prepares with priority and activates when ready")
+{
+    ScenePool pool({3, 1, 3});
+    auto initial = pool.Reset(30, std::vector<bool>(30, false));
+    for (const auto& c : initial)
+        pool.OnPrepared(c.instance, true);
+    pool.Trigger(0);
+
+    auto commands = pool.Trigger(20);
+    const auto* prepare = Find(commands, Type::Prepare, 20);
+    REQUIRE(prepare != nullptr);
+    CHECK(prepare->priority);
+    CHECK(pool.LiveScene() == 0); // holds the old scene until ready
+    CHECK(pool.PendingScene() == 20);
+
+    auto after = pool.OnPrepared(prepare->instance, true);
+    CHECK(Find(after, Type::Activate, 20) != nullptr);
+    CHECK(pool.LiveScene() == 20);
+    CHECK(pool.PendingScene() == -1);
+    CHECK(Find(after, Type::Release, 1) != nullptr); // old window released
+}
+
+TEST_CASE("the most recent trigger wins while preparing")
+{
+    ScenePool pool({3, 1, 3});
+    pool.Reset(30, std::vector<bool>(30, false));
+    auto a = pool.Trigger(10);
+    auto b = pool.Trigger(20);
+    const auto* prepare10 = Find(a, Type::Prepare, 10);
+    const auto* prepare20 = Find(b, Type::Prepare, 20);
+    REQUIRE(prepare10 != nullptr);
+    REQUIRE(prepare20 != nullptr);
+    CHECK(pool.OnPrepared(prepare10->instance, true).empty()); // no longer wanted, not activated
+    CHECK(Find(pool.OnPrepared(prepare20->instance, true), Type::Activate, 20) != nullptr);
+}
+
+TEST_CASE("triggers for the live, unusable or failed scenes are ignored")
+{
+    std::vector<bool> unusable(5, false);
+    unusable[2] = true;
+    ScenePool pool({3, 1, 3});
+    auto initial = pool.Reset(5, unusable);
+    CHECK(Find(initial, Type::Prepare, 2) == nullptr);
+    CHECK(pool.StatusOf(2).state == ScenePool::State::Unusable);
+
+    // Scene 1 fails to load.
+    for (const auto& c : initial)
+        pool.OnPrepared(c.instance, c.scene != 1);
+    CHECK(pool.StatusOf(1).state == ScenePool::State::Failed);
+
+    pool.Trigger(0);
+    CHECK(pool.Trigger(0).empty());
+    CHECK(pool.Trigger(1).empty());
+    CHECK(pool.Trigger(2).empty());
+    CHECK(pool.Trigger(99).empty());
+    CHECK(pool.LiveScene() == 0);
+}
+
+TEST_CASE("cancelled prepares are planned again on other lanes")
+{
+    ScenePool pool({3, 1, 3});
+    auto initial = pool.Reset(10, std::vector<bool>(10, false));
+    std::vector<InstanceId> cancelled;
+    for (const auto& c : initial)
+    {
+        if (c.scene == 3)
+            cancelled.push_back(c.instance);
+        else
+            pool.OnPrepared(c.instance, true);
+    }
+    auto commands = pool.OnCancelled(cancelled);
+    CHECK(Find(commands, Type::Prepare, 3) != nullptr);
+}
+
+TEST_CASE("windows are clipped at both ends of the performance")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(3, std::vector<bool>(3, false)));
+    h.Run(h.pool.Trigger(2));
+    CHECK(h.pool.LiveScene() == 2);
+    CHECK(h.pool.StatusOf(1).state == ScenePool::State::Ready);
+    CHECK(h.pool.StatusOf(0).state == ScenePool::State::None);
+}
+
+TEST_CASE("reset releases everything from the previous performance")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(10, std::vector<bool>(10, false)));
+    h.Run(h.pool.Trigger(0));
+    auto commands = h.pool.Reset(2, std::vector<bool>(2, false));
+    CHECK(Count(commands, Type::Release) >= 4);
+    CHECK(h.pool.LiveScene() == -1);
+    CHECK(Count(commands, Type::Prepare) == 2);
+}

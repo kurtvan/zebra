@@ -33,12 +33,31 @@ projectM is built from a patched copy of the `third_party/projectm` submodule. S
 ## Run
 
 ```sh
-./build/src/govtech-visualizer
+./build/src/govtech-visualizer [performance.json]
 ```
 
-Logs go to stderr and to `~/Library/Logs/Govtech Visualizer/`.
+- **Setup panel:** the audio input and gain, the MIDI channel, and the preset and texture folders. Settings are saved in `~/Library/Application Support/Govtech Visualizer/settings.json`.
+- **Fullscreen:** move the window to the screen you perform on and press **Cmd+F** (or the Fullscreen button at the bottom right of the preview). Only the visuals show; **Cmd+F** or **Esc** brings the editor back.
+- **Scenes panel:** click a scene, or use Left/Right, to trigger it. MIDI **CC 20** on the chosen channel triggers the scene whose CC value matches. Badges show heavy presets and each scene's drop rate.
+- Logs go to stderr and to `~/Library/Logs/Govtech Visualizer/`.
 
-`--smoke-frames N` renders N frames in a hidden window, logs the result and exits (for automated checks).
+### Performance files
+
+A performance is a JSON file (format: `technical-details-2026-10-22.md` §6). To convert one from the old libprojectM-4.1.4 fork:
+
+```sh
+scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.txt performances/my-show.json
+```
+
+`performances/govtech-2026-11-06.json` is the fork's show, converted.
+
+### Headless smoke run
+
+```sh
+./build/src/govtech-visualizer --smoke --smoke-seconds 30 --smoke-cut-every 2 performances/govtech-2026-11-06.json
+```
+
+Plays the performance in a hidden window, cutting to the next scene every 2 seconds, then logs held frames (by cause and per scene) and exits with status 0 on success.
 
 ## Test
 

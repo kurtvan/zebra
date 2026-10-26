@@ -50,10 +50,10 @@
 ## 2. Application architecture
 
 ### Windows and rendering
-- **Two windows:** an **editor window** (main display) and a **borderless fullscreen output window** on a user-chosen display, shown during performance.
-- **Output resolution = the output display's native resolution** (decided). The output window is an SDL2 borderless fullscreen-desktop window on the chosen display; the render size follows that display (handle Retina/backing scale and display changes). Memory and GPU cost scale with it, so measure 4K displays in milestone 1.
-- **Shared GL contexts.** The active scene renders **once per frame** into an offscreen FBO at output resolution. That texture is drawn to the output window and shown in the editor's preview panel. The preview costs about nothing extra.
-- Output frame pacing follows the output display's vsync. The editor must never stall the output.
+- **One window (decided 2026-10-25, replacing the two-window design):** the editor window toggles to fullscreen (SDL fullscreen-desktop on its current screen) with **Cmd+F**, the Preview panel's Fullscreen button, or **Esc** to leave. In fullscreen it draws only the presented texture, letterboxed, and hides the cursor. There is no output-display setting.
+- **Render resolution = the native resolution of the screen the window is on**, capped at 1920 pixels wide (keeps Retina screens at the 1080p budgets). Recomputed when the window moves to another screen.
+- The live lane renders into shared textures; the engine copies the latest into the presented texture on the window's context, which the Preview panel or the fullscreen view draws.
+- Frame pacing follows the window's vsync.
 
 ### Graphics API
 - **Decision: stay on OpenGL** (macOS GL 4.1 core) for now. projectM is GL-only. Apple has deprecated OpenGL on macOS; we accept that risk today.
@@ -144,13 +144,13 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 
 ### MIDI (CoreMIDI)
 - **CC 20 on one MIDI channel** (configurable in settings, default channel 1). The CC value 0–127 selects the scene whose `midi.cc20Value` matches. No other mappings.
-- Parse properly: status bytes, **running status**, interleaved real-time bytes (0xF8 etc. ignored).
+- Parse properly: status bytes, **running status**, interleaved real-time bytes (0xF8 etc. ignored). **As built (M2):** the input port uses `MIDIInputPortCreateWithProtocol(kMIDIProtocol_1_0)`, so CoreMIDI delivers Universal MIDI Packets with running status and real-time bytes already resolved. The app decodes MIDI 1.0 channel-voice UMP words (`io/MidiDecode.cpp`, unit-tested).
 - Connect to all sources; handle **hotplug** via the client notify proc (connect new sources as they appear).
 - The callback writes the latest value to an atomic; the render loop polls once per frame (keep the fork's pattern).
 - **Maximum 128 scenes per performance** (decided). Every scene has a unique `cc20Value` 0–127. The editor prevents adding a 129th scene; the loader rejects or flags files that exceed the limit or have duplicate values. The data model doesn't otherwise hard-code 128, so a larger scheme can come later.
 
 ### Audio input (CoreAudio)
-- Enumerate input devices; the user picks one in settings (persisted by device UID). Handle device removal gracefully.
+- Enumerate input devices; the user picks one in settings. Handle device removal gracefully. **As built (M2):** capture uses SDL2's audio API (CoreAudio underneath), which identifies devices by **name** (SDL doesn't expose CoreAudio UIDs). This keeps the Windows path open.
 - A gain setting replaces the hard-coded 4× boost.
 - Mono/stereo float PCM into a lock-free ring buffer; the render thread feeds all pooled projectM instances.
 - The author routes Ableton in with Loopback today. Easier routing for non-technical users is a later effort.
@@ -215,7 +215,7 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - Use a real JSON library (e.g. nlohmann/json) with schema validation and clear error messages. Avoid `NSJSONSerialization` in core code, to stay portable.
 
 ### App-level data (`~/Library/Application Support/Govtech Visualizer/`, derived from the app-name constant)
-- `settings.json`: preset library root, texture folder(s), audio device UID, gain, MIDI channel, output display, names-only toggle.
+- `settings.json`: preset library root, texture folder(s), audio device (by name), gain, MIDI channel, names-only toggle.
 - `library.json` (or SQLite if it gets large): preset index. Each entry has its path relative to the library root (the **preset ID**; names repeat across folders, so names are not IDs), display name, category, subcategory, author, mtime/size or content hash, and a broken flag.
 - `favourites.json`: a list of preset IDs.
 - `thumbnails/`: cached last-frame PNGs keyed by preset ID plus content hash.
@@ -267,7 +267,8 @@ No open decisions remain as of 2026-10-22. Decisions log:
 | libprojectM injection API | **Separate persistent setters** `projectm_set_feedback_texture/_mix/_luma_gate`, plus `sampler_video` (§3). Final names may be adjusted while porting in milestones 1/3. |
 | Re-entering a scene | **Always starts fresh**, by recycling instances (§4); the reset-without-recompile patch is an optional fallback. |
 | App name | **"Govtech Visualizer"** (working name, kept in one constant for a later rename). |
-| Output resolution | **The output display's native resolution** (§2). |
+| Output resolution | **Native resolution of the screen the window is on**, capped at 1920 wide (§2). |
+| Output window | **None** (2026-10-25): the editor window goes fullscreen with Cmd+F; Cmd+F/Esc to leave (§2). |
 | Thumbnail audio | **Not audio-reactive**; driven by synthetic audio (§8). |
 | Windowing library | **SDL2** (§0). |
 | Repo / projectM source | **This directory is the repo**; projectM is an upstream submodule pinned to **v4.1.8**, with patches in `third_party/patches/` (§0). |
