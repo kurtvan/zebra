@@ -85,6 +85,8 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
         ReadField(*video, "enabled", scene.video.enabled, videoPath, issues);
         ReadField(*video, "mix", scene.video.mix, videoPath, issues);
         ReadField(*video, "lumaMin", scene.video.lumaMin, videoPath, issues);
+        ReadField(*video, "contrast", scene.video.contrast, videoPath, issues);
+        ReadField(*video, "saturation", scene.video.saturation, videoPath, issues);
         ReadField(*video, "restartOnEnter", scene.video.restartOnEnter, videoPath, issues);
         if (auto source = video->find("source"); source != video->end() && source->is_object())
         {
@@ -233,6 +235,8 @@ auto SerializePerformance(const Performance& performance) -> std::string
             {"source", source},
             {"mix", scene.video.mix},
             {"lumaMin", scene.video.lumaMin},
+            {"contrast", scene.video.contrast},
+            {"saturation", scene.video.saturation},
             {"restartOnEnter", scene.video.restartOnEnter}};
         object["midi"] = {{"cc20Value", scene.cc20Value}};
         root["scenes"].push_back(object);
@@ -309,6 +313,14 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
         if (scene.video.lumaMin < 0.f || scene.video.lumaMin > 1.f)
         {
             issues.push_back(Error(path + "/video/lumaMin", "must be between 0 and 1"));
+        }
+        if (scene.video.contrast < 0.f || scene.video.contrast > 2.f)
+        {
+            issues.push_back(Error(path + "/video/contrast", "must be between 0 and 2"));
+        }
+        if (scene.video.saturation < 0.f || scene.video.saturation > 2.f)
+        {
+            issues.push_back(Error(path + "/video/saturation", "must be between 0 and 2"));
         }
         if (scene.video.enabled && scene.video.source.type == VideoSourceType::File && scene.video.source.path.empty())
         {

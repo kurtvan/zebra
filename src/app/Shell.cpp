@@ -757,6 +757,28 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
         edit("Change Luma Gate", "luma", [&](model::Scene& s) { s.video.lumaMin = luma; });
     endEditIfReleased();
     Hint("Video pixels darker than this are left out of the blend.");
+    float contrast = scene.video.contrast;
+    ImGui::SetNextItemWidth(-90);
+    if (ImGui::SliderFloat("Contrast", &contrast, 0.f, 2.f, "%.2f"))
+        edit("Change Contrast", "contrast", [&](model::Scene& s) { s.video.contrast = contrast; });
+    endEditIfReleased();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("1.00 leaves the video as it is. Double-click (or Cmd+click) to type a value.");
+    float saturation = scene.video.saturation;
+    ImGui::SetNextItemWidth(-90);
+    if (ImGui::SliderFloat("Saturation", &saturation, 0.f, 2.f, "%.2f"))
+        edit("Change Saturation", "saturation", [&](model::Scene& s) { s.video.saturation = saturation; });
+    endEditIfReleased();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("1.00 leaves the video as it is; 0 is black and white.");
+    if ((scene.video.contrast != 1.f || scene.video.saturation != 1.f) && ImGui::SmallButton("Reset contrast and saturation"))
+    {
+        edit("Reset Video Adjustments", "video-reset", [&](model::Scene& s) {
+            s.video.contrast = 1.f;
+            s.video.saturation = 1.f;
+        });
+        actions.EndEdit();
+    }
     bool restart = scene.video.restartOnEnter;
     if (ImGui::Checkbox("Restart video when the scene starts", &restart))
     {

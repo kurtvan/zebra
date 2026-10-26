@@ -222,6 +222,8 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - Missing preset/video paths load fine and are flagged **broken** in the UI; they never cause a crash.
 - Use a real JSON library (e.g. nlohmann/json) with schema validation and clear error messages. Avoid `NSJSONSerialization` in core code, to stay portable.
 
+- **Video contrast and saturation (added 2026-10-26):** optional `video.contrast` and `video.saturation` (0..2, default 1) on every scene, for file and Syphon sources alike. They're applied in the feedback blend (patch 0004) before the luma gate. Files without them load with the defaults; the format version stays 1.
+
 ### App-level data (`~/Library/Application Support/Govtech Visualizer/`, derived from the app-name constant)
 - `settings.json`: preset library root, texture folder(s), audio device (by name), gain, MIDI channel, names-only toggle.
 - `library.json` (or SQLite if it gets large): preset index. Each entry has its path relative to the library root (the **preset ID**; names repeat across folders, so names are not IDs), display name, category, subcategory, author, mtime/size or content hash, and a broken flag.
