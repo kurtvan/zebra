@@ -106,6 +106,77 @@ auto ScenePool::OnCancelled(const std::vector<InstanceId>& instances) -> std::ve
     return commands;
 }
 
+auto ScenePool::Remap(int sceneCount, const std::vector<int>& oldToNew, const std::vector<bool>& unusable,
+                      const std::vector<bool>& presetChanged) -> std::vector<PoolCommand>
+{
+    std::vector<PoolCommand> commands;
+    auto mapScene = [&](int old) {
+        return old >= 0 && old < static_cast<int>(oldToNew.size()) ? oldToNew[static_cast<size_t>(old)] : -1;
+    };
+    auto changed = [&](int scene) {
+        return scene >= 0 && scene < static_cast<int>(presetChanged.size()) && presetChanged[static_cast<size_t>(scene)];
+    };
+
+    std::vector<bool> failed(static_cast<size_t>(std::max(0, sceneCount)), false);
+    for (int old = 0; old < m_sceneCount; ++old)
+    {
+        const int scene = mapScene(old);
+        if (scene >= 0 && scene < sceneCount && !changed(scene))
+            failed[static_cast<size_t>(scene)] = m_failed[static_cast<size_t>(old)];
+    }
+
+    const int oldLive = m_live;
+    m_live = mapScene(m_live); // -1 if removed: its instance stays on screen until the next trigger
+    m_pending = mapScene(m_pending);
+
+    for (auto it = m_instances.begin(); it != m_instances.end();)
+    {
+        const int scene = mapScene(it->second.scene);
+        if (it->first == m_liveInstance)
+        {
+            it->second.scene = scene;
+            ++it;
+        }
+        else if (scene < 0 || changed(scene))
+        {
+            commands.push_back({PoolCommand::Type::Release, it->second.scene, it->second.lane, it->first, false});
+            it = m_instances.erase(it);
+        }
+        else
+        {
+            it->second.scene = scene;
+            ++it;
+        }
+    }
+
+    m_sceneCount = std::max(0, sceneCount);
+    m_unusable = unusable;
+    m_unusable.resize(static_cast<size_t>(m_sceneCount), false);
+    m_failed = std::move(failed);
+    if (m_pending >= 0 && (m_unusable[static_cast<size_t>(m_pending)]))
+        m_pending = -1;
+
+    // The live scene's preset changed: prepare the new one and swap it in when ready.
+    if (oldLive >= 0 && m_live >= 0 && changed(m_live) && !m_unusable[static_cast<size_t>(m_live)])
+    {
+        m_pending = m_live;
+        commands.push_back(Prepare(m_live, true));
+    }
+    Rebalance(commands);
+    return commands;
+}
+
+auto ScenePool::InstancesOf(int scene) const -> std::vector<HostedInstance>
+{
+    std::vector<HostedInstance> result;
+    for (const auto& [id, instance] : m_instances)
+    {
+        if (instance.scene == scene)
+            result.push_back({id, instance.lane});
+    }
+    return result;
+}
+
 auto ScenePool::LiveLane() const -> int
 {
     auto it = m_instances.find(m_liveInstance);

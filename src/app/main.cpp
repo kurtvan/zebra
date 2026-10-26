@@ -3,6 +3,9 @@
 #include "app/Settings.hpp"
 #include "app/Shell.hpp"
 #include "app/VideoManager.hpp"
+#include "app/macos/FileDialog.hpp"
+#include "app/macos/Menu.hpp"
+#include "model/Document.hpp"
 #include "app_info.hpp"
 #include "common/SpscRingBuffer.hpp"
 #include "common/log.hpp"
@@ -37,6 +40,8 @@ constexpr int kLanes = 3;
 constexpr size_t kFrameHistory = 240;
 constexpr size_t kMaxMessages = 200;
 constexpr int kMaxRenderWidth = 1920; //!< Keeps Retina screens at a 1080p-class render (the M1 budgets).
+constexpr size_t kMaxRecent = 10;
+constexpr int kRecoveryIntervalFrames = 60 * 30; //!< Write a recovery copy of unsaved changes every ~30 s.
 
 using Clock = std::chrono::steady_clock;
 
@@ -48,7 +53,9 @@ struct Options
     double smokeSeconds{20.0};
     double smokeCutSeconds{2.0};
     bool smokeNoEditor{false}; //!< Skip drawing the editor (to measure its cost).
+    bool smokeEdits{false};    //!< Script edits during playback (reorder, change the live preset, delete live, undo).
     std::filesystem::path smokeSnapshots; //!< If set, saves the output just before each cut as a BMP here.
+    std::filesystem::path smokeEditorSnapshot; //!< If set, saves the editor window once (after 3 s) as a BMP.
 };
 
 auto ParseOptions(int argc, char* argv[]) -> Options
@@ -66,6 +73,10 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.smokeSeconds = std::atof(argv[++i]);
         else if (arg == "--smoke-snapshots" && hasValue)
             options.smokeSnapshots = argv[++i];
+        else if (arg == "--smoke-editor-snapshot" && hasValue)
+            options.smokeEditorSnapshot = argv[++i];
+        else if (arg == "--smoke-edits")
+            options.smokeEdits = true;
         else if (arg == "--smoke-no-editor")
             options.smokeNoEditor = true;
         else if (arg == "--smoke-cut-every" && hasValue)
@@ -110,17 +121,24 @@ public:
         }
 
         UpdateRenderSize();
+        gv::app::SetRecentFiles(m_settings.recentPerformances);
 
         if (m_options.performance)
             OpenPerformance(*m_options.performance);
         else if (!m_settings.lastPerformance.empty())
             OpenPerformance(m_settings.lastPerformance);
+        else
+            LoadDocument(gv::model::Document());
+        if (!m_options.smoke)
+            RestoreRecovery();
         return true;
     }
 
     void Shutdown()
     {
         SaveSettings();
+        if (!m_document.IsDirty())
+            DeleteRecovery();
         m_audio.Close();
         m_midi.reset();
         m_engine.Shutdown();
@@ -128,31 +146,84 @@ public:
 
     // --- AppActions -----------------------------------------------------------------------
 
+    void NewPerformance() override
+    {
+        if (!ConfirmDiscardChanges())
+            return;
+        LoadDocument(gv::model::Document());
+        AddMessage("New performance.");
+    }
+
     void OpenPerformance(const std::filesystem::path& file) override
     {
+        if (!ConfirmDiscardChanges())
+            return;
         auto result = gv::model::LoadPerformance(file);
-        m_issues = result.issues;
         if (!result.ok)
         {
+            m_issues = result.issues;
             AddMessage("Could not open " + file.string() + " (see the errors above).");
             GV_LOG_ERROR(kLogCategory, "could not open performance %s", file.c_str());
             return;
         }
-        m_performance = std::move(result.performance);
-        m_performancePath = file;
-        m_hasPerformance = true;
-        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext); // video sources convert frames on this context
-        m_video.Load(m_performance);
-        m_engine.LoadPerformance(m_performance);
+        LoadDocument(gv::model::Document(std::move(result.performance), file));
+        m_issues = result.issues;
         m_settings.lastPerformance = file;
+        AddRecent(file);
         SaveSettings();
-        AddMessage("Opened " + file.filename().string() + ": " + std::to_string(m_performance.scenes.size()) + " scenes.");
+        AddMessage("Opened " + file.filename().string() + ": " + std::to_string(m_document.Get().scenes.size()) + " scenes.");
     }
 
-    void ReloadPerformance() override
+    void SavePerformance() override
     {
-        if (!m_performancePath.empty())
-            OpenPerformance(m_performancePath);
+        if (m_document.Path().empty())
+        {
+            SavePerformanceAs();
+            return;
+        }
+        SaveTo(m_document.Path());
+    }
+
+    void SavePerformanceAs() override
+    {
+        if (auto file = gv::app::ChooseSaveFile("Save Performance", m_document.Title() + ".json", "json"))
+            SaveTo(*file);
+    }
+
+    void RevertPerformance() override
+    {
+        if (m_document.Path().empty())
+            return;
+        const auto path = m_document.Path();
+        if (m_document.IsDirty())
+        {
+            // Reverting is the explicit "discard": no save prompt, but mark clean so OpenPerformance doesn't ask.
+            m_document.MarkSaved(path);
+        }
+        OpenPerformance(path);
+    }
+
+    void Edit(gv::model::Performance edited, const std::string& label, const std::string& coalesceKey) override
+    {
+        m_document.Edit(std::move(edited), label, coalesceKey);
+        SyncEngine();
+    }
+
+    void EndEdit() override
+    {
+        m_document.EndCoalescing();
+    }
+
+    void Undo() override
+    {
+        m_document.Undo();
+        SyncEngine();
+    }
+
+    void Redo() override
+    {
+        m_document.Redo();
+        SyncEngine();
     }
 
     void ToggleFullscreen() override
@@ -230,17 +301,237 @@ public:
         m_engine.SetRenderSize(width, height);
     }
 
+    // --- Document -----------------------------------------------------------------------------
+
+    /// Replaces the open document and restarts playback with it.
+    void LoadDocument(gv::model::Document document)
+    {
+        m_document = std::move(document);
+        m_selectedScene = m_document.Get().scenes.empty() ? -1 : 0;
+        m_issues.clear();
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext); // video sources convert frames on this context
+        m_video.Load(m_document.Get());
+        m_engine.LoadPerformance(m_document.Get());
+        m_syncedRevision = m_document.Revision();
+    }
+
+    /// Hands edits to the engine and video sources without stopping playback, and re-validates.
+    void SyncEngine()
+    {
+        if (m_document.Revision() == m_syncedRevision)
+            return;
+        m_syncedRevision = m_document.Revision();
+        SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        m_video.Load(m_document.Get());
+        m_engine.UpdatePerformance(m_document.Get());
+        m_issues = gv::model::Validate(m_document.Get());
+    }
+
+    void SaveTo(const std::filesystem::path& file)
+    {
+        const auto issues = gv::model::Validate(m_document.Get());
+        bool hasErrors = false;
+        for (const auto& issue : issues)
+            hasErrors = hasErrors || issue.severity == gv::model::Issue::Severity::Error;
+        if (hasErrors)
+        {
+            m_issues = issues;
+            AddMessage("Not saved: fix the problems listed above first.");
+            return;
+        }
+        if (auto error = gv::model::SavePerformance(m_document.Get(), file); !error.empty())
+        {
+            AddMessage("Could not save: " + error);
+            return;
+        }
+        m_document.MarkSaved(file);
+        m_settings.lastPerformance = file;
+        AddRecent(file);
+        SaveSettings();
+        DeleteRecovery();
+        AddMessage("Saved " + file.filename().string() + ".");
+    }
+
+    /// Asks to save unsaved changes. Returns false if the user cancelled.
+    auto ConfirmDiscardChanges() -> bool
+    {
+        if (!m_document.IsDirty() || m_options.smoke)
+            return true;
+        switch (gv::app::AskToSaveChanges(m_document.Title()))
+        {
+            case gv::app::SaveChoice::Save:
+                SavePerformance();
+                return !m_document.IsDirty();
+            case gv::app::SaveChoice::DontSave:
+                DeleteRecovery();
+                return true;
+            case gv::app::SaveChoice::Cancel:
+                return false;
+        }
+        return false;
+    }
+
+    void AddRecent(const std::filesystem::path& file)
+    {
+        auto& recent = m_settings.recentPerformances;
+        recent.erase(std::remove(recent.begin(), recent.end(), file), recent.end());
+        recent.insert(recent.begin(), file);
+        if (recent.size() > kMaxRecent)
+            recent.resize(kMaxRecent);
+        gv::app::SetRecentFiles(recent);
+    }
+
+    auto RecoveryFile() const -> std::filesystem::path
+    {
+        return gv::paths::ApplicationSupportDir() / "recovery.json";
+    }
+
+    /// Writes unsaved changes so a crash doesn't lose them.
+    void WriteRecovery()
+    {
+        if (!m_document.IsDirty() || m_options.smoke)
+            return;
+        gv::model::SavePerformance(m_document.Get(), RecoveryFile());
+        std::ofstream(RecoveryFile().string() + ".path") << m_document.Path().string();
+    }
+
+    void DeleteRecovery()
+    {
+        std::error_code ec;
+        std::filesystem::remove(RecoveryFile(), ec);
+        std::filesystem::remove(RecoveryFile().string() + ".path", ec);
+    }
+
+    /// After a crash: reopens the unsaved changes from the recovery copy.
+    void RestoreRecovery()
+    {
+        std::error_code ec;
+        if (!std::filesystem::exists(RecoveryFile(), ec))
+            return;
+        auto result = gv::model::LoadPerformance(RecoveryFile());
+        std::string path;
+        std::getline(std::ifstream(RecoveryFile().string() + ".path"), path);
+        if (!result.ok)
+        {
+            DeleteRecovery();
+            return;
+        }
+        auto recovered = result.performance;
+        LoadDocument(gv::model::Document(std::move(result.performance), path));
+        m_document.Edit(std::move(recovered), "Recover Unsaved Changes"); // marks it unsaved
+        m_syncedRevision = m_document.Revision();
+        AddMessage("Recovered unsaved changes from your last session. Save to keep them, or File > Revert to Saved to discard them.");
+    }
+
+    void HandleMenuCommands(bool& running)
+    {
+        using gv::app::MenuCommand;
+        for (int command : gv::app::TakeMenuCommands())
+        {
+            if (command >= static_cast<int>(MenuCommand::OpenRecent))
+            {
+                const size_t index = static_cast<size_t>(command - static_cast<int>(MenuCommand::OpenRecent));
+                if (index < m_settings.recentPerformances.size())
+                    OpenPerformance(m_settings.recentPerformances[index]);
+                continue;
+            }
+            auto edited = m_document.Get();
+            switch (static_cast<MenuCommand>(command))
+            {
+                case MenuCommand::New:
+                    NewPerformance();
+                    break;
+                case MenuCommand::Open:
+                    if (auto file = gv::app::ChooseFile("Open Performance", {"json"}))
+                        OpenPerformance(*file);
+                    break;
+                case MenuCommand::Save:
+                    SavePerformance();
+                    break;
+                case MenuCommand::SaveAs:
+                    SavePerformanceAs();
+                    break;
+                case MenuCommand::Reload:
+                    RevertPerformance();
+                    break;
+                case MenuCommand::Undo:
+                    Undo();
+                    break;
+                case MenuCommand::Redo:
+                    Redo();
+                    break;
+                case MenuCommand::AddScene: {
+                    const auto preset = m_selectedScene >= 0 ? edited.scenes[static_cast<size_t>(m_selectedScene)].presetPath : std::filesystem::path();
+                    if (const int index = gv::model::AddScene(edited, m_selectedScene, preset); index >= 0)
+                    {
+                        Edit(std::move(edited), "Add Scene", {});
+                        m_selectedScene = index;
+                    }
+                    break;
+                }
+                case MenuCommand::DuplicateScene:
+                    if (const int index = gv::model::DuplicateScene(edited, m_selectedScene); index >= 0)
+                    {
+                        Edit(std::move(edited), "Duplicate Scene", {});
+                        m_selectedScene = index;
+                    }
+                    break;
+                case MenuCommand::DeleteScene:
+                    if (gv::model::DeleteScene(edited, m_selectedScene))
+                        Edit(std::move(edited), "Delete Scene", {});
+                    break;
+                case MenuCommand::TriggerSelected:
+                    Trigger(m_selectedScene);
+                    break;
+                case MenuCommand::Fullscreen:
+                    ToggleFullscreen();
+                    break;
+                case MenuCommand::ClearRecent:
+                    m_settings.recentPerformances.clear();
+                    gv::app::SetRecentFiles({});
+                    SaveSettings();
+                    break;
+                case MenuCommand::OpenRecent:
+                    break;
+            }
+        }
+        (void) running;
+    }
+
+    /// Menu item states and the window title, when they change.
+    void UpdateChrome()
+    {
+        using gv::app::MenuCommand;
+        const bool hasScene = m_selectedScene >= 0;
+        gv::app::SetMenuEnabled(MenuCommand::Undo, m_document.CanUndo());
+        gv::app::SetMenuEnabled(MenuCommand::Redo, m_document.CanRedo());
+        gv::app::SetMenuEnabled(MenuCommand::Reload, !m_document.Path().empty() && m_document.IsDirty());
+        gv::app::SetMenuEnabled(MenuCommand::DuplicateScene, hasScene);
+        gv::app::SetMenuEnabled(MenuCommand::DeleteScene, hasScene);
+        gv::app::SetMenuEnabled(MenuCommand::TriggerSelected, hasScene);
+        gv::app::SetUndoRedoLabels(m_document.UndoLabel(), m_document.RedoLabel());
+
+        const std::string title = m_document.Title() + (m_document.IsDirty() ? " \u2014 Edited" : "") + " \u2014 " + gv::app_info::kName;
+        if (title != m_windowTitle)
+        {
+            m_windowTitle = title;
+            SDL_SetWindowTitle(m_editorWindow, title.c_str());
+        }
+    }
+
     // --- Main loop ------------------------------------------------------------------------
 
     void HandleEvent(const SDL_Event& event, bool& running)
     {
-        if (event.type == SDL_QUIT)
+        if (event.type == SDL_QUIT || (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE))
         {
-            running = false;
+            if (ConfirmDiscardChanges())
+                running = false;
         }
-        else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE)
+        else if (event.type == SDL_DROPFILE)
         {
-            running = false;
+            m_droppedFiles.emplace_back(event.drop.file);
+            SDL_free(event.drop.file);
         }
         else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED)
         {
@@ -249,13 +540,6 @@ public:
         else if (m_audio.HandleEvent(event))
         {
             AddMessage("The audio input was removed.");
-        }
-        else if (event.type == SDL_KEYDOWN && (event.key.keysym.mod & KMOD_GUI) != 0)
-        {
-            if (event.key.keysym.sym == SDLK_r)
-                ReloadPerformance();
-            else if (event.key.keysym.sym == SDLK_f && event.key.repeat == 0)
-                ToggleFullscreen();
         }
         else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE && m_fullscreen)
         {
@@ -266,10 +550,13 @@ public:
     /// One output frame. Returns false when the smoke run is over.
     auto Frame(gv::app::Shell& shell, int frame) -> bool
     {
+        bool running = true;
+        HandleMenuCommands(running);
+
         // MIDI scene triggers.
-        if (auto value = m_midi->TakeSceneTrigger(); value && m_hasPerformance)
+        if (auto value = m_midi->TakeSceneTrigger())
         {
-            if (auto scene = m_performance.SceneForCc20(*value))
+            if (auto scene = m_document.Get().SceneForCc20(*value))
                 Trigger(static_cast<int>(*scene));
             else
                 GV_LOG_INFO(kLogCategory, "CC 20 = %d doesn't match any scene", *value);
@@ -304,9 +591,14 @@ public:
         }
 
         RecordFrameInterval();
+        UpdateChrome();
         if (m_settingsDirty && frame % 60 == 0)
         {
             SaveSettings();
+        }
+        if (frame % kRecoveryIntervalFrames == kRecoveryIntervalFrames - 1)
+        {
+            WriteRecovery();
         }
         return !m_smokeDone;
     }
@@ -324,8 +616,9 @@ private:
         ImGui::NewFrame();
 
         gv::app::ShellState state;
-        state.performance = m_hasPerformance ? &m_performance : nullptr;
-        state.performancePath = m_performancePath;
+        state.document = &m_document;
+        state.selectedScene = &m_selectedScene;
+        state.droppedFiles = &m_droppedFiles;
         state.issues = &m_issues;
         state.messages = &m_messages;
         state.settings = &m_settings;
@@ -351,6 +644,14 @@ private:
         glClearColor(0.08f, 0.08f, 0.09f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if (!m_options.smokeEditorSnapshot.empty() && !m_editorSnapshotTaken &&
+            std::chrono::duration<double>(Clock::now() - m_smokeStart).count() > 3.0)
+        {
+            std::vector<unsigned char> rgba(static_cast<size_t>(width) * height * 4);
+            glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+            WriteBmp(m_options.smokeEditorSnapshot, rgba, width, height);
+            m_editorSnapshotTaken = true;
+        }
         SDL_GL_SwapWindow(m_editorWindow);
         if (m_options.smoke)
         {
@@ -420,13 +721,17 @@ private:
             m_smokeDeadline = m_smokeStart;
         }
         const double elapsed = std::chrono::duration<double>(Clock::now() - m_smokeStart).count();
-        if (!m_hasPerformance || m_performance.scenes.empty())
+        const auto& performance = m_document.Get();
+        if (performance.scenes.empty())
         {
             GV_LOG_ERROR(kLogCategory, "smoke: no performance loaded");
             m_smokeDone = true;
             return;
         }
-        // Wait for the first scenes to be ready before cutting, like a show would.
+        if (m_options.smokeEdits)
+        {
+            SmokeEdits(elapsed);
+        }
         const int cut = static_cast<int>(elapsed / m_options.smokeCutSeconds);
         if (cut != m_smokeLastCut && m_smokeLastCut >= 0 && !m_options.smokeSnapshots.empty())
         {
@@ -435,7 +740,7 @@ private:
         if (cut != m_smokeLastCut)
         {
             m_smokeLastCut = cut;
-            const int scene = cut % static_cast<int>(m_performance.scenes.size());
+            const int scene = cut % static_cast<int>(performance.scenes.size());
             Trigger(scene);
             m_smokeCuts++;
         }
@@ -447,13 +752,13 @@ private:
                         elapsed, m_smokeCuts, liveTicks, stats.presentedFrames, stats.heldTicks,
                         liveTicks > 0 ? 100.0 * stats.heldTicks / liveTicks : 0.0, stats.heldWaitingTicks, stats.heldNearCutTicks, stats.heldTicks - stats.heldWaitingTicks - stats.heldNearCutTicks,
                         m_slowFrames, stats.warmDone, stats.warmTotal);
-            for (int i = 0; i < static_cast<int>(m_performance.scenes.size()); ++i)
+            for (int i = 0; i < static_cast<int>(performance.scenes.size()); ++i)
             {
                 const auto info = m_engine.Scene(i);
                 const auto held = stats.heldByScene.count(i) ? stats.heldByScene.at(i) : 0;
                 const auto video = m_video.StateFor(i);
                 GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, held %lld (%.1f%% of its live frames), video %s", i,
-                            m_performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held,
+                            performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held,
                             info.droppedFraction * 100.0, video ? gv::io::ToString(*video) : "-");
             }
             m_smokeOk = stats.presentedFrames > liveTicks / 2;
@@ -461,7 +766,59 @@ private:
         }
     }
 
-    /// Writes the presented texture as a 24-bit BMP (bottom-up rows, like GL).
+    /// Scripted edits while playing, one per second from 3 s, to exercise live updates of the engine.
+    void SmokeEdits(double elapsed)
+    {
+        const int step = static_cast<int>(elapsed) - 3;
+        if (step < 0 || step == m_smokeEditStep)
+            return;
+        m_smokeEditStep = step;
+        auto edited = m_document.Get();
+        const int live = m_engine.LiveScene();
+        const int count = static_cast<int>(edited.scenes.size());
+        switch (step)
+        {
+            case 0:
+                gv::model::MoveScene(edited, count - 1, 0);
+                Edit(std::move(edited), "Move Scene", {});
+                GV_LOG_INFO(kLogCategory, "smoke edit: moved the last scene to the top; live is now %d", m_engine.LiveScene());
+                break;
+            case 1:
+                if (live >= 0)
+                {
+                    edited.scenes[static_cast<size_t>(live)].presetPath = edited.scenes[static_cast<size_t>((live + 2) % count)].presetPath;
+                    Edit(std::move(edited), "Change Preset", {});
+                    GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's preset (scene %d)", live);
+                }
+                break;
+            case 2:
+                if (live >= 0)
+                {
+                    edited.scenes[static_cast<size_t>(live)].video.enabled = true;
+                    edited.scenes[static_cast<size_t>(live)].video.mix = 0.3f;
+                    Edit(std::move(edited), "Change Mix", {});
+                    GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's mix");
+                }
+                break;
+            case 3:
+                if (live >= 0)
+                {
+                    gv::model::DeleteScene(edited, live);
+                    Edit(std::move(edited), "Delete Scene", {});
+                    GV_LOG_INFO(kLogCategory, "smoke edit: deleted the live scene; live is now %d (its instance keeps rendering)", m_engine.LiveScene());
+                }
+                break;
+            case 4:
+                while (m_document.CanUndo())
+                    Undo();
+                GV_LOG_INFO(kLogCategory, "smoke edit: undid everything; %zu scenes, dirty=%d", m_document.Get().scenes.size(), m_document.IsDirty());
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// Writes the presented texture as a BMP.
     void SaveSnapshot(const std::filesystem::path& file)
     {
         const int width = m_engine.RenderWidth();
@@ -473,7 +830,12 @@ private:
         glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_engine.PresentedTexture(), 0);
         glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        WriteBmp(file, rgba, width, height);
+    }
 
+    /// Writes bottom-up RGBA pixels (as GL reads them) as a 24-bit BMP.
+    static void WriteBmp(const std::filesystem::path& file, const std::vector<unsigned char>& rgba, int width, int height)
+    {
         const int rowBytes = (width * 3 + 3) & ~3;
         const uint32_t imageBytes = static_cast<uint32_t>(rowBytes * height);
         std::vector<unsigned char> bmp(54 + imageBytes, 0);
@@ -544,9 +906,11 @@ private:
     gv::io::AudioInput m_audio;
     std::unique_ptr<gv::io::MidiInput> m_midi;
 
-    gv::model::Performance m_performance;
-    std::filesystem::path m_performancePath;
-    bool m_hasPerformance{false};
+    gv::model::Document m_document;
+    uint64_t m_syncedRevision{0};
+    int m_selectedScene{-1};
+    std::vector<std::filesystem::path> m_droppedFiles;
+    std::string m_windowTitle;
     std::vector<gv::model::Issue> m_issues;
     std::deque<std::string> m_messages;
 
@@ -559,6 +923,8 @@ private:
     int m_smokeLastCut{-1};
     int m_smokeCuts{0};
     bool m_smokeDone{false};
+    bool m_editorSnapshotTaken{false};
+    int m_smokeEditStep{-1};
     bool m_smokeOk{false};
 };
 
@@ -602,9 +968,11 @@ int main(int argc, char* argv[])
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
-    static const std::string iniPath = (gv::paths::ApplicationSupportDir() / "layout.ini").string();
+    // v2: the M4 editor layout (the M2 shell's saved layout doesn't have its panels).
+    static const std::string iniPath = (gv::paths::ApplicationSupportDir() / "layout-v2.ini").string();
     io.IniFilename = options.smoke ? nullptr : iniPath.c_str();
-    ImGui::StyleColorsDark();
+    gv::app::Shell::ApplyTheme();
+    gv::app::InstallMenus();
     ImGui_ImplSDL2_InitForOpenGL(window, context);
     ImGui_ImplOpenGL3_Init("#version 410 core");
 

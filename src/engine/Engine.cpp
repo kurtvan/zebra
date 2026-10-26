@@ -169,6 +169,58 @@ void Engine::LoadPerformance(const model::Performance& performance)
                 m_performance.name.c_str(), m_performance.scenes.size(), m_warmTotal);
 }
 
+void Engine::UpdatePerformance(const model::Performance& performance)
+{
+    std::map<std::string, int> newIndexById;
+    for (int i = 0; i < static_cast<int>(performance.scenes.size()); ++i)
+        newIndexById[performance.scenes[static_cast<size_t>(i)].id] = i;
+
+    std::vector<int> oldToNew(m_performance.scenes.size(), -1);
+    std::vector<bool> presetChanged(performance.scenes.size(), true); // new scenes count as changed
+    std::vector<bool> unusable;
+    for (const auto& scene : performance.scenes)
+        unusable.push_back(scene.presetMissing || scene.presetPath.empty());
+
+    for (int old = 0; old < static_cast<int>(m_performance.scenes.size()); ++old)
+    {
+        const auto& before = m_performance.scenes[static_cast<size_t>(old)];
+        auto it = newIndexById.find(before.id);
+        if (it == newIndexById.end())
+            continue;
+        oldToNew[static_cast<size_t>(old)] = it->second;
+        const auto& after = performance.scenes[static_cast<size_t>(it->second)];
+        presetChanged[static_cast<size_t>(it->second)] = before.presetPath != after.presetPath;
+
+        // Video blend settings apply to the existing instances (including the live one) right away.
+        if (!presetChanged[static_cast<size_t>(it->second)] &&
+            (before.video.enabled != after.video.enabled || before.video.mix != after.video.mix || before.video.lumaMin != after.video.lumaMin))
+        {
+            const VideoSettings video{after.video.enabled, after.video.mix, after.video.lumaMin};
+            for (const auto& hosted : m_pool.InstancesOf(old))
+                m_lanes[static_cast<size_t>(hosted.lane)]->UpdateVideo(hosted.instance, video);
+            if (m_handover.instance != 0 && m_handover.scene == old)
+                m_lanes[static_cast<size_t>(m_handover.lane)]->UpdateVideo(m_handover.instance, video);
+        }
+    }
+
+    if (m_handover.scene >= 0)
+        m_handover.scene = oldToNew[static_cast<size_t>(m_handover.scene)];
+    m_performance = performance;
+    Execute(m_pool.Remap(static_cast<int>(performance.scenes.size()), oldToNew, unusable, presetChanged));
+
+    // Pre-warm presets that are new to this session.
+    for (int i = 0; i < static_cast<int>(performance.scenes.size()); ++i)
+    {
+        const auto& path = performance.scenes[static_cast<size_t>(i)].presetPath.string();
+        if (presetChanged[static_cast<size_t>(i)] && !unusable[static_cast<size_t>(i)] && m_frameMsByPreset.count(path) == 0 &&
+            m_pool.StatusOf(i).state == ScenePool::State::None)
+        {
+            QueueWarm(i, path, -1);
+            m_warmTotal++;
+        }
+    }
+}
+
 void Engine::Trigger(int index)
 {
     if (index < 0 || index >= static_cast<int>(m_performance.scenes.size()))

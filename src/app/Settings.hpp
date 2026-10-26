@@ -16,6 +16,7 @@ struct Settings
     int midiChannel{0};      //!< 0-15 (shown as 1-16).
     bool namesOnly{false};
     std::filesystem::path lastPerformance;
+    std::vector<std::filesystem::path> recentPerformances; //!< Most recent first.
 
     /// Loads from `file`; missing or invalid fields fall back to defaults. Never throws.
     static auto Load(const std::filesystem::path& file) -> Settings;

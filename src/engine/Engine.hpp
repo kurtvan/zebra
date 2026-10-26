@@ -74,6 +74,10 @@ public:
     /// Starts over with `performance`: resets the pool, prepares the first scenes and pre-warms the rest.
     void LoadPerformance(const model::Performance& performance);
 
+    /// The loaded performance was edited (scenes matched by id). Keeps playing: unchanged scenes keep their
+    /// prepared instances, changed presets are re-prepared, video settings change in place.
+    void UpdatePerformance(const model::Performance& performance);
+
     /// Requests scene `index` (into the loaded performance) to go live.
     void Trigger(int index);
 

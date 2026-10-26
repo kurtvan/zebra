@@ -134,6 +134,15 @@ void Lane::Release(InstanceId instance)
     Push(std::move(job), true);
 }
 
+void Lane::UpdateVideo(InstanceId instance, VideoSettings video)
+{
+    Job job;
+    job.type = Job::Type::UpdateVideo;
+    job.instance = instance;
+    job.video = video;
+    Push(std::move(job), true);
+}
+
 auto Lane::CancelQueued() -> std::pair<std::vector<InstanceId>, std::vector<std::pair<int, std::string>>>
 {
     std::pair<std::vector<InstanceId>, std::vector<std::pair<int, std::string>>> cancelled;
@@ -268,6 +277,14 @@ void Lane::Run()
                 break;
             case Job::Type::Configure:
                 DoConfigure(job);
+                break;
+            case Job::Type::UpdateVideo:
+                if (auto hosted = m_instances.find(job.instance); hosted != m_instances.end())
+                {
+                    hosted->second.video = job.video.enabled;
+                    projectm_set_feedback_mix(hosted->second.handle, job.video.mix);
+                    projectm_set_feedback_luma_gate(hosted->second.handle, job.video.lumaMin);
+                }
                 break;
             case Job::Type::Shutdown:
                 for (auto& [id, hosted] : m_instances)

@@ -5,38 +5,54 @@
 #include "engine/Engine.hpp"
 #include "io/AudioInput.hpp"
 #include "io/MidiInput.hpp"
+#include "model/Document.hpp"
 #include "model/PerformanceJson.hpp"
 
 #include <OpenGL/gl3.h>
 
 #include <deque>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace gv::app {
 
-/// What the shell can ask the app to do.
+/// What the editor UI can ask the app to do.
 class AppActions
 {
 public:
     virtual ~AppActions() = default;
+
+    // Document
+    virtual void NewPerformance() = 0;
     virtual void OpenPerformance(const std::filesystem::path& file) = 0;
-    virtual void ReloadPerformance() = 0;
-    virtual void ToggleFullscreen() = 0; //!< The window shows only the visuals, on whichever screen it's on.
-    virtual void SetAudioDevice(const std::string& deviceName) = 0;    //!< Empty: system default.
+    virtual void SavePerformance() = 0;
+    virtual void SavePerformanceAs() = 0;
+    virtual void RevertPerformance() = 0;
+    /// Replaces the performance with `edited` as one undoable step (see Document::Edit for `coalesceKey`).
+    virtual void Edit(model::Performance edited, const std::string& label, const std::string& coalesceKey = {}) = 0;
+    virtual void EndEdit() = 0; //!< Ends a coalesced edit (e.g. slider released).
+    virtual void Undo() = 0;
+    virtual void Redo() = 0;
+
+    // Playback and setup
+    virtual void Trigger(int scene) = 0;
+    virtual void ToggleFullscreen() = 0;
+    virtual void SetAudioDevice(const std::string& deviceName) = 0; //!< Empty: system default.
     virtual void SetMidiChannel(int channel) = 0;
     virtual void SetLibraryRoot(const std::filesystem::path& folder) = 0;
     virtual void SetTextureFolder(const std::filesystem::path& folder) = 0;
     virtual void SettingsChanged() = 0;
-    virtual void Trigger(int scene) = 0;
 };
 
-/// Everything the shell shows. Owned by the app; the shell only reads it (except settings fields it edits).
+/// Everything the editor shows. Owned by the app; the shell only reads it, except `selectedScene`,
+/// `droppedFiles` (consumed) and settings fields it edits.
 struct ShellState
 {
-    const model::Performance* performance{nullptr};
-    std::filesystem::path performancePath;
+    const model::Document* document{nullptr};
+    int* selectedScene{nullptr};
+    std::vector<std::filesystem::path>* droppedFiles{nullptr};
     const std::vector<model::Issue>* issues{nullptr};
     std::deque<std::string>* messages{nullptr};
     Settings* settings{nullptr};
@@ -49,23 +65,31 @@ struct ShellState
     long long slowFrames{0};
 };
 
-/// Temporary M2 editor shell (replaced by the real editor in M4): preview, scene list, setup and status.
+/// The editor: preview, scene list, scene properties, setup, preset browser (M5), status and messages.
 class Shell
 {
 public:
+    /// Fonts and colours. Call once before the first frame.
+    static void ApplyTheme();
+
     void Draw(ShellState& state, AppActions& actions);
 
 private:
     void BuildDefaultLayout(unsigned int dockspace);
     void DrawPreview(const ShellState& state, AppActions& actions);
-    void DrawScenes(const ShellState& state, AppActions& actions);
+    void DrawScenes(ShellState& state, AppActions& actions);
+    void DrawSceneProperties(ShellState& state, AppActions& actions);
     void DrawSetup(ShellState& state, AppActions& actions);
+    void DrawBrowser(const ShellState& state);
     void DrawStatus(const ShellState& state);
     void DrawMessages(const ShellState& state);
+    void DrawStatusBar(const ShellState& state);
+    void HandleDrops(ShellState& state, AppActions& actions, int hoveredScene);
 
     bool m_layoutBuilt{false};
     std::vector<std::string> m_audioDevices;
     bool m_listsLoaded{false};
+    int m_scrollToScene{-1};
 };
 
 } // namespace gv::app
