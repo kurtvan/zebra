@@ -67,18 +67,18 @@ TEST_CASE("edits with the same coalesce key form one undo step until coalescing 
     for (float mix : {0.1f, 0.2f, 0.3f})
     {
         auto edited = document.Get();
-        edited.scenes[1].video.mix = mix;
+        edited.scenes[1].video.look.mix = mix;
         document.Edit(edited, "Change mix", "mix:s1");
     }
     document.EndCoalescing();
     auto edited = document.Get();
-    edited.scenes[1].video.mix = 0.9f;
+    edited.scenes[1].video.look.mix = 0.9f;
     document.Edit(edited, "Change mix", "mix:s1");
 
     document.Undo();
-    CHECK(document.Get().scenes[1].video.mix == 0.3f);
+    CHECK(document.Get().scenes[1].video.look.mix == 0.3f);
     document.Undo();
-    CHECK(document.Get().scenes[1].video.mix == 1.0f); // the original default
+    CHECK(document.Get().scenes[1].video.look.mix == 1.0f); // the original default
     CHECK_FALSE(document.CanUndo());
 }
 

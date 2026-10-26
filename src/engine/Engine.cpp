@@ -211,16 +211,16 @@ void Engine::UpdatePerformance(const model::Performance& performance)
             m_playlist = {};
         }
 
-        // Video blend settings apply to the existing instances (including the live one) right away.
+        // Video blend settings apply to the existing instances (including the live one) right away, each
+        // with its playlist entry's look.
         if (!presetChanged[static_cast<size_t>(it->second)] &&
-            (before.video.enabled != after.video.enabled || before.video.mix != after.video.mix || before.video.lumaMin != after.video.lumaMin ||
-             before.video.contrast != after.video.contrast || before.video.saturation != after.video.saturation))
+            (before.video.enabled != after.video.enabled || before.video.look != after.video.look || before.playlist.looks != after.playlist.looks ||
+             before.IsPlaylist() != after.IsPlaylist()))
         {
-            const VideoSettings video{after.video.enabled, after.video.mix, after.video.lumaMin, after.video.contrast, after.video.saturation};
             for (const auto& hosted : m_pool.InstancesOf(old))
-                m_lanes[static_cast<size_t>(hosted.lane)]->UpdateVideo(hosted.instance, video);
-            if (m_handover.instance != 0 && m_handover.scene == old)
-                m_lanes[static_cast<size_t>(m_handover.lane)]->UpdateVideo(m_handover.instance, video);
+                m_lanes[static_cast<size_t>(hosted.lane)]->UpdateVideo(hosted.instance, VideoSettingsFor(after, hosted.item));
+            if (m_handover.instance != 0 && m_handover.scene == old && !after.IsPlaylist())
+                m_lanes[static_cast<size_t>(m_handover.lane)]->UpdateVideo(m_handover.instance, VideoSettingsFor(after, 0));
         }
     }
 
@@ -248,6 +248,33 @@ void Engine::UpdatePerformance(const model::Performance& performance)
             }
         }
     }
+}
+
+auto Engine::VideoSettingsFor(const model::Scene& scene, int item) -> VideoSettings
+{
+    const auto& look = scene.LookFor(item);
+    return {scene.video.enabled, look.mix, look.lumaMin, look.contrast, look.saturation};
+}
+
+void Engine::TriggerItem(int index, int item)
+{
+    if (index < 0 || index >= static_cast<int>(m_performance.scenes.size()))
+        return;
+    const auto& scene = m_performance.scenes[static_cast<size_t>(index)];
+    if (!scene.IsPlaylist() || item < 0 || item >= static_cast<int>(scene.playlist.presets.size()) ||
+        (item < static_cast<int>(scene.playlistMissing.size()) && scene.playlistMissing[static_cast<size_t>(item)]))
+    {
+        Trigger(index);
+        return;
+    }
+    const auto status = m_pool.StatusOf(index).state;
+    if (status == ScenePool::State::Unusable || status == ScenePool::State::Failed)
+    {
+        Trigger(index); // logs why
+        return;
+    }
+    GV_LOG_INFO(kLogCategory, "scene %d (%s): going to preset %d of %zu", index, scene.DisplayName().c_str(), item + 1, scene.playlist.presets.size());
+    Execute(m_pool.TriggerItem(index, item));
 }
 
 void Engine::Trigger(int index)
@@ -497,7 +524,7 @@ void Engine::Execute(std::vector<PoolCommand> commands)
             case PoolCommand::Type::Prepare:
             {
                 const auto& scene = m_performance.scenes[static_cast<size_t>(command.scene)];
-                VideoSettings video{scene.video.enabled, scene.video.mix, scene.video.lumaMin, scene.video.contrast, scene.video.saturation};
+                const VideoSettings video = VideoSettingsFor(scene, command.item);
                 const auto presets = scene.Presets();
                 const auto& preset = presets[static_cast<size_t>(std::clamp(command.item, 0, static_cast<int>(presets.size()) - 1))];
                 lane.Prepare(command.instance, command.scene, preset.string(), video, command.priority);
@@ -618,6 +645,8 @@ void Engine::UpdatePlaylist()
     using Clock = std::chrono::steady_clock;
     const int live = m_pool.LiveScene();
     const model::Scene* scene = live >= 0 && live < static_cast<int>(m_performance.scenes.size()) ? &m_performance.scenes[static_cast<size_t>(live)] : nullptr;
+    if (m_pool.JumpPending())
+        return; // a jump to an entry is about to go live; the cycle starts over from it
     if (scene == nullptr || !scene->IsPlaylist() || scene->playlist.presets.size() < 2)
     {
         if (m_pool.NextItemInstance() != 0)

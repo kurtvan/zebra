@@ -375,3 +375,85 @@ TEST_CASE("beat and bar cycles start on the grid line, or the next one when well
     CHECK(CycleStart(96 * 3 + 30, 96) == 96 * 4); // mid-bar: the next bar line
     CHECK(CycleStart(24 * 5 + 20, 24) == 24 * 6); // late in a beat: the next beat
 }
+
+TEST_CASE("jumping to an entry of the live playlist scene cuts to it when it's ready")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(5, std::vector<bool>(5, false)));
+    h.Run(h.pool.Trigger(1));
+    h.pool.PrepareItem(1, 1); // the cycle's next entry, replaced by the jump
+
+    auto commands = h.pool.TriggerItem(1, 3);
+    const auto* prepare = Find(commands, Type::Prepare, 1);
+    REQUIRE(prepare != nullptr);
+    CHECK(prepare->item == 3);
+    CHECK(prepare->priority);
+    CHECK(Count(commands, Type::Release) == 1); // the planned next entry
+    CHECK(h.pool.JumpPending());
+    CHECK(h.pool.PendingScene() == -1); // the live scene keeps playing meanwhile
+    CHECK(h.pool.ClearItem().empty());  // playlist housekeeping doesn't cancel it
+
+    auto activated = h.pool.OnPrepared(prepare->instance, true);
+    CHECK(Find(activated, Type::Activate, 1) != nullptr);
+    CHECK(h.pool.LiveScene() == 1);
+    CHECK(h.pool.LiveItem() == 3);
+    CHECK_FALSE(h.pool.JumpPending());
+    CHECK(h.pool.NextItemInstance() == 0);
+}
+
+TEST_CASE("jumping to an entry of another scene enters that scene there")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(6, std::vector<bool>(6, false)));
+    h.Run(h.pool.Trigger(0));
+
+    auto commands = h.pool.TriggerItem(4, 2);
+    CHECK(h.pool.PendingScene() == 4);
+    const auto* prepare = Find(commands, Type::Prepare, 4);
+    REQUIRE(prepare != nullptr);
+    CHECK(prepare->item == 2);
+
+    // Window housekeeping (e.g. another cancel) doesn't drop it.
+    h.log.clear();
+    h.Run(h.pool.OnCancelled({}));
+    for (const auto& c : h.log)
+        CHECK_FALSE((c.type == Type::Release && c.instance == prepare->instance));
+
+    h.log.clear();
+    h.Run(h.pool.OnPrepared(prepare->instance, true));
+    CHECK(h.pool.LiveScene() == 4);
+    CHECK(h.pool.LiveItem() == 2);
+
+    // Entry 0 of a scene that isn't live is an ordinary trigger.
+    h.Run(h.pool.TriggerItem(5, 0));
+    CHECK(h.pool.LiveScene() == 5);
+    CHECK(h.pool.LiveItem() == 0);
+}
+
+TEST_CASE("a trigger cancels a pending jump, and a cancelled jump is prepared again")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(8, std::vector<bool>(8, false)));
+    h.Run(h.pool.Trigger(0));
+
+    auto commands = h.pool.TriggerItem(6, 1);
+    const auto jump = Find(commands, Type::Prepare, 6)->instance;
+
+    // Cancelled by its lane before it started: planned again, still a jump.
+    auto again = h.pool.OnCancelled({jump});
+    const auto* reprepare = Find(again, Type::Prepare, 6);
+    REQUIRE(reprepare != nullptr);
+    CHECK(reprepare->item == 1);
+    CHECK(h.pool.JumpPending());
+
+    h.log.clear();
+    h.Run(h.pool.Trigger(1));
+    CHECK(h.pool.LiveScene() == 1);
+    CHECK_FALSE(h.pool.JumpPending());
+    bool releasedJump = false;
+    for (const auto& c : h.log)
+        releasedJump = releasedJump || (c.type == Type::Release && c.instance == reprepare->instance);
+    CHECK(releasedJump);
+    CHECK(h.pool.OnPrepared(reprepare->instance, true).empty()); // finishing late does nothing
+    CHECK(h.pool.LiveScene() == 1);
+}

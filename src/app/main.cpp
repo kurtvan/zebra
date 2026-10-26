@@ -322,6 +322,12 @@ public:
         m_engine.Trigger(scene);
     }
 
+    void TriggerItem(int scene, int item) override
+    {
+        m_video.OnTrigger(scene, m_engine.LiveScene()); // only restarts when entering another scene
+        m_engine.TriggerItem(scene, item);
+    }
+
     /// Renders at the native resolution of the screen the window is on, capped at kMaxRenderWidth wide.
     void UpdateRenderSize()
     {
@@ -943,7 +949,7 @@ private:
                 if (live >= 0)
                 {
                     edited.scenes[static_cast<size_t>(live)].video.enabled = true;
-                    edited.scenes[static_cast<size_t>(live)].video.mix = 0.3f;
+                    edited.scenes[static_cast<size_t>(live)].video.look.mix = 0.3f;
                     Edit(std::move(edited), "Change Mix", {});
                     GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's mix");
                 }
@@ -960,6 +966,38 @@ private:
                 while (m_document.CanUndo())
                     Undo();
                 GV_LOG_INFO(kLogCategory, "smoke edit: undid everything; %zu scenes, dirty=%d", m_document.Get().scenes.size(), m_document.IsDirty());
+                break;
+            case 5:
+            case 7:
+            {
+                // Playlist jumps: into a playlist scene at its third entry, then within it to the second
+                // (with that entry's look changed while live).
+                const auto playlist = std::find_if(edited.scenes.begin(), edited.scenes.end(), [](const auto& s) { return s.IsPlaylist() && s.playlist.presets.size() >= 3; });
+                if (playlist == edited.scenes.end())
+                    break;
+                const int scene = static_cast<int>(playlist - edited.scenes.begin());
+                if (step == 5)
+                {
+                    TriggerItem(scene, 2);
+                    m_selectedScene = scene;
+                    GV_LOG_INFO(kLogCategory, "smoke edit: jumped into scene %d at preset 3", scene);
+                }
+                else
+                {
+                    GV_LOG_INFO(kLogCategory, "smoke edit: scene %d live=%d on preset %d", scene, m_engine.LiveScene(), m_engine.Scene(scene).playlistItem + 1);
+                    playlist->MutableLookFor(1).saturation = 0.f;
+                    Edit(std::move(edited), "Change Saturation", {});
+                    TriggerItem(scene, 1);
+                    GV_LOG_INFO(kLogCategory, "smoke edit: jumped within scene %d to preset 2 (black and white)", scene);
+                }
+                break;
+            }
+            case 9:
+                for (int scene = 0; scene < static_cast<int>(edited.scenes.size()); ++scene)
+                {
+                    if (edited.scenes[static_cast<size_t>(scene)].IsPlaylist())
+                        GV_LOG_INFO(kLogCategory, "smoke edit: scene %d live=%d on preset %d", scene, m_engine.LiveScene(), m_engine.Scene(scene).playlistItem + 1);
+                }
                 break;
             default:
                 break;

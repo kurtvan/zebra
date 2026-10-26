@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <fstream>
+#include <optional>
 #include <set>
 #include <sstream>
 
@@ -69,9 +70,37 @@ auto ParseVideoSource(const json& object, const std::string& path, std::vector<I
     return source;
 }
 
+auto ParseLook(const json& object, const std::string& path, std::vector<Issue>& issues) -> VideoLook
+{
+    VideoLook look;
+    ReadField(object, "mix", look.mix, path, issues);
+    ReadField(object, "lumaMin", look.lumaMin, path, issues);
+    ReadField(object, "contrast", look.contrast, path, issues);
+    ReadField(object, "saturation", look.saturation, path, issues);
+    return look;
+}
+
+auto LookJson(const VideoLook& look) -> json
+{
+    return {{"mix", look.mix}, {"lumaMin", look.lumaMin}, {"contrast", look.contrast}, {"saturation", look.saturation}};
+}
+
+void ValidateLook(const VideoLook& look, const std::string& path, std::vector<Issue>& issues)
+{
+    if (look.mix < 0.f || look.mix > 1.f)
+        issues.push_back(Error(path + "/mix", "must be between 0 and 1"));
+    if (look.lumaMin < 0.f || look.lumaMin > 1.f)
+        issues.push_back(Error(path + "/lumaMin", "must be between 0 and 1"));
+    if (look.contrast < 0.f || look.contrast > kMaxContrast)
+        issues.push_back(Error(path + "/contrast", "must be between 0 and 100"));
+    if (look.saturation < 0.f || look.saturation > 2.f)
+        issues.push_back(Error(path + "/saturation", "must be between 0 and 2"));
+}
+
 auto ParseScene(const json& object, const std::string& path, std::vector<Issue>& issues) -> Scene
 {
     Scene scene;
+    std::vector<std::optional<VideoLook>> entryLooks;
     ReadField(object, "id", scene.id, path, issues);
     ReadField(object, "name", scene.name, path, issues);
 
@@ -104,9 +133,18 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
             for (size_t i = 0; i < presets->size(); ++i)
             {
                 std::string presetPath;
+                const std::string entryPath = playlistPath + "/presets/" + std::to_string(i);
                 if ((*presets)[i].is_object())
-                    ReadField((*presets)[i], "path", presetPath, playlistPath + "/presets/" + std::to_string(i), issues);
+                    ReadField((*presets)[i], "path", presetPath, entryPath, issues);
                 scene.playlist.presets.emplace_back(presetPath);
+                // Entries without their own look (older files) take the scene's, filled in below.
+                std::optional<VideoLook> look;
+                if ((*presets)[i].is_object())
+                {
+                    if (auto object = (*presets)[i].find("look"); object != (*presets)[i].end() && object->is_object())
+                        look = ParseLook(*object, entryPath + "/look", issues);
+                }
+                entryLooks.push_back(look);
             }
         }
     }
@@ -115,10 +153,7 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
     {
         const std::string videoPath = path + "/video";
         ReadField(*video, "enabled", scene.video.enabled, videoPath, issues);
-        ReadField(*video, "mix", scene.video.mix, videoPath, issues);
-        ReadField(*video, "lumaMin", scene.video.lumaMin, videoPath, issues);
-        ReadField(*video, "contrast", scene.video.contrast, videoPath, issues);
-        ReadField(*video, "saturation", scene.video.saturation, videoPath, issues);
+        scene.video.look = ParseLook(*video, videoPath, issues);
         ReadField(*video, "restartOnEnter", scene.video.restartOnEnter, videoPath, issues);
         if (auto source = video->find("source"); source != video->end() && source->is_object())
         {
@@ -134,6 +169,8 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
     {
         scene.cc20Value = -1; // Validate() reports it.
     }
+    for (const auto& look : entryLooks)
+        scene.playlist.looks.push_back(look.value_or(scene.video.look));
     return scene;
 }
 
@@ -283,8 +320,8 @@ auto SerializePerformance(const Performance& performance) -> std::string
         if (scene.playlist.enabled || !scene.playlist.presets.empty())
         {
             json presets = json::array();
-            for (const auto& preset : scene.playlist.presets)
-                presets.push_back({{"path", preset.string()}});
+            for (size_t i = 0; i < scene.playlist.presets.size(); ++i)
+                presets.push_back({{"path", scene.playlist.presets[i].string()}, {"look", LookJson(i < scene.playlist.looks.size() ? scene.playlist.looks[i] : scene.video.look)}});
             object["playlist"] = {
                 {"enabled", scene.playlist.enabled},
                 {"presets", presets},
@@ -306,10 +343,10 @@ auto SerializePerformance(const Performance& performance) -> std::string
         object["video"] = {
             {"enabled", scene.video.enabled},
             {"source", source},
-            {"mix", scene.video.mix},
-            {"lumaMin", scene.video.lumaMin},
-            {"contrast", scene.video.contrast},
-            {"saturation", scene.video.saturation},
+            {"mix", scene.video.look.mix},
+            {"lumaMin", scene.video.look.lumaMin},
+            {"contrast", scene.video.look.contrast},
+            {"saturation", scene.video.look.saturation},
             {"restartOnEnter", scene.video.restartOnEnter}};
         object["midi"] = {{"cc20Value", scene.cc20Value}};
         root["scenes"].push_back(object);
@@ -402,22 +439,9 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
             issues.push_back(Error(path + "/midi/cc20Value", std::to_string(scene.cc20Value) + " is used by another scene"));
         }
 
-        if (scene.video.mix < 0.f || scene.video.mix > 1.f)
-        {
-            issues.push_back(Error(path + "/video/mix", "must be between 0 and 1"));
-        }
-        if (scene.video.lumaMin < 0.f || scene.video.lumaMin > 1.f)
-        {
-            issues.push_back(Error(path + "/video/lumaMin", "must be between 0 and 1"));
-        }
-        if (scene.video.contrast < 0.f || scene.video.contrast > kMaxContrast)
-        {
-            issues.push_back(Error(path + "/video/contrast", "must be between 0 and 100"));
-        }
-        if (scene.video.saturation < 0.f || scene.video.saturation > 2.f)
-        {
-            issues.push_back(Error(path + "/video/saturation", "must be between 0 and 2"));
-        }
+        ValidateLook(scene.video.look, path + "/video", issues);
+        for (size_t i = 0; i < scene.playlist.looks.size(); ++i)
+            ValidateLook(scene.playlist.looks[i], path + "/playlist/presets/" + std::to_string(i) + "/look", issues);
         if (scene.video.enabled && scene.video.source.type == VideoSourceType::File && performance.FindVideo(scene.video.source.videoId) == nullptr)
         {
             issues.push_back(Error(path + "/video/source/video",

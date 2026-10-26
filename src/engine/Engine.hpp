@@ -98,6 +98,10 @@ public:
     /// Requests scene `index` (into the loaded performance) to go live.
     void Trigger(int index);
 
+    /// Goes live on entry `item` of playlist scene `index` (cutting within the live scene, or entering
+    /// another scene there); the playlist carries on cycling from that entry.
+    void TriggerItem(int index, int item);
+
     /// The MIDI clock, for playlists that count beats or bars. Call every frame before Tick().
     void SetClock(const ClockInput& clock)
     {
@@ -171,6 +175,7 @@ private:
     void FinishHandover();
     void UpdatePlaylist();
     auto PickNextItem(const model::Scene& scene, int current) -> int;
+    static auto VideoSettingsFor(const model::Scene& scene, int item) -> VideoSettings;
     auto CurrentPreset(int scene) const -> std::filesystem::path;
     void CreatePresentTargets();
 
