@@ -118,7 +118,7 @@ void Engine::LoadPerformance(const model::Performance& performance)
     std::vector<bool> unusable;
     for (const auto& scene : m_performance.scenes)
     {
-        unusable.push_back(scene.presetMissing || scene.presetPath.empty());
+        unusable.push_back(scene.presetMissing || scene.FirstPreset().empty());
     }
 
     for (auto& lane : m_lanes)
@@ -144,15 +144,24 @@ void Engine::LoadPerformance(const model::Performance& performance)
     for (int i = 0; i < static_cast<int>(m_performance.scenes.size()); ++i)
     {
         const auto& scene = m_performance.scenes[static_cast<size_t>(i)];
-        const auto status = m_pool.StatusOf(i).state;
-        if (unusable[static_cast<size_t>(i)] || status != ScenePool::State::None)
+        if (unusable[static_cast<size_t>(i)])
         {
             continue;
         }
-        if (queued.insert(scene.presetPath.string()).second && m_frameMsByPreset.count(scene.presetPath.string()) == 0)
+        const auto presets = scene.Presets();
+        for (size_t item = 0; item < presets.size(); ++item)
         {
-            QueueWarm(i, scene.presetPath.string(), -1);
-            m_warmTotal++;
+            // Entry 0 of scenes in the initial window is being prepared already.
+            if (item == 0 && m_pool.StatusOf(i).state != ScenePool::State::None)
+                continue;
+            if (item < scene.playlistMissing.size() && scene.IsPlaylist() && scene.playlistMissing[item])
+                continue;
+            const auto path = presets[item].string();
+            if (queued.insert(path).second && m_frameMsByPreset.count(path) == 0)
+            {
+                QueueWarm(i, path, -1);
+                m_warmTotal++;
+            }
         }
     }
 
@@ -179,7 +188,7 @@ void Engine::UpdatePerformance(const model::Performance& performance)
     std::vector<bool> presetChanged(performance.scenes.size(), true); // new scenes count as changed
     std::vector<bool> unusable;
     for (const auto& scene : performance.scenes)
-        unusable.push_back(scene.presetMissing || scene.presetPath.empty());
+        unusable.push_back(scene.presetMissing || scene.FirstPreset().empty());
 
     for (int old = 0; old < static_cast<int>(m_performance.scenes.size()); ++old)
     {
@@ -189,7 +198,16 @@ void Engine::UpdatePerformance(const model::Performance& performance)
             continue;
         oldToNew[static_cast<size_t>(old)] = it->second;
         const auto& after = performance.scenes[static_cast<size_t>(it->second)];
-        presetChanged[static_cast<size_t>(it->second)] = before.presetPath != after.presetPath;
+        presetChanged[static_cast<size_t>(it->second)] = before.FirstPreset() != after.FirstPreset();
+
+        // An edited playlist on the live scene: restart its cycle (the next entry is planned again).
+        if (old == m_pool.LiveScene() &&
+            (before.IsPlaylist() != after.IsPlaylist() || before.playlist.presets != after.playlist.presets ||
+             before.playlist.intervalSeconds != after.playlist.intervalSeconds || before.playlist.shuffle != after.playlist.shuffle))
+        {
+            Execute(m_pool.ClearItem());
+            m_playlist = {};
+        }
 
         // Video blend settings apply to the existing instances (including the live one) right away.
         if (!presetChanged[static_cast<size_t>(it->second)] &&
@@ -209,15 +227,23 @@ void Engine::UpdatePerformance(const model::Performance& performance)
     m_performance = performance;
     Execute(m_pool.Remap(static_cast<int>(performance.scenes.size()), oldToNew, unusable, presetChanged));
 
-    // Pre-warm presets that are new to this session.
+    // Pre-warm presets that are new to this session (including playlist entries).
+    std::set<std::string> queued;
     for (int i = 0; i < static_cast<int>(performance.scenes.size()); ++i)
     {
-        const auto& path = performance.scenes[static_cast<size_t>(i)].presetPath.string();
-        if (presetChanged[static_cast<size_t>(i)] && !unusable[static_cast<size_t>(i)] && m_frameMsByPreset.count(path) == 0 &&
-            m_pool.StatusOf(i).state == ScenePool::State::None)
+        if (unusable[static_cast<size_t>(i)])
+            continue;
+        const auto presets = performance.scenes[static_cast<size_t>(i)].Presets();
+        for (size_t item = 0; item < presets.size(); ++item)
         {
-            QueueWarm(i, path, -1);
-            m_warmTotal++;
+            const auto path = presets[item].string();
+            if (item == 0 && m_pool.StatusOf(i).state != ScenePool::State::None)
+                continue;
+            if (m_frameMsByPreset.count(path) == 0 && m_errorByPreset.count(path) == 0 && queued.insert(path).second)
+            {
+                QueueWarm(i, path, -1);
+                m_warmTotal++;
+            }
         }
     }
 }
@@ -269,6 +295,8 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
         chunk = std::move(buffer);
     }
 
+    UpdatePlaylist();
+
     // Video for the live scene and, during a handover, the outgoing one; other lanes only take PCM.
     const int liveScene = m_pool.LiveScene();
     for (int i = 0; i < static_cast<int>(m_lanes.size()); ++i)
@@ -293,7 +321,7 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
     }
     if (m_liveLane >= 0 && live >= 0 && m_tick - m_lastActivateTick > 30)
     {
-        const auto& path = m_performance.scenes[static_cast<size_t>(live)].presetPath.string();
+        const auto path = CurrentPreset(live).string();
         const auto& lane = *m_lanes[static_cast<size_t>(m_liveLane)];
         const double ms = std::max(lane.LiveRenderMs(), lane.LiveGpuMs());
         const bool wasHeavy = m_liveMsByPreset.count(path) > 0 && m_liveMsByPreset[path] > kFrameBudgetMs;
@@ -375,7 +403,7 @@ auto Engine::Scene(int index) const -> SceneInfo
     info.lane = status.lane;
     if (index >= 0 && index < static_cast<int>(m_performance.scenes.size()))
     {
-        const auto path = m_performance.scenes[static_cast<size_t>(index)].presetPath.string();
+        const auto path = (index == m_pool.LiveScene() ? CurrentPreset(index) : m_performance.scenes[static_cast<size_t>(index)].FirstPreset()).string();
         if (auto it = m_liveMsByPreset.find(path); it != m_liveMsByPreset.end())
         {
             info.frameMs = it->second;
@@ -386,6 +414,11 @@ auto Engine::Scene(int index) const -> SceneInfo
             info.frameMs = warm->second;
         }
         info.heavy = info.frameMs > kFrameBudgetMs;
+        if (index == m_pool.LiveScene() && m_playlist.scene == index)
+        {
+            info.playlistItem = m_playlist.item;
+            info.secondsToNextItem = std::max(0.0, std::chrono::duration<double>(m_playlist.switchAt - std::chrono::steady_clock::now()).count());
+        }
         if (auto ticks = m_liveTicksByScene.find(index); ticks != m_liveTicksByScene.end() && ticks->second > 60)
         {
             const auto held = m_heldByScene.find(index);
@@ -451,7 +484,9 @@ void Engine::Execute(std::vector<PoolCommand> commands)
             {
                 const auto& scene = m_performance.scenes[static_cast<size_t>(command.scene)];
                 VideoSettings video{scene.video.enabled, scene.video.mix, scene.video.lumaMin, scene.video.contrast, scene.video.saturation};
-                lane.Prepare(command.instance, command.scene, scene.presetPath.string(), video, command.priority);
+                const auto presets = scene.Presets();
+                const auto& preset = presets[static_cast<size_t>(std::clamp(command.item, 0, static_cast<int>(presets.size()) - 1))];
+                lane.Prepare(command.instance, command.scene, preset.string(), video, command.priority);
             }
                 break;
             case PoolCommand::Type::Release:
@@ -526,6 +561,91 @@ void Engine::HandleEvent(const LaneEvent& event)
         return;
     }
     Execute(m_pool.OnPrepared(event.instance, event.ok));
+}
+
+auto Engine::CurrentPreset(int scene) const -> std::filesystem::path
+{
+    if (scene < 0 || scene >= static_cast<int>(m_performance.scenes.size()))
+        return {};
+    const auto presets = m_performance.scenes[static_cast<size_t>(scene)].Presets();
+    const int item = scene == m_pool.LiveScene() ? m_pool.LiveItem() : 0;
+    return presets[static_cast<size_t>(std::clamp(item, 0, static_cast<int>(presets.size()) - 1))];
+}
+
+auto Engine::PickNextItem(const model::Scene& scene, int current) -> int
+{
+    const int count = static_cast<int>(scene.playlist.presets.size());
+    auto usable = [&](int item) {
+        return item != current && !(item < static_cast<int>(scene.playlistMissing.size()) && scene.playlistMissing[static_cast<size_t>(item)]);
+    };
+    if (scene.playlist.shuffle)
+    {
+        std::vector<int> candidates;
+        for (int item = 0; item < count; ++item)
+        {
+            if (usable(item))
+                candidates.push_back(item);
+        }
+        if (candidates.empty())
+            return -1;
+        return candidates[std::uniform_int_distribution<size_t>(0, candidates.size() - 1)(m_random)];
+    }
+    for (int step = 1; step < count; ++step)
+    {
+        const int item = (current + step) % count;
+        if (usable(item))
+            return item;
+    }
+    return -1;
+}
+
+void Engine::UpdatePlaylist()
+{
+    using Clock = std::chrono::steady_clock;
+    const int live = m_pool.LiveScene();
+    const model::Scene* scene = live >= 0 && live < static_cast<int>(m_performance.scenes.size()) ? &m_performance.scenes[static_cast<size_t>(live)] : nullptr;
+    if (scene == nullptr || !scene->IsPlaylist() || scene->playlist.presets.size() < 2)
+    {
+        if (m_pool.NextItemInstance() != 0)
+            Execute(m_pool.ClearItem());
+        m_playlist = {};
+        return;
+    }
+
+    const auto now = Clock::now();
+    const auto interval = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(scene->playlist.intervalSeconds));
+
+    // Entered (or re-entered) the scene, or something else replaced its instance: start the cycle over.
+    if (m_playlist.scene != live || m_playlist.liveInstance != m_pool.LiveInstance())
+    {
+        Execute(m_pool.ClearItem());
+        m_playlist = {};
+        m_playlist.scene = live;
+        m_playlist.liveInstance = m_pool.LiveInstance();
+        m_playlist.item = m_pool.LiveItem();
+        m_playlist.switchAt = now + interval;
+    }
+
+    // Prepare the next entry in the background on a non-live lane.
+    if (m_pool.NextItemInstance() == 0)
+    {
+        m_playlist.nextItem = PickNextItem(*scene, m_playlist.item);
+        if (m_playlist.nextItem >= 0)
+            Execute(m_pool.PrepareItem(live, m_playlist.nextItem));
+    }
+
+    // Time's up and the next entry is ready: cut to it (if it isn't ready yet, the current one keeps playing).
+    if (now >= m_playlist.switchAt && m_pool.IsReady(m_pool.NextItemInstance()))
+    {
+        const int item = m_playlist.nextItem;
+        Execute(m_pool.ActivateItem(m_pool.NextItemInstance()));
+        m_playlist.liveInstance = m_pool.LiveInstance();
+        m_playlist.item = item;
+        m_playlist.nextItem = -1;
+        m_playlist.switchAt = now + interval;
+        GV_LOG_INFO(kLogCategory, "playlist: scene %d (%s) now on preset %d of %zu: %s", live, scene->DisplayName().c_str(), item + 1,
+                    scene->playlist.presets.size(), scene->playlist.presets[static_cast<size_t>(item)].filename().c_str());
+    }
 }
 
 void Engine::FinishHandover()

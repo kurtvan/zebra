@@ -8,7 +8,10 @@
 
 #include <OpenGL/gl3.h>
 
+#include <chrono>
 #include <deque>
+#include <filesystem>
+#include <random>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -40,6 +43,8 @@ public:
         double droppedFraction{-1.0}; //!< Share of live ticks without a new frame; -1 until live for a second.
         bool heavy{false};   //!< frameMs over the 60 fps budget.
         std::string error;   //!< Load error, if the preset failed.
+        int playlistItem{-1};          //!< Live playlist scenes: the entry showing.
+        double secondsToNextItem{-1.0}; //!< Live playlist scenes: time until the next entry.
     };
 
     struct Stats
@@ -146,10 +151,25 @@ private:
     void HandleEvent(const LaneEvent& event);
     void QueueWarm(int scene, const std::string& path, int excludeLane);
     void FinishHandover();
+    void UpdatePlaylist();
+    auto PickNextItem(const model::Scene& scene, int current) -> int;
+    auto CurrentPreset(int scene) const -> std::filesystem::path;
     void CreatePresentTargets();
 
     std::vector<std::unique_ptr<Lane>> m_lanes;
     VideoProvider* m_videoProvider{nullptr};
+
+    /// The live playlist scene's cycle.
+    struct PlaylistState
+    {
+        int scene{-1};
+        InstanceId liveInstance{0};
+        int item{0};
+        int nextItem{-1};
+        std::chrono::steady_clock::time_point switchAt{};
+    };
+    PlaylistState m_playlist;
+    std::mt19937 m_random{std::random_device{}()};
     ScenePool m_pool;
     model::Performance m_performance;
     int m_width{1920};

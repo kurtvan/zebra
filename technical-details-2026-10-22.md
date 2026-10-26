@@ -224,6 +224,8 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 
 - **Video contrast and saturation (added 2026-10-26):** optional `video.contrast` and `video.saturation` (0..2, default 1) on every scene, for file and Syphon sources alike. They're applied in the feedback blend (patch 0004) before the luma gate. Files without them load with the defaults; the format version stays 1.
 
+- **Playlist scenes (added 2026-10-26):** optional per-scene `playlist`: `{"enabled": true, "presets": [{"path": …}, …], "intervalSeconds": 30, "shuffle": false}`. When enabled (with at least one preset), the scene cycles through those presets with hard cuts every `intervalSeconds` (1..3600) and ignores `preset.path`. In order or shuffled (never the same twice in a row); missing entries are skipped; every entry into the scene starts at the first preset. The scene's video settings apply to every preset. Engine: the live playlist scene's next entry is prepared as an extra instance on a non-live lane (`ScenePool::PrepareItem` / `ActivateItem`) and swapped in with the usual handover, so playlist switches are as seamless as cuts. Files without a playlist load as before; the format version stays 1.
+
 ### App-level data (`~/Library/Application Support/Govtech Visualizer/`, derived from the app-name constant)
 - `settings.json`: preset library root, texture folder(s), audio device (by name), gain, MIDI channel, names-only toggle.
 - `library.json` (or SQLite if it gets large): preset index. Each entry has its path relative to the library root (the **preset ID**; names repeat across folders, so names are not IDs), display name, category, subcategory, author, mtime/size or content hash, and a broken flag.
