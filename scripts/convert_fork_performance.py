@@ -51,10 +51,10 @@ def convert(fork, aliases, remaps, name):
 
         source_value = old.get("videoSource", "syphon")
         if source_value == "syphon":
-            # The fork connected to whichever Syphon server it found first; the new format names the server.
+            # The fork connected to whichever Syphon server it found first; empty names do the same here.
             source = {"type": "syphon", "appName": "", "serverName": ""}
             if old.get("videoEnabled", False):
-                problems.append(f"scene {scene_id}: uses Syphon; set video.source.appName/serverName to the sender")
+                problems.append(f"scene {scene_id}: uses Syphon from any sender; set video.source.appName/serverName to pick one")
         else:
             source = {"type": "file", "path": remap(source_value, remaps)}
 

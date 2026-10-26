@@ -42,18 +42,23 @@ public:
         m_client = nil;
     }
 
+    /// Called every frame for sources the upcoming scenes need: keeps looking for the server, so it's
+    /// connected before the scene goes live rather than after.
+    void SetActive(bool active) override
+    {
+        if (active && (m_client == nil || !m_client.isValid))
+        {
+            DropIfInvalid();
+            if (++m_framesSinceAttempt >= kReconnectIntervalFrames)
+                TryConnect();
+        }
+    }
+
     auto Update() -> GLuint override
     {
         if (m_client == nil || !m_client.isValid)
         {
-            if (m_client != nil)
-            {
-                GV_LOG_WARN(kLogCategory, "%s went away", Describe().c_str());
-                [m_client stop];
-                m_client = nil;
-            }
-            m_state = VideoState::Disconnected;
-            m_hasFrame = false;
+            DropIfInvalid();
             if (++m_framesSinceAttempt >= kReconnectIntervalFrames)
             {
                 TryConnect();
@@ -91,6 +96,21 @@ public:
     }
 
 private:
+    void DropIfInvalid()
+    {
+        if (m_client != nil && !m_client.isValid)
+        {
+            GV_LOG_WARN(kLogCategory, "%s went away", Describe().c_str());
+            [m_client stop];
+            m_client = nil;
+        }
+        if (m_client == nil)
+        {
+            m_state = VideoState::Disconnected;
+            m_hasFrame = false;
+        }
+    }
+
     void TryConnect()
     {
         m_framesSinceAttempt = 0;

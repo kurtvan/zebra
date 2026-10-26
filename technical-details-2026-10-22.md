@@ -163,7 +163,7 @@ Remove from the fork's patches: mask texture params, and the `MilkdropPreset` de
 - **Measured:** CPU 40% with your show's videos vs 39% without (zero-copy decode). Syphon checked with `tools/syphon_test_server`: connect, frames upright, black while the sender is gone, reconnect.
 
 ### Syphon input (per scene)
-- A scene with source type `syphon` stores **`appName` + `serverName`** (Syphon server UUIDs change every launch, so don't store them).
+- A scene with source type `syphon` stores **`appName` + `serverName`** (Syphon server UUIDs change every launch, so don't store them). An empty name matches anything; both empty means "the first server found" (like the fork).
 - The scene editor shows a picker of currently available servers (`SyphonServerDirectory`, observing announce/retire notifications).
 - On scene entry, connect to the matching server. If it's absent or lost, report a **disconnected** state (no injection, a UI warning) and **do not show a stale frame**. Reconnect automatically when the server appears.
 - Keep the fork's `GL_TEXTURE_RECTANGLE` → `GL_TEXTURE_2D` blit (or sample the rectangle texture directly in the inject shader).

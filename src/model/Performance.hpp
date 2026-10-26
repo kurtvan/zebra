@@ -21,7 +21,7 @@ struct VideoSource
     VideoSourceType type{VideoSourceType::File};
     std::filesystem::path path; //!< File sources.
     std::string appName;        //!< Syphon sources: matched together with serverName (server UUIDs change per launch).
-    std::string serverName;
+    std::string serverName;     //!< An empty name matches any; both empty connects to the first server found.
 };
 
 struct SceneVideo

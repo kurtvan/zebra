@@ -132,7 +132,7 @@ TEST_CASE("validation rules")
         CHECK(HasIssueAt(issues, "/scenes/0/video/mix"));
         CHECK(HasIssueAt(issues, "/scenes/0/video/lumaMin"));
     }
-    SECTION("enabled video needs a source")
+    SECTION("enabled file video needs a path; Syphon without names means any server")
     {
         auto file = MakeScene("a", 0);
         file.video.enabled = true;
@@ -142,7 +142,7 @@ TEST_CASE("validation rules")
         performance.scenes = {file, syphon};
         const auto issues = Validate(performance);
         CHECK(HasIssueAt(issues, "/scenes/0/video/source/path"));
-        CHECK(HasIssueAt(issues, "/scenes/1/video/source"));
+        CHECK_FALSE(HasIssueAt(issues, "/scenes/1/video/source"));
     }
     SECTION("more than 128 scenes")
     {
