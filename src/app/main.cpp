@@ -7,6 +7,7 @@
 #include "app/macos/Menu.hpp"
 #include "library/Library.hpp"
 #include "model/Document.hpp"
+#include "thumbnails/ThumbnailService.hpp"
 #include "app_info.hpp"
 #include "common/SpscRingBuffer.hpp"
 #include "common/log.hpp"
@@ -57,7 +58,8 @@ struct Options
     bool smokeNoEditor{false}; //!< Skip drawing the editor (to measure its cost).
     bool smokeEdits{false};    //!< Script edits during playback (reorder, change the live preset, delete live, undo).
     std::filesystem::path smokeSnapshots; //!< If set, saves the output just before each cut as a BMP here.
-    std::filesystem::path smokeEditorSnapshot; //!< If set, saves the editor window once (after 3 s) as a BMP.
+    std::filesystem::path smokeEditorSnapshot; //!< If set, saves the editor window once as a BMP...
+    double smokeEditorSnapshotAt{3.0};         //!< ...this many seconds in.
 };
 
 auto ParseOptions(int argc, char* argv[]) -> Options
@@ -77,6 +79,8 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.smokeSnapshots = argv[++i];
         else if (arg == "--smoke-editor-snapshot" && hasValue)
             options.smokeEditorSnapshot = argv[++i];
+        else if (arg == "--smoke-editor-snapshot-at" && hasValue)
+            options.smokeEditorSnapshotAt = std::atof(argv[++i]);
         else if (arg == "--smoke-edits")
             options.smokeEdits = true;
         else if (arg == "--smoke-no-editor")
@@ -111,6 +115,13 @@ public:
             return false;
         }
         m_engine.SetVideoProvider(&m_video);
+        {
+            std::vector<std::string> texturePaths;
+            for (const auto& path : m_settings.texturePaths)
+                texturePaths.push_back(path.string());
+            if (!m_thumbnails.Start(gv::paths::ApplicationSupportDir() / "thumbnails", texturePaths))
+                AddMessage("Preset previews are unavailable (see the log).");
+        }
         ApplyTexturePaths();
 
         m_midi = gv::io::CreateMidiInput();
@@ -143,6 +154,7 @@ public:
         SaveLibrary();
         if (!m_document.IsDirty())
             DeleteRecovery();
+        m_thumbnails.Stop();
         m_audio.Close();
         m_midi.reset();
         m_engine.Shutdown();
@@ -279,6 +291,7 @@ public:
         m_settings.texturePaths = {folder};
         ApplyTexturePaths();
         m_availableTextures = gv::library::AvailableTextures(m_settings.texturePaths);
+        m_thumbnails.SetTexturePaths({folder.string()});
         m_libraryVersion++;
         SaveSettings();
         AddMessage("Texture folder changed; it applies to scenes prepared from now on.");
@@ -356,6 +369,16 @@ public:
                 m_libraryVersion++;
             }
         }
+        for (const auto& finding : m_thumbnails.TakeFindings())
+        {
+            if (m_library.Record(finding.path, 0.0, finding.error))
+            {
+                m_libraryDirty = true;
+                m_libraryVersion++;
+            }
+        }
+        // Previews never compete with a fullscreen performance.
+        m_thumbnails.SetPaused(m_fullscreen);
         if (m_libraryDirty && frame % 1800 == 0)
             SaveLibrary();
     }
@@ -701,6 +724,7 @@ private:
         state.libraryVersion = m_libraryVersion;
         state.indexing = m_indexer.Running();
         state.indexProgress = m_indexer.Progress();
+        state.thumbnails = &m_thumbnails;
         state.preview = presented;
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;
@@ -714,13 +738,17 @@ private:
         {
             glWaitSync(m_engine.PresentFence(), 0, GL_TIMEOUT_IGNORED);
         }
+        if (GLsync previews = m_thumbnails.LatestFence(); previews != nullptr && glIsSync(previews))
+        {
+            glWaitSync(previews, 0, GL_TIMEOUT_IGNORED);
+        }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, width, height);
         glClearColor(0.08f, 0.08f, 0.09f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         if (!m_options.smokeEditorSnapshot.empty() && !m_editorSnapshotTaken &&
-            std::chrono::duration<double>(Clock::now() - m_smokeStart).count() > 3.0)
+            std::chrono::duration<double>(Clock::now() - m_smokeStart).count() > m_options.smokeEditorSnapshotAt)
         {
             std::vector<unsigned char> rgba(static_cast<size_t>(width) * height * 4);
             glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
@@ -984,6 +1012,7 @@ private:
     gv::library::Library m_library;
     gv::library::Favourites m_favourites;
     gv::library::Indexer m_indexer;
+    gv::thumbnails::ThumbnailService m_thumbnails;
     std::set<std::string> m_availableTextures;
     uint64_t m_libraryVersion{0};
     bool m_libraryDirty{false};

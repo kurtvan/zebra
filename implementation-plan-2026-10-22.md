@@ -276,6 +276,13 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 
 **Acceptance:** scrolling the browser shows names instantly and previews filling in progressively, with no upfront wait. Revisited pages show cached images instantly. Output frame times are unaffected (0 frames over budget) while scrolling during a performance.
 
+**M6 as built (2026-10-25):**
+- `src/thumbnails/ThumbnailService`: its own thread and GL context; 160×90 projectM instances (at most 40) for the tiles on screen, plus one row of prefetch above and below; one new instance per pass; each warmed up (45 frames or 500 ms) with synthetic audio, then re-rendered once a second. Tiles dropped when they scroll away (textures freed after a 2 s grace period, since the editor may still be drawing them). Fenced; the editor waits on the newest fence before drawing.
+- **Disk cache:** `thumbnails/<hash of id + mtime/size>.png` in Application Support, written after warm-up and shown at once on revisit; trimmed to 400 MB when it passes 500 MB (oldest first). PNG via stb (pinned upstream commit).
+- **Findings:** presets that fail to load in a preview are recorded as broken in the library; previews that stay near-black after warm-up say "starts dark" (not marked broken, since some presets fade in).
+- **Pausing:** previews pause in fullscreen and stop when the Presets tab is hidden or "Previews" is off (list view).
+- **Measured:** held output frames 0.22% with the editor and previews running (no editor: 0.56%, i.e. noise); app footprint peak 991 MB with the full show plus previews.
+
 ### M7: Show hardening (S–M)
 - **Soak test:** run the full show in a loop for 2+ hours at 1080p with random and sequential triggers. **Peak physical footprint must stay ≤ 5 GB** (`footprint` / Activity Monitor) with no growth over the run. Check for GL object leaks and review the log for warnings.
 - **Failure drills:** MIDI unplug/replug, audio device change, Syphon sender crash, display unplug/replug, missing video, a broken preset in a scene. Each must degrade gracefully with a visible indicator.

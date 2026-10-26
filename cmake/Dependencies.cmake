@@ -37,6 +37,12 @@ FetchContent_Declare(nlohmann_json
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(nlohmann_json)
 
+# --- stb (PNG load/save for the thumbnail cache), pinned to a commit: the repository has no tags ---
+FetchContent_Declare(stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG 003501f6d7a8668ce8b6d875e34dd97ad0d5d5b5)
+FetchContent_MakeAvailable(stb)
+
 # --- Catch2 (tests only) ---
 if(GV_BUILD_TESTS)
     FetchContent_Declare(Catch2

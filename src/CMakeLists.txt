@@ -28,6 +28,13 @@ add_library(gv_library STATIC
     library/Library.hpp)
 target_link_libraries(gv_library PUBLIC gv_common PRIVATE gv_warnings nlohmann_json::nlohmann_json)
 
+add_library(gv_thumbnails STATIC
+    thumbnails/ThumbnailService.cpp
+    thumbnails/ThumbnailService.hpp)
+target_include_directories(gv_thumbnails SYSTEM PRIVATE "${stb_SOURCE_DIR}")
+target_compile_definitions(gv_thumbnails PRIVATE GL_SILENCE_DEPRECATION)
+target_link_libraries(gv_thumbnails PUBLIC gv_common SDL2::SDL2 OpenGL::GL libprojectM::projectM PRIVATE gv_warnings)
+
 add_library(gv_io STATIC
     io/MidiInput.hpp
     io/MidiDecode.cpp
@@ -74,6 +81,7 @@ target_link_libraries(govtech-visualizer PRIVATE
     gv_io
     gv_engine
     gv_library
+    gv_thumbnails
     imgui
     nlohmann_json::nlohmann_json
     SDL2::SDL2

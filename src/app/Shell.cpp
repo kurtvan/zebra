@@ -870,7 +870,14 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
     {
         ImGui::SetNextWindowFocus();
     }
-    ImGui::Begin(kBrowser);
+    if (!ImGui::Begin(kBrowser))
+    {
+        // Hidden tab: no previews needed.
+        if (state.thumbnails != nullptr)
+            state.thumbnails->SetWanted({}, {});
+        ImGui::End();
+        return;
+    }
     const auto* library = state.library;
     if (library == nullptr || state.settings->libraryRoot.empty())
     {
@@ -891,6 +898,15 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
     ImGui::Checkbox("Favourites", &m_query.favouritesOnly);
     ImGui::SameLine();
     ImGui::Checkbox("Hide broken", &m_query.hideBroken);
+    ImGui::SameLine();
+    bool previews = !state.settings->namesOnly;
+    if (ImGui::Checkbox("Previews", &previews))
+    {
+        state.settings->namesOnly = !previews;
+        actions.SettingsChanged();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Live mini-previews of the presets on screen. Off: a plain list.");
 
     if (!(m_query == m_lastQuery) || m_lastLibraryVersion != state.libraryVersion)
     {
@@ -955,8 +971,14 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
     if (m_results.empty())
     {
         ImGui::TextColored(kDim, state.indexing && library->Presets().empty() ? "Indexing your presets..." : "No presets match.");
+        if (state.thumbnails != nullptr)
+            state.thumbnails->SetWanted({}, {});
     }
-    else if (ImGui::BeginTable("presets", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+    else if (!state.settings->namesOnly && state.thumbnails != nullptr)
+    {
+        DrawPresetGrid(state, actions);
+    }
+    else if ((state.thumbnails != nullptr ? (state.thumbnails->SetWanted({}, {}), true) : true) && ImGui::BeginTable("presets", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, 20.f);
@@ -1054,6 +1076,180 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
     ImGui::End();
 }
 
+/// Short notes about a preset: broken, heavy, missing textures. Empty if none.
+static auto PresetNotes(const library::PresetInfo& preset, const std::set<std::string>* availableTextures, std::string* details) -> std::string
+{
+    std::string notes;
+    auto add = [&](const std::string& note) { notes += (notes.empty() ? "" : ", ") + note; };
+    if (preset.broken)
+    {
+        add("broken");
+        if (details != nullptr)
+            *details += "Failed to load: " + preset.error + "\n";
+    }
+    if (preset.frameMs > 1000.0 / 60.0)
+    {
+        char text[48];
+        std::snprintf(text, sizeof(text), "heavy %.0f ms", preset.frameMs);
+        add(text);
+        if (details != nullptr)
+            *details += "Measured " + std::string(text + 6) + " per frame: can't reach 60 fps on this machine.\n";
+    }
+    if (availableTextures != nullptr && !preset.textures.empty())
+    {
+        const auto missing = library::MissingTextures(preset, *availableTextures);
+        if (!missing.empty())
+        {
+            add(std::to_string(missing.size()) + " texture" + (missing.size() == 1 ? "" : "s") + " missing");
+            if (details != nullptr)
+            {
+                std::string list;
+                for (const auto& name : missing)
+                    list += (list.empty() ? "" : ", ") + name;
+                *details += "Not in your texture folder: " + list + " (renders black).\n";
+            }
+        }
+    }
+    return notes;
+}
+
+void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
+{
+    const auto& library = *state.library;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float imageWidth = 176.f;
+    const float imageHeight = imageWidth * thumbnails::ThumbnailService::kHeight / thumbnails::ThumbnailService::kWidth;
+    const float lineHeight = ImGui::GetTextLineHeight();
+    const float cellWidth = imageWidth + style.ItemSpacing.x;
+    const float cellHeight = imageHeight + lineHeight * 2.f + 10.f + style.ItemSpacing.y;
+    const int columns = std::max(1, static_cast<int>((ImGui::GetContentRegionAvail().x + style.ItemSpacing.x) / cellWidth));
+    const int count = static_cast<int>(m_results.size());
+    const int rows = (count + columns - 1) / columns;
+    const int selectedScene = *state.selectedScene;
+
+    std::vector<thumbnails::Request> visible;
+    std::vector<thumbnails::Request> prefetch;
+    auto request = [&](int index) {
+        const auto& preset = library.Presets()[static_cast<size_t>(m_results[static_cast<size_t>(index)])];
+        return thumbnails::Request{preset.id, library.PathForId(preset.id), std::to_string(preset.modified) + ":" + std::to_string(preset.size)};
+    };
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImGuiListClipper clipper;
+    clipper.Begin(rows, cellHeight);
+    int firstRow = rows;
+    int lastRow = -1;
+    while (clipper.Step())
+    {
+        firstRow = std::min(firstRow, clipper.DisplayStart);
+        lastRow = std::max(lastRow, clipper.DisplayEnd - 1);
+        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+        {
+            for (int column = 0; column < columns; ++column)
+            {
+                const int index = row * columns + column;
+                if (index >= count)
+                    break;
+                const auto& preset = library.Presets()[static_cast<size_t>(m_results[static_cast<size_t>(index)])];
+                const auto path = library.PathForId(preset.id);
+                visible.push_back(request(index));
+                if (column > 0)
+                    ImGui::SameLine(0, style.ItemSpacing.x);
+
+                ImGui::PushID(preset.id.c_str());
+                ImGui::BeginGroup(); // the tile plus its overlaid star count as one item in the grid layout
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                ImGui::SetNextItemAllowOverlap();
+                const bool clicked = ImGui::InvisibleButton("##tile", ImVec2(imageWidth, cellHeight - style.ItemSpacing.y));
+                const bool hovered = ImGui::IsItemHovered();
+                if (clicked)
+                {
+                    m_selectedPreset = preset.id;
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                        AssignPreset(state, actions, path, selectedScene);
+                }
+                PresetDragSource(path, preset.name);
+                if (ImGui::BeginPopupContextItem("preset-menu"))
+                {
+                    m_selectedPreset = preset.id;
+                    if (ImGui::MenuItem("Use in Selected Scene", nullptr, false, selectedScene >= 0))
+                        AssignPreset(state, actions, path, selectedScene);
+                    if (ImGui::MenuItem("Add as New Scene"))
+                        AssignPreset(state, actions, path, -1);
+                    const bool favourite = state.favourites != nullptr && state.favourites->Contains(preset.id);
+                    if (ImGui::MenuItem(favourite ? "Remove from Favourites" : "Add to Favourites"))
+                        actions.ToggleFavourite(preset.id);
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Reveal in Finder"))
+                        RevealInFinder(path);
+                    ImGui::EndPopup();
+                }
+                std::string details;
+                const std::string notes = PresetNotes(preset, state.availableTextures, &details);
+
+                // Image (or a placeholder).
+                const ImVec2 imageMin = origin;
+                const ImVec2 imageMax(origin.x + imageWidth, origin.y + imageHeight);
+                const auto tile = state.thumbnails->Get(preset.id);
+                draw->AddRectFilled(imageMin, imageMax, ImGui::GetColorU32(ImVec4(0.07f, 0.07f, 0.08f, 1.f)), 4.f);
+                if (tile && tile->texture != 0)
+                {
+                    // GL textures are bottom-up; flip V.
+                    draw->AddImageRounded(static_cast<ImTextureID>(tile->texture), imageMin, imageMax, ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, 4.f);
+                }
+                else
+                {
+                    const char* label = tile && tile->state == thumbnails::TileState::Broken ? "can't load" : "...";
+                    const ImVec2 size = ImGui::CalcTextSize(label);
+                    draw->AddText(ImVec2(imageMin.x + (imageWidth - size.x) * 0.5f, imageMin.y + (imageHeight - size.y) * 0.5f),
+                                  ImGui::GetColorU32(tile && tile->state == thumbnails::TileState::Broken ? kRed : kDim), label);
+                }
+                if (m_selectedPreset == preset.id || hovered)
+                    draw->AddRect(imageMin, imageMax, ImGui::GetColorU32(m_selectedPreset == preset.id ? kAccent : ImVec4(1, 1, 1, 0.35f)), 4.f, 0, 2.f);
+
+                // Name and second line (notes, else author), clipped to the tile.
+                const ImVec4 clip(origin.x, origin.y, origin.x + imageWidth, origin.y + cellHeight);
+                draw->AddText(nullptr, 0.f, ImVec2(origin.x + 2.f, imageMax.y + 4.f), ImGui::GetColorU32(ImGuiCol_Text), preset.name.c_str(), nullptr, 0.f, &clip);
+                const bool dark = tile && tile->state == thumbnails::TileState::Dark;
+                const std::string second = !notes.empty() ? notes : (dark ? "starts dark" : preset.author);
+                draw->AddText(nullptr, 0.f, ImVec2(origin.x + 2.f, imageMax.y + 4.f + lineHeight), ImGui::GetColorU32(!notes.empty() ? kAmber : kDim),
+                              second.c_str(), nullptr, 0.f, &clip);
+
+                // Favourite star over the image's top-left corner.
+                const bool favourite = state.favourites != nullptr && state.favourites->Contains(preset.id);
+                if (favourite || hovered || ImGui::IsMouseHoveringRect(imageMin, imageMax))
+                {
+                    ImGui::SetCursorScreenPos(ImVec2(origin.x + 5.f, origin.y + 5.f));
+                    if (StarButton("##fav", favourite))
+                        actions.ToggleFavourite(preset.id);
+                }
+                ImGui::EndGroup();
+
+                if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                {
+                    ImGui::SetTooltip("%s\n%s%s%s\n%s%sDouble-click to use it in the selected scene, or drag it onto a scene.", preset.name.c_str(),
+                                      preset.author.empty() ? "" : (preset.author + "  ·  ").c_str(), preset.category.c_str(),
+                                      preset.subcategory.empty() ? "" : (" / " + preset.subcategory).c_str(), details.c_str(), details.empty() ? "" : "\n");
+                }
+                ImGui::PopID();
+            }
+        }
+    }
+    clipper.End();
+
+    // Prepare one row above and below what's on screen.
+    for (int row : {firstRow - 1, lastRow + 1})
+    {
+        for (int column = 0; row >= 0 && row < rows && column < columns; ++column)
+        {
+            const int index = row * columns + column;
+            if (index < count)
+                prefetch.push_back(request(index));
+        }
+    }
+    state.thumbnails->SetWanted(std::move(visible), std::move(prefetch));
+}
+
 void Shell::DrawStatus(const ShellState& state)
 {
     ImGui::Begin(kStatus);
@@ -1074,6 +1270,8 @@ void Shell::DrawStatus(const ShellState& state)
         ImGui::Text("Pre-warm: %d / %d presets", stats.warmDone, stats.warmTotal);
     for (size_t lane = 0; lane < stats.laneQueue.size(); ++lane)
         ImGui::TextColored(kDim, "Lane %zu: %zu queued, live render %.1f ms CPU / %.1f ms GPU", lane, stats.laneQueue[lane], stats.laneRenderMs[lane], stats.laneGpuMs[lane]);
+    if (state.thumbnails != nullptr)
+        ImGui::TextColored(kDim, "Preview instances: %d", state.thumbnails->LiveInstances());
     ImGui::End();
 }
 
