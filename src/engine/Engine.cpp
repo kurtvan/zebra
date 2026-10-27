@@ -677,14 +677,14 @@ void Engine::UpdatePlaylist()
         m_playlist.switchAt = now + interval;
     }
 
-    // Beats/bars: (re)anchor the cycle to the grid when the clock starts, jumps (Start, song position) or the
-    // counter changes; holds while the clock is stopped.
+    // Beats/bars: (re)anchor the cycle to the bar lines when the clock starts, jumps (Start, song position) or
+    // the counter changes; holds while the clock is stopped. Presets only change on bar lines.
     if (countsBeats && clockRunning &&
         (m_playlist.switchPulse < 0 || m_playlist.songGrid != songGrid || pulses < m_playlist.lastPulse ||
-         pulses > m_playlist.switchPulse + intervalPulses))
+         pulses > NextSwitch(m_playlist.switchPulse, intervalPulses)))
     {
         m_playlist.songGrid = songGrid;
-        m_playlist.switchPulse = (songGrid ? CycleStart(pulses, grid) : pulses) + intervalPulses;
+        m_playlist.switchPulse = NextSwitch(CycleStart(pulses, kPulsesPerBar), intervalPulses);
     }
     m_playlist.lastPulse = pulses;
 
@@ -698,7 +698,14 @@ void Engine::UpdatePlaylist()
 
     // Due and the next entry is ready: cut to it (if it isn't ready yet, the current one keeps playing).
     const bool due = countsBeats ? (clockRunning && m_playlist.switchPulse >= 0 && pulses >= m_playlist.switchPulse) : now >= m_playlist.switchAt;
-    if (due && m_pool.IsReady(m_pool.NextItemInstance()))
+    const bool ready = m_pool.IsReady(m_pool.NextItemInstance());
+    if (due && !ready && countsBeats && pulses > m_playlist.switchPulse + kLateSwitchPulses)
+    {
+        // Missed the bar line: wait for the next one rather than changing mid-bar.
+        GV_LOG_INFO(kLogCategory, "playlist: next preset of scene %d wasn't ready on the bar line, waiting for the next bar", live);
+        m_playlist.switchPulse = NextBarLine(pulses);
+    }
+    else if (due && ready)
     {
         const int item = m_playlist.nextItem;
         Execute(m_pool.ActivateItem(m_pool.NextItemInstance()));
@@ -707,7 +714,7 @@ void Engine::UpdatePlaylist()
         m_playlist.nextItem = -1;
         m_playlist.switchAt = now + interval;
         if (countsBeats)
-            m_playlist.switchPulse += intervalPulses; // stay on the grid
+            m_playlist.switchPulse = NextSwitch(m_playlist.switchPulse, intervalPulses); // stay on the bar lines
         if (countsBeats)
             GV_LOG_INFO(kLogCategory, "playlist: scene %d (%s) now on preset %d of %zu at beat %.2f: %s", live, scene->DisplayName().c_str(), item + 1,
                         playlist.presets.size(), static_cast<double>(pulses) / kPulsesPerBeat, playlist.presets[static_cast<size_t>(item)].filename().c_str());
