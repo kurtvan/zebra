@@ -75,7 +75,9 @@ add_executable(govtech-visualizer
     app/macos/FileDialog.mm
     app/macos/FileDialog.hpp
     app/macos/Menu.mm
-    app/macos/Menu.hpp)
+    app/macos/Menu.hpp
+    app/macos/Window.mm
+    app/macos/Window.hpp)
 target_link_libraries(govtech-visualizer PRIVATE
     gv_warnings
     gv_common
@@ -95,6 +97,6 @@ target_compile_definitions(govtech-visualizer PRIVATE GL_SILENCE_DEPRECATION)
 set_target_properties(govtech-visualizer PROPERTIES BUILD_RPATH "${SYPHON_FRAMEWORK_DIR}")
 
 # Objective-C++ sources use ARC.
-set_source_files_properties(common/paths.mm io/macos/CoreMidiInput.mm app/macos/FileDialog.mm app/macos/Menu.mm
+set_source_files_properties(common/paths.mm io/macos/CoreMidiInput.mm app/macos/FileDialog.mm app/macos/Menu.mm app/macos/Window.mm
     io/macos/FileVideoSource.mm io/macos/SyphonVideoSource.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
