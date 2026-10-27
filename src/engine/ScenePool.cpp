@@ -28,6 +28,7 @@ auto ScenePool::Reset(int sceneCount, const std::vector<bool>& unusable) -> std:
     m_pending = -1;
     m_liveItem = 0;
     m_itemInstance = 0;
+    m_jump = false;
     Rebalance(commands);
     return commands;
 }
@@ -44,12 +45,21 @@ auto ScenePool::Trigger(int scene) -> std::vector<PoolCommand>
         return commands;
     }
 
+    // The most recent trigger wins over a pending jump to a playlist entry.
+    if (m_jump)
+    {
+        m_jump = false;
+        commands = ClearItem();
+    }
+
     m_pending = scene;
     if (auto id = InstanceFor(scene))
     {
         if (m_instances[*id].ready)
         {
-            return Activate(*id);
+            auto activate = Activate(*id);
+            commands.insert(commands.end(), activate.begin(), activate.end());
+            return commands;
         }
         // Already preparing: activated in OnPrepared.
         return commands;
@@ -79,6 +89,12 @@ auto ScenePool::OnPrepared(InstanceId instance, bool ok) -> std::vector<PoolComm
         return commands;
     }
     it->second.ready = true;
+    if (instance == m_itemInstance && m_jump)
+    {
+        m_jump = false;
+        m_itemInstance = 0;
+        return Activate(instance);
+    }
     if (m_pending == it->second.scene && it->second.item == 0)
     {
         return Activate(instance);
@@ -97,10 +113,18 @@ auto ScenePool::OnCancelled(const std::vector<InstanceId>& instances) -> std::ve
         {
             continue;
         }
-        pendingLost = pendingLost || (it->second.scene == m_pending && it->second.item == 0);
-        if (id == m_itemInstance)
-            m_itemInstance = 0; // re-planned by the engine
+        pendingLost = pendingLost || (it->second.scene == m_pending && it->second.item == 0 && id != m_itemInstance);
+        const Instance lost = it->second;
         m_instances.erase(it);
+        if (id == m_itemInstance && m_jump)
+        {
+            commands.push_back(Prepare(lost.scene, true, lost.item)); // a jump is still wanted
+            m_itemInstance = commands.back().instance;
+        }
+        else if (id == m_itemInstance)
+        {
+            m_itemInstance = 0; // re-planned by the engine
+        }
     }
     if (pendingLost)
     {
@@ -159,6 +183,13 @@ auto ScenePool::Remap(int sceneCount, const std::vector<int>& oldToNew, const st
     m_unusable = unusable;
     m_unusable.resize(static_cast<size_t>(m_sceneCount), false);
     m_failed = std::move(failed);
+    if (m_jump && m_itemInstance == 0)
+    {
+        // The jump's scene was removed or changed: drop it.
+        m_jump = false;
+        if (m_pending >= 0 && !InstanceFor(m_pending))
+            m_pending = -1;
+    }
     if (m_pending >= 0 && (m_unusable[static_cast<size_t>(m_pending)]))
         m_pending = -1;
 
@@ -191,8 +222,27 @@ auto ScenePool::ActivateItem(InstanceId instance) -> std::vector<PoolCommand>
     return Activate(instance);
 }
 
+auto ScenePool::TriggerItem(int scene, int item) -> std::vector<PoolCommand>
+{
+    if (scene < 0 || scene >= m_sceneCount || item < 0)
+        return {};
+    if (scene != m_live && item == 0)
+        return Trigger(scene);
+    if (m_unusable[static_cast<size_t>(scene)] || m_failed[static_cast<size_t>(scene)])
+        return {};
+    m_jump = false;
+    std::vector<PoolCommand> commands = ClearItem();
+    m_pending = scene == m_live ? -1 : scene;
+    commands.push_back(Prepare(scene, true, item));
+    m_itemInstance = commands.back().instance;
+    m_jump = true;
+    return commands;
+}
+
 auto ScenePool::ClearItem() -> std::vector<PoolCommand>
 {
+    if (m_jump)
+        return {}; // a jump is cancelled by a trigger, not by playlist housekeeping
     std::vector<PoolCommand> commands;
     if (auto it = m_instances.find(m_itemInstance); it != m_instances.end())
     {
@@ -215,7 +265,7 @@ auto ScenePool::InstancesOf(int scene) const -> std::vector<HostedInstance>
     for (const auto& [id, instance] : m_instances)
     {
         if (instance.scene == scene)
-            result.push_back({id, instance.lane});
+            result.push_back({id, instance.lane, instance.item});
     }
     return result;
 }
@@ -340,7 +390,8 @@ auto ScenePool::Activate(InstanceId instance) -> std::vector<PoolCommand>
 void ScenePool::Rebalance(std::vector<PoolCommand>& commands)
 {
     // A next-entry instance only makes sense while its scene is live.
-    if (auto it = m_instances.find(m_itemInstance); it != m_instances.end() && it->second.scene != m_live)
+    // (A jump to another scene's entry is waiting to become live, so it stays.)
+    if (auto it = m_instances.find(m_itemInstance); it != m_instances.end() && it->second.scene != m_live && !m_jump)
     {
         commands.push_back({PoolCommand::Type::Release, it->second.scene, it->second.lane, it->first, false, it->second.item});
         m_instances.erase(it);

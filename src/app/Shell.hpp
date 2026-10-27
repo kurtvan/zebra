@@ -40,6 +40,7 @@ public:
 
     // Playback and setup
     virtual void Trigger(int scene) = 0;
+    virtual void TriggerItem(int scene, int item) = 0; //!< Go live on a playlist entry.
     virtual void ToggleFullscreen() = 0;
     virtual void SetAudioDevice(const std::string& deviceName) = 0; //!< Empty: system default.
     virtual void SetMidiChannel(int channel) = 0;
@@ -100,13 +101,17 @@ private:
     void DrawMessages(const ShellState& state);
     void DrawStatusBar(const ShellState& state);
     void HandleDrops(ShellState& state, AppActions& actions, int hoveredScene);
+    auto SelectedEntry(const model::Scene& scene) const -> int;
+    auto NewEntryLook(const model::Scene& scene) const -> model::VideoLook;
 
     bool m_layoutBuilt{false};
     int m_showBrowserTab{0}; //!< Frames until the browser tab is brought to front.
     std::vector<std::string> m_audioDevices;
     bool m_listsLoaded{false};
     int m_scrollToScene{-1};
-    bool m_videosHovered{false}; //!< Last frame: Finder drops add to the pool instead of a scene.
+    bool m_videosHovered{false};
+    std::string m_entryScene; //!< Scene id of the selected playlist entry (whose look the Video sliders edit).
+    int m_entry{0}; //!< Last frame: Finder drops add to the pool instead of a scene.
 
     // Preset browser.
     library::Query m_query;

@@ -93,8 +93,18 @@ public:
     /// Makes the prepared next-entry instance live (it must be ready). Releases the outgoing instance.
     auto ActivateItem(InstanceId instance) -> std::vector<PoolCommand>;
 
-    /// Drops the prepared next-entry instance, if any (e.g. the playlist was edited).
+    /// Drops the prepared next-entry instance, if any (e.g. the playlist was edited). Not a pending jump.
     auto ClearItem() -> std::vector<PoolCommand>;
+
+    /// Goes live on entry `item` of playlist scene `scene` (the live one or another): prepared with
+    /// priority as the next-entry instance and activated as soon as it's ready. A later trigger cancels it.
+    /// Entry 0 of a scene that isn't live is an ordinary Trigger.
+    auto TriggerItem(int scene, int item) -> std::vector<PoolCommand>;
+
+    auto JumpPending() const -> bool
+    {
+        return m_jump;
+    }
 
     auto NextItemInstance() const -> InstanceId
     {
@@ -114,6 +124,7 @@ public:
     {
         InstanceId instance{0};
         int lane{-1};
+        int item{0};
     };
 
     /// Every instance (live, ready or preparing) of `scene`.
@@ -161,6 +172,7 @@ private:
     int m_pending{-1};
     int m_liveItem{0};
     InstanceId m_itemInstance{0}; //!< The live playlist scene's next entry, or 0.
+    bool m_jump{false};           //!< m_itemInstance is a TriggerItem target: activate it when ready.
 };
 
 } // namespace gv::engine

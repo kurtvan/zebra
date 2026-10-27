@@ -539,8 +539,10 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                 ImGui::SameLine(0, 4);
                 ImGui::TextColored(bad ? kRed : (waiting ? kAmber : kDim), "%s", scene.video.source.type == model::VideoSourceType::Syphon ? "S" : "V");
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Video: %s (%s)\nmix %.2f, luma gate %.2f%s", state.video->DescribeFor(i).c_str(),
-                                      videoState ? io::ToString(*videoState) : "none", scene.video.mix, scene.video.lumaMin,
+                    ImGui::SetTooltip("Video: %s (%s)\n%s%s", state.video->DescribeFor(i).c_str(), videoState ? io::ToString(*videoState) : "none",
+                                      scene.IsPlaylist() ? "look per preset"
+                                                         : ("mix " + std::to_string(scene.video.look.mix).substr(0, 4) + ", luma gate " +
+                                                            std::to_string(scene.video.look.lumaMin).substr(0, 4)).c_str(),
                                       scene.video.restartOnEnter ? ", restarts on entry" : "");
             }
             ImGui::PopID();
@@ -619,7 +621,8 @@ void Shell::HandleDrops(ShellState& state, AppActions& actions, int hoveredScene
         {
             if (hoveredScene >= 0 && edited.scenes[static_cast<size_t>(hoveredScene)].IsPlaylist())
             {
-                edited.scenes[static_cast<size_t>(hoveredScene)].playlist.presets.push_back(file);
+                auto& target = edited.scenes[static_cast<size_t>(hoveredScene)];
+                target.playlist.Add(file, NewEntryLook(target));
                 selected = hoveredScene;
             }
             else if (hoveredScene >= 0 && state.droppedFiles->size() == 1)
@@ -729,7 +732,7 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
             s.playlist.enabled = playlistEnabled;
             // Carry the preset across, so switching back and forth loses nothing.
             if (playlistEnabled && s.playlist.presets.empty() && !s.presetPath.empty())
-                s.playlist.presets.push_back(s.presetPath);
+                s.playlist.Add(s.presetPath, s.video.look);
             if (!playlistEnabled && s.presetPath.empty() && !s.playlist.presets.empty())
                 s.presetPath = s.playlist.presets.front();
         });
@@ -870,48 +873,66 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
             ImGui::TextColored(*videoState == io::VideoState::Live ? kGreen : kAmber, "Status: %s", io::ToString(*videoState));
     }
 
-    float mix = scene.video.mix;
+    // The look: a playlist entry's own (the one selected in the list), or the scene's.
+    const int lookItem = scene.IsPlaylist() ? SelectedEntry(scene) : -1;
+    const model::VideoLook& look = scene.LookFor(lookItem);
+    auto editLook = [&](const char* label, const char* field, auto&& change) {
+        edit(label, (std::string(field) + "-" + std::to_string(lookItem)).c_str(), [&](model::Scene& s) { change(s.MutableLookFor(lookItem)); });
+    };
+    if (lookItem >= 0)
+    {
+        ImGui::TextColored(kAccent, "Look for preset %d: %s", lookItem + 1, scene.playlist.presets[static_cast<size_t>(lookItem)].stem().c_str());
+        Hint("Each preset in the playlist has its own look. Click a preset in the list above to edit its look.");
+    }
+    float mix = look.mix;
     ImGui::SetNextItemWidth(-90);
     if (ImGui::SliderFloat("Mix", &mix, 0.f, 1.f, "%.2f"))
-        edit("Change Mix", "mix", [&](model::Scene& s) { s.video.mix = mix; });
+        editLook("Change Mix", "mix", [&](model::VideoLook& l) { l.mix = mix; });
     endEditIfReleased();
-    float luma = scene.video.lumaMin;
+    float luma = look.lumaMin;
     ImGui::SetNextItemWidth(-90);
     if (ImGui::SliderFloat("Luma gate", &luma, 0.f, 1.f, "%.2f"))
-        edit("Change Luma Gate", "luma", [&](model::Scene& s) { s.video.lumaMin = luma; });
+        editLook("Change Luma Gate", "luma", [&](model::VideoLook& l) { l.lumaMin = luma; });
     endEditIfReleased();
     Hint("Video pixels darker than this are left out of the blend.");
-    float contrast = scene.video.contrast;
+    float contrast = look.contrast;
     ImGui::SetNextItemWidth(-90);
     if (ImGui::SliderFloat("Contrast", &contrast, 0.f, model::kMaxContrast, contrast < 10.f ? "%.2f" : "%.0f", ImGuiSliderFlags_Logarithmic))
-        edit("Change Contrast", "contrast", [&](model::Scene& s) { s.video.contrast = contrast; });
+        editLook("Change Contrast", "contrast", [&](model::VideoLook& l) { l.contrast = contrast; });
     endEditIfReleased();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("1.00 leaves the video as it is. Turn it all the way up with Saturation at 0 for hard black and white.\n"
                           "Double-click (or Cmd+click) to type a value.");
-    float saturation = scene.video.saturation;
+    float saturation = look.saturation;
     ImGui::SetNextItemWidth(-90);
     if (ImGui::SliderFloat("Saturation", &saturation, 0.f, 2.f, "%.2f"))
-        edit("Change Saturation", "saturation", [&](model::Scene& s) { s.video.saturation = saturation; });
+        editLook("Change Saturation", "saturation", [&](model::VideoLook& l) { l.saturation = saturation; });
     endEditIfReleased();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("1.00 leaves the video as it is; 0 is black and white.");
     if (ImGui::SmallButton("Black and white"))
     {
-        edit("Black and White", "video-bw", [&](model::Scene& s) {
-            s.video.contrast = model::kMaxContrast;
-            s.video.saturation = 0.f;
+        editLook("Black and White", "video-bw", [&](model::VideoLook& l) {
+            l.contrast = model::kMaxContrast;
+            l.saturation = 0.f;
         });
         actions.EndEdit();
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Hard black and white: maximum contrast, no colour.");
     ImGui::SameLine();
-    if ((scene.video.contrast != 1.f || scene.video.saturation != 1.f) && ImGui::SmallButton("Reset contrast and saturation"))
+    if ((look.contrast != 1.f || look.saturation != 1.f) && ImGui::SmallButton("Reset contrast and saturation"))
     {
-        edit("Reset Video Adjustments", "video-reset", [&](model::Scene& s) {
-            s.video.contrast = 1.f;
-            s.video.saturation = 1.f;
+        editLook("Reset Video Adjustments", "video-reset", [&](model::VideoLook& l) {
+            l.contrast = 1.f;
+            l.saturation = 1.f;
+        });
+        actions.EndEdit();
+    }
+    if (lookItem >= 0 && scene.playlist.presets.size() > 1 && ImGui::SmallButton("Use this look for every preset"))
+    {
+        edit("Copy Look to Playlist", "video-copy-look", [&](model::Scene& s) {
+            s.playlist.looks.assign(s.playlist.presets.size(), look);
         });
         actions.EndEdit();
     }
@@ -1010,11 +1031,26 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     ImGui::End();
 }
 
+auto Shell::SelectedEntry(const model::Scene& scene) const -> int
+{
+    if (m_entryScene == scene.id && m_entry >= 0 && m_entry < static_cast<int>(scene.playlist.presets.size()))
+        return m_entry;
+    return 0;
+}
+
+auto Shell::NewEntryLook(const model::Scene& scene) const -> model::VideoLook
+{
+    // New entries start with the look of the selected entry (or the scene's, for a new playlist).
+    return scene.playlist.presets.empty() ? scene.video.look : scene.LookFor(SelectedEntry(scene));
+}
+
 void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info)
 {
     const auto& performance = state.document->Get();
     const auto& scene = performance.scenes[static_cast<size_t>(index)];
     const auto& playlist = scene.playlist;
+    const model::VideoLook newLook = NewEntryLook(scene);
+    const int selectedEntry = SelectedEntry(scene);
     auto edit = [&](const char* label, const std::string& key, auto&& change) {
         auto edited = performance;
         change(edited.scenes[static_cast<size_t>(index)].playlist);
@@ -1086,11 +1122,13 @@ void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, cons
 
     // The list: reorder, remove, drop presets from the browser onto it.
     const float rowHeight = ImGui::GetFrameHeightWithSpacing();
-    const float height = std::clamp(static_cast<float>(playlist.presets.size()) * rowHeight + 10.f, rowHeight * 2.f + 10.f, rowHeight * 9.f);
+    const float padding = ImGui::GetStyle().WindowPadding.y * 2.f;
     int moveFrom = -1;
     int moveTo = -1;
     int remove = -1;
-    ImGui::BeginChild("playlist", ImVec2(0, height), ImGuiChildFlags_Borders);
+    // Fits its rows, up to about nine before it scrolls.
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, rowHeight * 2.f + padding), ImVec2(FLT_MAX, rowHeight * 9.f + padding));
+    ImGui::BeginChild("playlist", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
     for (int i = 0; i < static_cast<int>(playlist.presets.size()); ++i)
     {
         ImGui::PushID(i);
@@ -1105,13 +1143,21 @@ void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, cons
         const std::string name = preset.stem().string() + (missing ? "  (missing)" : "");
         const ImVec2 start = ImGui::GetCursorScreenPos();
         const float nameWidth = std::max(10.f, ImGui::GetContentRegionMax().x - buttons - ImGui::GetStyle().ItemSpacing.x - ImGui::GetCursorPosX());
+        // Click selects the entry (the Video sliders edit its look); double-click goes live on it.
+        if (ImGui::Selectable("##entry", i == selectedEntry, ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap,
+                              ImVec2(nameWidth, ImGui::GetFrameHeight())))
+        {
+            m_entryScene = scene.id;
+            m_entry = i;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !missing)
+                actions.TriggerItem(index, i);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\nClick to edit its video look; double-click to go live on it.", preset.c_str());
         ImGui::PushStyleColor(ImGuiCol_Text, missing ? kRed : (playing ? kGreen : ImGui::GetStyleColorVec4(ImGuiCol_Text)));
         ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(start.x, start.y + ImGui::GetStyle().FramePadding.y),
                                   ImVec2(start.x + nameWidth, start.y + ImGui::GetFrameHeight()), start.x + nameWidth, name.c_str(), nullptr, nullptr);
         ImGui::PopStyleColor();
-        ImGui::Dummy(ImVec2(nameWidth, ImGui::GetFrameHeight()));
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s", preset.c_str());
         ImGui::SameLine(ImGui::GetContentRegionMax().x - buttons);
         ImGui::BeginDisabled(i == 0);
         if (ImGui::ArrowButton("##up", ImGuiDir_Up))
@@ -1143,7 +1189,7 @@ void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, cons
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPresetDragPayload))
         {
             const std::filesystem::path dropped(static_cast<const char*>(payload->Data));
-            edit("Add to Playlist", "playlist-add", [&](model::ScenePlaylist& p) { p.presets.push_back(dropped); });
+            edit("Add to Playlist", "playlist-add", [&](model::ScenePlaylist& p) { p.Add(dropped, newLook); });
             actions.EndEdit();
         }
         ImGui::EndDragDropTarget();
@@ -1151,21 +1197,28 @@ void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, cons
 
     if (moveFrom >= 0)
     {
+        if (selectedEntry == moveFrom || selectedEntry == moveTo)
+        {
+            m_entryScene = scene.id;
+            m_entry = selectedEntry == moveFrom ? moveTo : moveFrom;
+        }
         edit("Reorder Playlist", "playlist-move", [&](model::ScenePlaylist& p) {
-            std::swap(p.presets[static_cast<size_t>(moveFrom)], p.presets[static_cast<size_t>(moveTo)]);
+            p.Swap(static_cast<size_t>(moveFrom), static_cast<size_t>(moveTo));
         });
         actions.EndEdit();
     }
     if (remove >= 0)
     {
-        edit("Remove from Playlist", "playlist-remove", [&](model::ScenePlaylist& p) { p.presets.erase(p.presets.begin() + remove); });
+        if (m_entryScene == scene.id && m_entry > remove)
+            m_entry--;
+        edit("Remove from Playlist", "playlist-remove", [&](model::ScenePlaylist& p) { p.Remove(static_cast<size_t>(remove)); });
         actions.EndEdit();
     }
 
     if (ImGui::Button("Add Preset..."))
     {
         if (auto file = ChooseFile("Add a preset to the playlist", {"milk"}))
-            edit("Add to Playlist", "playlist-add", [&](model::ScenePlaylist& p) { p.presets.push_back(*file); });
+            edit("Add to Playlist", "playlist-add", [&](model::ScenePlaylist& p) { p.Add(*file, newLook); });
         actions.EndEdit();
     }
     ImGui::SameLine();
@@ -1177,7 +1230,8 @@ void Shell::AssignPreset(ShellState& state, AppActions& actions, const std::file
     auto edited = state.document->Get();
     if (scene >= 0 && scene < static_cast<int>(edited.scenes.size()) && edited.scenes[static_cast<size_t>(scene)].IsPlaylist())
     {
-        edited.scenes[static_cast<size_t>(scene)].playlist.presets.push_back(preset);
+        auto& target = edited.scenes[static_cast<size_t>(scene)];
+        target.playlist.Add(preset, NewEntryLook(target));
         actions.Edit(std::move(edited), "Add to Playlist");
         *state.selectedScene = scene;
     }

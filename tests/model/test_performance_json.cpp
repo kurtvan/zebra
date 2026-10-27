@@ -52,11 +52,11 @@ TEST_CASE("a performance survives a save/load round trip")
     a.video.source.type = VideoSourceType::File;
     a.video.source.videoId = "intro";
     performance.videos = {PoolVideo{"intro", "Intro loop", "/videos/intro.mp4", 12.5, 0.5}};
-    a.video.mix = 0.5f;
-    a.video.lumaMin = 0.25f;
+    a.video.look.mix = 0.5f;
+    a.video.look.lumaMin = 0.25f;
     a.video.restartOnEnter = false;
-    a.video.contrast = 80.0f; // high contrast is allowed
-    a.video.saturation = 0.0f;
+    a.video.look.contrast = 80.0f; // high contrast is allowed
+    a.video.look.saturation = 0.0f;
     auto b = MakeScene("cave", 7);
     b.video.enabled = true;
     b.video.source.type = VideoSourceType::Syphon;
@@ -81,12 +81,12 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK(loaded.videos[0].path == "/videos/intro.mp4");
     CHECK(loaded.videos[0].startSeconds == 12.5);
     CHECK(loaded.videos[0].speed == 0.5);
-    CHECK(loaded.scenes[0].video.mix == 0.5f);
-    CHECK(loaded.scenes[0].video.lumaMin == 0.25f);
+    CHECK(loaded.scenes[0].video.look.mix == 0.5f);
+    CHECK(loaded.scenes[0].video.look.lumaMin == 0.25f);
     CHECK_FALSE(loaded.scenes[0].video.restartOnEnter);
-    CHECK(loaded.scenes[0].video.contrast == 80.0f);
-    CHECK(loaded.scenes[0].video.saturation == 0.0f);
-    CHECK(loaded.scenes[1].video.contrast == 1.0f); // defaults
+    CHECK(loaded.scenes[0].video.look.contrast == 80.0f);
+    CHECK(loaded.scenes[0].video.look.saturation == 0.0f);
+    CHECK(loaded.scenes[1].video.look.contrast == 1.0f); // defaults
     CHECK(loaded.scenes[1].cc20Value == 7);
     CHECK(loaded.scenes[1].video.source.type == VideoSourceType::Syphon);
     CHECK(loaded.scenes[1].video.source.appName == "Resolume");
@@ -139,10 +139,10 @@ TEST_CASE("validation rules")
     SECTION("mix, luma, contrast and saturation ranges")
     {
         auto scene = MakeScene("a", 0);
-        scene.video.mix = 1.5f;
-        scene.video.lumaMin = -0.1f;
-        scene.video.contrast = 150.f;
-        scene.video.saturation = -1.f;
+        scene.video.look.mix = 1.5f;
+        scene.video.look.lumaMin = -0.1f;
+        scene.video.look.contrast = 150.f;
+        scene.video.look.saturation = -1.f;
         performance.scenes = {scene};
         const auto issues = Validate(performance);
         CHECK(HasIssueAt(issues, "/scenes/0/video/mix"));
@@ -156,8 +156,8 @@ TEST_CASE("validation rules")
         const auto result = ParsePerformance(R"({"version": 1, "scenes": [{"id": "a", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 0},
             "video": {"enabled": true, "source": {"type": "file", "path": "/v.mp4"}, "mix": 1, "lumaMin": 0}}]})");
         REQUIRE(result.ok);
-        CHECK(result.performance.scenes[0].video.contrast == 1.0f);
-        CHECK(result.performance.scenes[0].video.saturation == 1.0f);
+        CHECK(result.performance.scenes[0].video.look.contrast == 1.0f);
+        CHECK(result.performance.scenes[0].video.look.saturation == 1.0f);
     }
     SECTION("enabled file video needs a pool video; Syphon without names means any server")
     {
@@ -365,4 +365,64 @@ TEST_CASE("the video pool: adding dedupes by file, removing needs it unused")
     CHECK(RemovePoolVideo(performance, "clip-2"));
     CHECK_FALSE(RemovePoolVideo(performance, "nope"));
     CHECK(performance.videos.size() == 1);
+}
+
+TEST_CASE("playlist entries have their own video look")
+{
+    SECTION("older files: every entry takes the scene's look")
+    {
+        const auto result = ParsePerformance(R"({"version": 2, "scenes": [{"id": "a", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 0},
+            "playlist": {"enabled": true, "presets": [{"path": "/a.milk"}, {"path": "/b.milk"}]},
+            "video": {"enabled": true, "source": {"type": "syphon"}, "mix": 0.4, "lumaMin": 0.2, "contrast": 50, "saturation": 0}}]})");
+        REQUIRE(result.ok);
+        const auto& scene = result.performance.scenes[0];
+        REQUIRE(scene.playlist.looks.size() == 2);
+        CHECK(scene.LookFor(1) == scene.video.look);
+        CHECK(scene.LookFor(1).contrast == 50.f);
+    }
+    SECTION("round trip, and the scene's look is separate")
+    {
+        Performance performance;
+        auto scene = MakeScene("a", 0);
+        scene.playlist.enabled = true;
+        scene.playlist.Add("/a.milk", VideoLook{0.5f, 0.1f, 1.f, 1.f});
+        scene.playlist.Add("/b.milk", VideoLook{1.f, 0.f, 100.f, 0.f});
+        scene.video.look.mix = 0.7f;
+        performance.scenes = {scene};
+        const auto loaded = ParsePerformance(SerializePerformance(performance));
+        REQUIRE(loaded.ok);
+        const auto& back = loaded.performance.scenes[0];
+        CHECK(back.LookFor(0) == VideoLook{0.5f, 0.1f, 1.f, 1.f});
+        CHECK(back.LookFor(1) == VideoLook{1.f, 0.f, 100.f, 0.f});
+        CHECK(back.video.look.mix == 0.7f);
+        CHECK(back.LookFor(-1).mix == 0.7f);
+
+        // A disabled playlist keeps its entries' looks.
+        performance.scenes[0].playlist.enabled = false;
+        const auto disabled = ParsePerformance(SerializePerformance(performance));
+        CHECK(disabled.performance.scenes[0].playlist.looks[1].contrast == 100.f);
+        CHECK(disabled.performance.scenes[0].LookFor(1).mix == 0.7f); // not a playlist: the scene's look
+    }
+    SECTION("editing entries keeps the looks with their presets")
+    {
+        ScenePlaylist playlist;
+        playlist.Add("/a.milk", VideoLook{0.1f});
+        playlist.Add("/b.milk", VideoLook{0.2f});
+        playlist.Add("/c.milk", VideoLook{0.3f});
+        playlist.Swap(0, 2);
+        CHECK(playlist.presets[0] == "/c.milk");
+        CHECK(playlist.looks[0].mix == 0.3f);
+        playlist.Remove(1);
+        REQUIRE(playlist.looks.size() == 2);
+        CHECK(playlist.looks[1].mix == 0.1f);
+    }
+    SECTION("entry looks are validated")
+    {
+        Performance performance;
+        auto scene = MakeScene("a", 0);
+        scene.playlist.enabled = true;
+        scene.playlist.Add("/a.milk", VideoLook{2.f, 0.f, 1.f, 1.f});
+        performance.scenes = {scene};
+        CHECK(HasIssueAt(Validate(performance), "/scenes/0/playlist/presets/0/look/mix"));
+    }
 }

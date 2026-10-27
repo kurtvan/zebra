@@ -26,14 +26,22 @@ struct VideoSource
     std::string serverName;     //!< An empty name matches any; both empty connects to the first server found.
 };
 
-struct SceneVideo
+/// How the video is blended into a preset.
+struct VideoLook
 {
-    bool enabled{false};
-    VideoSource source;
     float mix{1.0f};     //!< 0..1
     float lumaMin{0.0f}; //!< 0..1
     float contrast{1.0f};   //!< 0..kMaxContrast, 1 = unchanged; very high = hard black/white (with saturation 0). Before the luma gate.
     float saturation{1.0f}; //!< 0..2, 1 = unchanged, 0 = greyscale.
+
+    auto operator==(const VideoLook&) const -> bool = default;
+};
+
+struct SceneVideo
+{
+    bool enabled{false};
+    VideoSource source;
+    VideoLook look; //!< Single-preset scenes. Playlist entries have their own (ScenePlaylist::looks).
     bool restartOnEnter{true};
 };
 
@@ -50,10 +58,30 @@ struct ScenePlaylist
 {
     bool enabled{false};
     std::vector<std::filesystem::path> presets;
+    std::vector<VideoLook> looks; //!< Per entry, kept the same length as `presets` (use the helpers below to edit).
     IntervalUnit unit{IntervalUnit::Seconds};
     double intervalSeconds{30.0}; //!< Unit Seconds: 1..3600.
     int intervalCount{4};         //!< Units Beats/Bars: 1..256, switching on beat/bar lines of the MIDI clock.
     bool shuffle{false};          //!< Random order (never the same preset twice in a row) instead of top to bottom.
+
+    void Add(const std::filesystem::path& preset, const VideoLook& look)
+    {
+        looks.resize(presets.size(), look);
+        presets.push_back(preset);
+        looks.push_back(look);
+    }
+    void Remove(size_t item)
+    {
+        looks.resize(presets.size());
+        presets.erase(presets.begin() + static_cast<std::ptrdiff_t>(item));
+        looks.erase(looks.begin() + static_cast<std::ptrdiff_t>(item));
+    }
+    void Swap(size_t a, size_t b)
+    {
+        looks.resize(presets.size());
+        std::swap(presets[a], presets[b]);
+        std::swap(looks[a], looks[b]);
+    }
 };
 
 constexpr int kMaxPlaylistCount = 256;
@@ -106,6 +134,26 @@ struct Scene
     auto Presets() const -> std::vector<std::filesystem::path>
     {
         return IsPlaylist() ? playlist.presets : std::vector<std::filesystem::path>{presetPath};
+    }
+
+    /// The video look for entry `item` (playlists), or the scene's look.
+    auto LookFor(int item) const -> const VideoLook&
+    {
+        if (IsPlaylist() && item >= 0 && item < static_cast<int>(playlist.looks.size()))
+            return playlist.looks[static_cast<size_t>(item)];
+        return video.look;
+    }
+
+    /// The look to edit for entry `item`: the entry's own in a playlist, else the scene's.
+    auto MutableLookFor(int item) -> VideoLook&
+    {
+        if (IsPlaylist())
+        {
+            playlist.looks.resize(playlist.presets.size(), video.look);
+            if (item >= 0 && item < static_cast<int>(playlist.looks.size()))
+                return playlist.looks[static_cast<size_t>(item)];
+        }
+        return video.look;
     }
 
     /// The preset shown when the scene starts.
