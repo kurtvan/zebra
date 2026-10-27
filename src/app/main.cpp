@@ -259,8 +259,16 @@ public:
 
     void ToggleFullscreen() override
     {
-        m_fullscreen = !m_fullscreen;
-        SDL_SetWindowFullscreen(m_editorWindow, m_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        gv::app::ToggleNativeFullscreen(m_editorWindow);
+    }
+
+    /// Follows macOS full screen, which the green button and Globe+F can also enter and leave.
+    void SyncFullscreen()
+    {
+        const bool fullscreen = gv::app::IsNativeFullscreen(m_editorWindow);
+        if (fullscreen == m_fullscreen)
+            return;
+        m_fullscreen = fullscreen;
         SDL_ShowCursor(m_fullscreen ? SDL_DISABLE : SDL_ENABLE);
         GV_LOG_INFO(kLogCategory, "fullscreen %s", m_fullscreen ? "on" : "off");
     }
@@ -665,6 +673,7 @@ public:
     {
         bool running = true;
         HandleMenuCommands(running);
+        SyncFullscreen();
 
         // MIDI scene triggers.
         if (auto value = m_midi->TakeSceneTrigger())
@@ -1134,8 +1143,6 @@ int main(int argc, char* argv[])
     gv::log::Init(gv::paths::LogsDir());
     GV_LOG_INFO(kLogCategory, "%s %s starting", gv::app_info::kName, gv::app_info::kVersion);
 
-    // Real fullscreen on the output display, without a separate Space and its animation.
-    SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) != 0)
     {
         GV_LOG_ERROR(kLogCategory, "SDL_Init failed: %s", SDL_GetError());
@@ -1170,7 +1177,6 @@ int main(int argc, char* argv[])
     io.IniFilename = options.smoke ? nullptr : iniPath.c_str();
     gv::app::Shell::ApplyTheme();
     gv::app::InstallMenus();
-    gv::app::DisableNativeFullscreen(window);
     ImGui_ImplSDL2_InitForOpenGL(window, context);
     ImGui_ImplOpenGL3_Init("#version 410 core");
 
