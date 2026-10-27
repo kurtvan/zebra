@@ -107,6 +107,21 @@ auto UniqueSceneId(const Performance& performance, const std::string& base) -> s
     }
 }
 
+auto ReplacePreset(Performance& performance, int index, int item, const std::filesystem::path& presetPath) -> int
+{
+    if (index < 0 || index >= static_cast<int>(performance.scenes.size()))
+        return -1;
+    auto& scene = performance.scenes[static_cast<size_t>(index)];
+    if (!scene.IsPlaylist())
+    {
+        scene.presetPath = presetPath;
+        return 0;
+    }
+    item = std::clamp(item, 0, static_cast<int>(scene.playlist.presets.size()) - 1);
+    scene.playlist.presets[static_cast<size_t>(item)] = presetPath;
+    return item;
+}
+
 auto AddScene(Performance& performance, int after, const std::filesystem::path& presetPath) -> int
 {
     const auto cc = performance.FreeCc20Value();

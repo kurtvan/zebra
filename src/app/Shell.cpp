@@ -139,7 +139,7 @@ void PresetDragSource(const std::filesystem::path& preset, const std::string& la
         const std::string path = preset.string();
         ImGui::SetDragDropPayload(kPresetDragPayload, path.c_str(), path.size() + 1);
         ImGui::Text("%s", label.c_str());
-        ImGui::TextColored(kDim, "Drop on a scene to use it, or below the list to add a scene");
+        ImGui::TextColored(kDim, "Drop on a scene to use it, below the list to add a scene,\nor on the preview to put it in the live scene");
         ImGui::EndDragDropSource();
     }
 }
@@ -304,6 +304,19 @@ void Shell::DrawPreview(const ShellState& state, AppActions& actions)
         ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + (available.x - size.x) * 0.5f, ImGui::GetCursorPosY() + (available.y - size.y) * 0.5f));
         // GL textures are bottom-up; flip V.
         ImGui::Image(static_cast<ImTextureID>(state.preview), size, ImVec2(0, 1), ImVec2(1, 0));
+    }
+
+    // Dropping a preset anywhere on the preview puts it in the live scene.
+    if (engine != nullptr && engine->LiveScene() >= 0 && ImGui::GetDragDropPayload() != nullptr &&
+        ImGui::GetDragDropPayload()->IsDataType(kPresetDragPayload))
+    {
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        if (ImGui::BeginDragDropTargetCustom(window->InnerRect, window->ID))
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPresetDragPayload))
+                ReplaceLivePreset(state, actions, static_cast<const char*>(payload->Data));
+            ImGui::EndDragDropTarget();
+        }
     }
 
     // Fullscreen button, bottom right of the panel.
@@ -1250,6 +1263,37 @@ void Shell::AssignPreset(ShellState& state, AppActions& actions, const std::file
     actions.EndEdit();
 }
 
+auto Shell::ReplaceLivePreset(const ShellState& state, AppActions& actions, const std::filesystem::path& preset) -> bool
+{
+    const int live = state.engine != nullptr ? state.engine->LiveScene() : -1;
+    auto edited = state.document->Get();
+    if (live < 0 || live >= static_cast<int>(edited.scenes.size()))
+        return false;
+    const auto& scene = edited.scenes[static_cast<size_t>(live)];
+    const bool playlist = scene.IsPlaylist();
+    const std::string sceneId = scene.id;
+    const int item = model::ReplacePreset(edited, live, state.engine->LiveItem(), preset);
+    actions.Edit(std::move(edited), playlist ? "Replace Playlist Preset" : "Change Preset");
+    actions.EndEdit();
+    // The engine swaps in a changed first preset by itself; any other playlist entry needs a jump to it.
+    if (item > 0)
+        actions.TriggerItem(live, item);
+    *state.selectedScene = live;
+    m_scrollToScene = live;
+    if (playlist)
+    {
+        m_entryScene = sceneId;
+        m_entry = item;
+    }
+    return true;
+}
+
+void Shell::DoubleClickPreset(const ShellState& state, AppActions& actions, const std::filesystem::path& preset)
+{
+    if (!ReplaceLivePreset(state, actions, preset) && state.messages != nullptr)
+        state.messages->push_back("Nothing is live: double-click puts a preset in the live scene. Drag it onto a scene in the list instead.");
+}
+
 void Shell::DrawBrowser(ShellState& state, AppActions& actions)
 {
     if (m_showBrowserTab > 0 && --m_showBrowserTab == 0)
@@ -1400,10 +1444,10 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
                 {
                     m_selectedPreset = preset.id;
                     if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                        AssignPreset(state, actions, path, selectedScene);
+                        DoubleClickPreset(state, actions, path);
                 }
                 if (ImGui::IsItemHovered() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
-                    ImGui::SetTooltip("%s\nDouble-click to use it in the selected scene, or drag it onto a scene.", preset.id.c_str());
+                    ImGui::SetTooltip("%s\nDouble-click to put it in the live scene, or drag it onto a scene or the preview.", preset.id.c_str());
                 PresetDragSource(path, preset.name);
                 if (ImGui::BeginPopupContextItem("preset-menu"))
                 {
@@ -1558,7 +1602,7 @@ void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
                 {
                     m_selectedPreset = preset.id;
                     if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                        AssignPreset(state, actions, path, selectedScene);
+                        DoubleClickPreset(state, actions, path);
                 }
                 PresetDragSource(path, preset.name);
                 if (ImGui::BeginPopupContextItem("preset-menu"))
@@ -1619,7 +1663,7 @@ void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
 
                 if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
                 {
-                    ImGui::SetTooltip("%s\n%s%s%s\n%s%sDouble-click to use it in the selected scene, or drag it onto a scene.", preset.name.c_str(),
+                    ImGui::SetTooltip("%s\n%s%s%s\n%s%sDouble-click to put it in the live scene, or drag it onto a scene or the preview.", preset.name.c_str(),
                                       preset.author.empty() ? "" : (preset.author + "  ·  ").c_str(), preset.category.c_str(),
                                       preset.subcategory.empty() ? "" : (" / " + preset.subcategory).c_str(), details.c_str(), details.empty() ? "" : "\n");
                 }

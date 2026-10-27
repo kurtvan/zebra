@@ -1003,7 +1003,20 @@ private:
                 }
                 break;
             }
+            case 11:
+                // Dropping a preset on the preview: replaces the playlist entry on screen in the live scene.
+                if (live >= 0 && edited.scenes[static_cast<size_t>(live)].IsPlaylist())
+                {
+                    const auto preset = edited.scenes[0].FirstPreset();
+                    const int item = gv::model::ReplacePreset(edited, live, m_engine.LiveItem(), preset);
+                    Edit(std::move(edited), "Replace Playlist Preset", {});
+                    if (item > 0)
+                        TriggerItem(live, item);
+                    GV_LOG_INFO(kLogCategory, "smoke edit: replaced preset %d of live scene %d with %s", item + 1, live, preset.filename().c_str());
+                }
+                break;
             case 9:
+            case 13:
                 for (int scene = 0; scene < static_cast<int>(edited.scenes.size()); ++scene)
                 {
                     if (edited.scenes[static_cast<size_t>(scene)].IsPlaylist())
