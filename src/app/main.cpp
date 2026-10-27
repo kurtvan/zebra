@@ -5,6 +5,7 @@
 #include "app/VideoManager.hpp"
 #include "app/macos/FileDialog.hpp"
 #include "app/macos/Menu.hpp"
+#include "app/macos/Window.hpp"
 #include "library/Library.hpp"
 #include "model/Document.hpp"
 #include "thumbnails/ThumbnailService.hpp"
@@ -1169,6 +1170,7 @@ int main(int argc, char* argv[])
     io.IniFilename = options.smoke ? nullptr : iniPath.c_str();
     gv::app::Shell::ApplyTheme();
     gv::app::InstallMenus();
+    gv::app::DisableNativeFullscreen(window);
     ImGui_ImplSDL2_InitForOpenGL(window, context);
     ImGui_ImplOpenGL3_Init("#version 410 core");
 
