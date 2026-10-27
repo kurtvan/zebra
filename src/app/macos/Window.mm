@@ -7,18 +7,30 @@
 
 namespace gv::app {
 
-void DisableNativeFullscreen(SDL_Window* window)
+namespace {
+
+auto CocoaWindow(SDL_Window* window) -> NSWindow*
 {
     SDL_SysWMinfo info;
     SDL_VERSION(&info.version);
     if (!SDL_GetWindowWMInfo(window, &info) || info.subsystem != SDL_SYSWM_COCOA)
     {
-        return;
+        return nil;
     }
-    NSWindow* nsWindow = info.info.cocoa.window;
-    NSWindowCollectionBehavior behavior = nsWindow.collectionBehavior;
-    behavior &= ~(NSWindowCollectionBehaviorFullScreenPrimary | NSWindowCollectionBehaviorFullScreenAuxiliary);
-    nsWindow.collectionBehavior = behavior | NSWindowCollectionBehaviorFullScreenNone;
+    return info.info.cocoa.window;
+}
+
+} // namespace
+
+void ToggleNativeFullscreen(SDL_Window* window)
+{
+    [CocoaWindow(window) toggleFullScreen:nil];
+}
+
+auto IsNativeFullscreen(SDL_Window* window) -> bool
+{
+    NSWindow* nsWindow = CocoaWindow(window);
+    return nsWindow != nil && (nsWindow.styleMask & NSWindowStyleMaskFullScreen) != 0;
 }
 
 } // namespace gv::app

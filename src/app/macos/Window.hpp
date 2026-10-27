@@ -4,8 +4,11 @@ struct SDL_Window;
 
 namespace gv::app {
 
-/// Turns off macOS's own full screen (green button, Globe+F, Window > Enter Full Screen) for the window.
-/// Our fullscreen toggle is SDL's, which crashes AppKit if the window is already in a full screen Space.
-void DisableNativeFullscreen(SDL_Window* window);
+/// Enters or leaves macOS full screen (its own Space, like the green button). Used instead of SDL's fullscreen:
+/// SDL's crashes AppKit if the window is already in macOS full screen.
+void ToggleNativeFullscreen(SDL_Window* window);
+
+/// True while the window is in (or entering) macOS full screen, however it got there.
+auto IsNativeFullscreen(SDL_Window* window) -> bool;
 
 } // namespace gv::app
