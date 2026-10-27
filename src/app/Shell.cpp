@@ -1679,13 +1679,14 @@ void Shell::DrawVideos(ShellState& state, AppActions& actions)
 
     std::string removeId;
     const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
-    if (ImGui::BeginTable("videos", 6, flags))
+    if (ImGui::BeginTable("videos", 7, flags))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 2.0f);
         ImGui::TableSetupColumn("Length", ImGuiTableColumnFlags_WidthFixed, 110.f);
         ImGui::TableSetupColumn("Start", ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("Fit", ImGuiTableColumnFlags_WidthFixed, 90.f);
         ImGui::TableSetupColumn("Used by", ImGuiTableColumnFlags_WidthFixed, 70.f);
         ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 130.f);
         ImGui::TableHeadersRow();
@@ -1751,6 +1752,18 @@ void Shell::DrawVideos(ShellState& state, AppActions& actions)
                 edit("Change Video Speed", "video-speed", i, [&](model::PoolVideo& v) { v.speed = 1.0; });
                 actions.EndEdit();
             }
+
+            ImGui::TableNextColumn();
+            static const char* const kFits[] = {"Fill", "Fit", "Stretch"};
+            int fit = static_cast<int>(video.fit);
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::Combo("##fit", &fit, kFits, IM_ARRAYSIZE(kFits)))
+            {
+                edit("Change Video Fit", "video-fit", i, [&](model::PoolVideo& v) { v.fit = static_cast<model::VideoFit>(fit); });
+                actions.EndEdit();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How the picture meets the output's shape.\nFill: covers it, cropping the edges.\nFit: the whole picture, with black bars.\nStretch: stretched to the output's shape.");
 
             ImGui::TableNextColumn();
             const int usage = model::VideoUsage(performance, video.id);

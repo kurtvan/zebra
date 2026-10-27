@@ -1,11 +1,23 @@
 #pragma once
 
+#include "io/VideoSource.hpp"
+
 #include <OpenGL/gl3.h>
 
 namespace gv::io {
 
-/// Copies a GL_TEXTURE_RECTANGLE (what CoreVideo and Syphon hand out) into an owned GL_TEXTURE_2D,
-/// optionally flipping it vertically so the result is bottom-up. Double-buffered: each Convert() writes the
+/// How RectToTexture places a frame in its output.
+struct FramePlacement
+{
+    /// Stored frame -> upright picture, in top-down pixels (a CGAffineTransform: a, b, c, d, tx, ty).
+    double transform[6]{1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+    VideoFit fit{VideoFit::Stretch};
+    int width{0}; //!< Output size; 0: the upright picture's size.
+    int height{0};
+};
+
+/// Copies a GL_TEXTURE_RECTANGLE (what CoreVideo and Syphon hand out) into an owned GL_TEXTURE_2D, bottom-up,
+/// optionally turning the picture upright and fitting it to another size. Double-buffered: each Convert() writes the
 /// texture the previous call didn't, so a lane still sampling last frame's texture isn't overwritten.
 ///
 /// Must be created, used and destroyed on one GL context.
@@ -18,8 +30,11 @@ public:
     RectToTexture(const RectToTexture&) = delete;
     auto operator=(const RectToTexture&) -> RectToTexture& = delete;
 
-    /// Returns the 2D texture holding the converted frame, or 0 on failure.
-    auto Convert(GLuint rectTexture, int width, int height, bool flipVertically) -> GLuint;
+    using Placement = FramePlacement;
+
+    /// Returns the 2D texture holding the converted frame, or 0 on failure. `topDown`: the rectangle
+    /// texture's first row is the top of the picture (CoreVideo's "flipped").
+    auto Convert(GLuint rectTexture, int width, int height, bool topDown, const Placement& placement = {}) -> GLuint;
 
     /// The most recently converted texture (0 before the first frame).
     auto Current() const -> GLuint
@@ -33,8 +48,11 @@ private:
 
     GLuint m_program{0};
     GLuint m_vao{0};
-    GLint m_flipLocation{-1};
+    GLint m_topDownLocation{-1};
     GLint m_sizeLocation{-1};
+    GLint m_scaleLocation{-1};
+    GLint m_pictureSizeLocation{-1};
+    GLint m_toStoredLocation{-1};
     GLuint m_fbo{0};
     GLuint m_textures[2]{};
     int m_current{0};

@@ -20,6 +20,14 @@ enum class VideoState
 
 auto ToString(VideoState state) -> const char*;
 
+/// How a file video's picture is fitted to the output canvas.
+enum class VideoFit
+{
+    Fill,   //!< Covers the canvas, cropping the edges that don't fit.
+    Fit,    //!< The whole picture, with black bars.
+    Stretch //!< Stretched to the canvas shape.
+};
+
 /// A video feed turned into a GL_TEXTURE_2D in bottom-up (OpenGL) orientation, as patch 0002 expects.
 ///
 /// Created and updated on the main thread with the editor's GL context current; the textures are shared
@@ -49,6 +57,11 @@ public:
     {
     }
 
+    /// Fits the upright picture to a canvas of this size (file sources): the texture then has the canvas's size.
+    virtual void SetLayout(VideoFit fit, int canvasWidth, int canvasHeight)
+    {
+    }
+
     /// Length and current position in seconds (file sources), or 0 if not known (yet).
     virtual auto DurationSeconds() const -> double
     {
@@ -64,6 +77,7 @@ public:
 };
 
 /// AVFoundation playback of a file, muted and looping from its start point, decoded straight into GL textures (no CPU copies).
+/// The picture is turned upright (the rotation phones record), then fitted to the canvas set by SetLayout.
 auto CreateFileVideoSource(const std::filesystem::path& file) -> std::unique_ptr<VideoSource>;
 
 /// Syphon input from the server matching `appName` and `serverName` (an empty field matches anything).

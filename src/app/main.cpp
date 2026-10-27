@@ -692,6 +692,7 @@ public:
         // Audio: everything captured since the last frame.
         const size_t samples = m_ring.Read(m_pcm.data(), m_pcm.size());
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        m_video.SetCanvasSize(m_engine.RenderWidth(), m_engine.RenderHeight());
         m_video.BeginFrame(m_engine.LiveScene(), m_engine.PendingScene(), m_engine.HandoverScene());
         {
             const auto clock = m_midi->Clock();

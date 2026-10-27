@@ -18,6 +18,20 @@ auto FileKey(const std::string& videoId) -> std::string
     return "file:" + videoId;
 }
 
+auto ToIo(model::VideoFit fit) -> io::VideoFit
+{
+    switch (fit)
+    {
+        case model::VideoFit::Fill:
+            return io::VideoFit::Fill;
+        case model::VideoFit::Fit:
+            return io::VideoFit::Fit;
+        case model::VideoFit::Stretch:
+            return io::VideoFit::Stretch;
+    }
+    return io::VideoFit::Fill;
+}
+
 auto KeyFor(const model::Performance& performance, const model::Scene& scene) -> std::string
 {
     if (!scene.video.enabled)
@@ -72,6 +86,8 @@ void VideoManager::Load(const model::Performance& performance)
             sources.emplace(key, std::move(entry));
         }
         sources[key].source->SetPlayback(video.startSeconds, video.speed);
+        if (m_canvasWidth > 0)
+            sources[key].source->SetLayout(ToIo(video.fit), m_canvasWidth, m_canvasHeight);
     }
     for (const auto& scene : m_performance.scenes)
     {
@@ -120,6 +136,19 @@ void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene
     {
         if (const auto* key = keyOf(scene); key != nullptr && playing.count(*key) == 0)
             UpdateEntry(m_sources[*key]);
+    }
+}
+
+void VideoManager::SetCanvasSize(int width, int height)
+{
+    if (width == m_canvasWidth && height == m_canvasHeight)
+        return;
+    m_canvasWidth = width;
+    m_canvasHeight = height;
+    for (const auto& video : m_performance.videos)
+    {
+        if (auto source = m_sources.find(FileKey(video.id)); source != m_sources.end())
+            source->second.source->SetLayout(ToIo(video.fit), width, height);
     }
 }
 
