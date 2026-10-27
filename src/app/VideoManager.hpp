@@ -35,6 +35,9 @@ public:
     /// old fences.
     void BeginFrame(int liveScene, int pendingScene, int handoverScene);
 
+    /// The output canvas size, which file videos are fitted to. Cheap when unchanged; call every frame.
+    void SetCanvasSize(int width, int height);
+
     /// Called just before a scene is triggered: restarts its video if the scene asks for that.
     void OnTrigger(int scene, int liveScene);
 
@@ -66,6 +69,8 @@ private:
     std::map<std::string, SourceEntry> m_sources;
     std::vector<std::string> m_sceneKeys; //!< Per scene: key into m_sources, or empty.
     long long m_frame{0};
+    int m_canvasWidth{0};
+    int m_canvasHeight{0};
     std::deque<std::pair<long long, GLsync>> m_fences;
 };
 

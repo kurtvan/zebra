@@ -3,6 +3,10 @@
 #include "common/log.hpp"
 #include "io/macos/RectToTexture.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <iterator>
+
 #import <AVFoundation/AVFoundation.h>
 #import <CoreVideo/CoreVideo.h>
 #import <OpenGL/OpenGL.h>
@@ -85,6 +89,9 @@ public:
             return 0;
         }
 
+        if (!m_orientationKnown && m_player.currentItem.status == AVPlayerItemStatusReadyToPlay)
+            ReadOrientation();
+
         const CMTime time = [m_output itemTimeForHostTime:CACurrentMediaTime()];
         if ([m_output hasNewPixelBufferForItemTime:time])
         {
@@ -97,7 +104,7 @@ public:
                     const int width = static_cast<int>(CVPixelBufferGetWidth(buffer));
                     const int height = static_cast<int>(CVPixelBufferGetHeight(buffer));
                     // CoreVideo textures are usually top-down ("flipped"); the feedback blend wants bottom-up.
-                    m_converter.Convert(CVOpenGLTextureGetName(texture), width, height, CVOpenGLTextureIsFlipped(texture));
+                    m_converter.Convert(CVOpenGLTextureGetName(texture), width, height, CVOpenGLTextureIsFlipped(texture), m_placement);
                     CFRelease(texture);
                     m_state = VideoState::Live;
                 }
@@ -136,6 +143,16 @@ public:
             m_player.rate = static_cast<float>(m_speed);
     }
 
+    void SetLayout(VideoFit fit, int canvasWidth, int canvasHeight) override
+    {
+        if (fit == m_placement.fit && canvasWidth == m_placement.width && canvasHeight == m_placement.height)
+            return;
+        m_placement.fit = fit;
+        m_placement.width = canvasWidth;
+        m_placement.height = canvasHeight;
+        RedrawFrame();
+    }
+
     auto DurationSeconds() const -> double override
     {
         if (m_player == nil)
@@ -163,6 +180,35 @@ public:
     }
 
 private:
+    /// Phones store a vertical video as a landscape frame plus a rotation for the player to apply.
+    void ReadOrientation()
+    {
+        m_orientationKnown = true;
+        for (AVPlayerItemTrack* track in m_player.currentItem.tracks)
+        {
+            AVAssetTrack* assetTrack = track.assetTrack;
+            if (![assetTrack.mediaType isEqualToString:AVMediaTypeVideo])
+                continue;
+            const CGAffineTransform t = assetTrack.preferredTransform;
+            const double transform[6] = {t.a, t.b, t.c, t.d, t.tx, t.ty};
+            std::copy(std::begin(transform), std::end(transform), std::begin(m_placement.transform));
+            if (!CGAffineTransformIsIdentity(t))
+            {
+                const double degrees = std::atan2(t.b, t.a) * 180.0 / M_PI;
+                GV_LOG_INFO(kLogCategory, "%s is rotated %.0f degrees%s", m_file.filename().c_str(), degrees, t.a * t.d - t.b * t.c < 0 ? ", mirrored" : "");
+                RedrawFrame();
+            }
+            return;
+        }
+    }
+
+    /// Gets the current frame again after the placement changed: a paused video has no new frames to show it.
+    void RedrawFrame()
+    {
+        if (m_player != nil && !m_active && m_player.currentItem.status == AVPlayerItemStatusReadyToPlay)
+            [m_player seekToTime:m_player.currentTime toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+    }
+
     void SeekToStart()
     {
         if (m_player == nil)
@@ -185,6 +231,8 @@ private:
     id m_loopObserver{nil};
     CVOpenGLTextureCacheRef m_cache{nullptr};
     RectToTexture m_converter;
+    RectToTexture::Placement m_placement;
+    bool m_orientationKnown{false};
     bool m_active{false};
 };
 

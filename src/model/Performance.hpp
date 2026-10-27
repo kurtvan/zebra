@@ -86,6 +86,14 @@ struct ScenePlaylist
 
 constexpr int kMaxPlaylistCount = 256;
 
+/// How a pool video's picture is fitted to the output canvas.
+enum class VideoFit
+{
+    Fill,   //!< Covers the canvas, cropping the edges that don't fit.
+    Fit,    //!< The whole picture, with black bars.
+    Stretch //!< Stretched to the canvas shape.
+};
+
 constexpr double kMinVideoSpeed = 0.1;
 constexpr double kMaxVideoSpeed = 4.0;
 
@@ -98,6 +106,7 @@ struct PoolVideo
     std::filesystem::path path;
     double startSeconds{0.0}; //!< Where playback starts, restarts and loops back to.
     double speed{1.0};        //!< kMinVideoSpeed..kMaxVideoSpeed, forward only.
+    VideoFit fit{VideoFit::Fill};
 
     bool missing{false}; //!< Set by the file checks, not serialized.
 
