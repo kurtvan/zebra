@@ -32,14 +32,21 @@ auto ToIo(model::VideoFit fit) -> io::VideoFit
     return io::VideoFit::Fill;
 }
 
-auto KeyFor(const model::Performance& performance, const model::Scene& scene) -> std::string
+/// The sources a scene shows: its pool videos that exist (several for a video playlist), or its Syphon server.
+auto KeysFor(const model::Performance& performance, const model::Scene& scene) -> std::vector<std::string>
 {
     if (!scene.video.enabled)
         return {};
     const auto& source = scene.video.source;
-    if (source.type == model::VideoSourceType::File)
-        return performance.VideoFor(scene) != nullptr ? FileKey(source.videoId) : std::string{};
-    return "syphon:" + source.appName + "\n" + source.serverName;
+    if (source.type == model::VideoSourceType::Syphon)
+        return {"syphon:" + source.appName + "\n" + source.serverName};
+    std::vector<std::string> keys;
+    for (const auto& id : scene.VideoIds())
+    {
+        if (performance.FindVideo(id) != nullptr)
+            keys.push_back(FileKey(id));
+    }
+    return keys;
 }
 
 } // namespace
@@ -55,7 +62,7 @@ void VideoManager::Clear()
         glDeleteSync(fence);
     m_fences.clear();
     m_sources.clear();
-    m_sceneKeys.clear();
+    m_scenes.clear();
 }
 
 void VideoManager::Load(const model::Performance& performance)
@@ -63,8 +70,12 @@ void VideoManager::Load(const model::Performance& performance)
     // Keep sources that are still used (so an edit doesn't restart a playing video); create new ones; drop the rest.
     // Every pool video gets a player, so the Videos panel can show its length and scenes switching to it
     // carry on from where it was.
+    // A scene keeps its place in its video playlist through edits, as long as the video on screen is still in it.
+    std::map<std::string, SceneVideos> previous;
+    for (size_t i = 0; i < m_performance.scenes.size() && i < m_scenes.size(); ++i)
+        previous[m_performance.scenes[i].id] = m_scenes[i];
     m_performance = performance;
-    m_sceneKeys.clear();
+    m_scenes.clear();
     std::map<std::string, SourceEntry> sources;
     auto keep = [&](const std::string& key) {
         if (auto existing = m_sources.find(key); existing != m_sources.end())
@@ -91,9 +102,21 @@ void VideoManager::Load(const model::Performance& performance)
     }
     for (const auto& scene : m_performance.scenes)
     {
-        const std::string key = KeyFor(m_performance, scene);
-        m_sceneKeys.push_back(key);
-        if (key.empty() || sources.count(key) > 0 || keep(key))
+        SceneVideos videos;
+        videos.keys = KeysFor(m_performance, scene);
+        if (auto old = previous.find(scene.id); old != previous.end() && old->second.Key() != nullptr)
+        {
+            const auto now = std::find(videos.keys.begin(), videos.keys.end(), *old->second.Key());
+            if (old->second.keys == videos.keys)
+                videos = old->second;
+            else if (now != videos.keys.end())
+                videos.item = static_cast<size_t>(now - videos.keys.begin()); // the next one is planned again
+        }
+        m_scenes.push_back(videos);
+        if (scene.video.source.type != model::VideoSourceType::Syphon || videos.keys.empty())
+            continue;
+        const std::string& key = videos.keys.front();
+        if (sources.count(key) > 0 || keep(key))
             continue;
         SourceEntry entry;
         entry.source = io::CreateSyphonVideoSource(scene.video.source.appName, scene.video.source.serverName);
@@ -103,7 +126,7 @@ void VideoManager::Load(const model::Performance& performance)
     GV_LOG_INFO(kLogCategory, "%zu video source(s) for %zu scenes", m_sources.size(), m_performance.scenes.size());
 }
 
-void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene)
+void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene, const engine::ClockInput& clock)
 {
     m_frame++;
     while (!m_fences.empty() && m_fences.front().first < m_frame - kFenceLifetimeFrames)
@@ -117,16 +140,31 @@ void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene
     // of the scenes around the live one stay paused but keep their current frame converted, so a cut to
     // them shows video straight away.
     auto keyOf = [&](int scene) -> const std::string* {
-        if (scene < 0 || scene >= static_cast<int>(m_sceneKeys.size()) || m_sceneKeys[static_cast<size_t>(scene)].empty())
+        if (scene < 0 || scene >= static_cast<int>(m_scenes.size()))
             return nullptr;
-        return &m_sceneKeys[static_cast<size_t>(scene)];
+        return m_scenes[static_cast<size_t>(scene)].Key();
     };
-    std::set<std::string> playing;
-    for (int scene : {liveScene, pendingScene, handoverScene})
+    auto onScreenKeys = [&] {
+        std::set<std::string> keys;
+        for (int scene : {liveScene, pendingScene, handoverScene})
+        {
+            if (const auto* key = keyOf(scene))
+                keys.insert(*key);
+        }
+        return keys;
+    };
+
+    // Scenes that left the screen go back to their first video, for the next time they're triggered.
+    for (int scene = 0; scene < static_cast<int>(m_scenes.size()); ++scene)
     {
-        if (const auto* key = keyOf(scene))
-            playing.insert(*key);
+        auto& videos = m_scenes[static_cast<size_t>(scene)];
+        if (scene != liveScene && scene != pendingScene && scene != handoverScene && (videos.item != 0 || videos.next >= 0))
+            videos = SceneVideos{videos.keys};
     }
+    if (liveScene >= 0 && liveScene < static_cast<int>(m_scenes.size()))
+        CycleVideos(liveScene, onScreenKeys(), clock);
+
+    const std::set<std::string> playing = onScreenKeys();
     for (auto& [key, entry] : m_sources)
     {
         entry.source->SetActive(playing.count(key) > 0);
@@ -136,6 +174,60 @@ void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene
     {
         if (const auto* key = keyOf(scene); key != nullptr && playing.count(*key) == 0)
             UpdateEntry(m_sources[*key]);
+    }
+    // The live video playlist's next video: its first frame converted, ready for the cut.
+    if (liveScene >= 0 && liveScene < static_cast<int>(m_scenes.size()))
+    {
+        const auto& videos = m_scenes[static_cast<size_t>(liveScene)];
+        if (videos.next >= 0 && videos.nextReady)
+            UpdateEntry(m_sources[videos.keys[static_cast<size_t>(videos.next)]]);
+    }
+}
+
+void VideoManager::CycleVideos(int liveScene, const std::set<std::string>& onScreen, const engine::ClockInput& clock)
+{
+    const auto& scene = m_performance.scenes[static_cast<size_t>(liveScene)];
+    auto& videos = m_scenes[static_cast<size_t>(liveScene)];
+    const auto now = engine::CycleTimer::Clock::now();
+    if (scene.id != m_cycleScene)
+    {
+        m_cycleScene = scene.id;
+        m_timer.Restart(now);
+    }
+    if (!scene.IsVideoPlaylist() || videos.keys.size() < 2)
+        return;
+    if (videos.next < 0)
+        PlanNext(videos, scene, onScreen);
+
+    const auto& playlist = scene.video.playlist;
+    if (videos.next < 0 || !m_timer.Tick({playlist.unit, playlist.intervalSeconds, playlist.intervalCount}, now, clock))
+        return;
+    // Each video plays from its start point. One that couldn't wait there (it was on screen) jumps now.
+    auto& next = m_sources[videos.keys[static_cast<size_t>(videos.next)]];
+    if (!videos.nextReady)
+        next.source->Restart();
+    videos.item = static_cast<size_t>(videos.next);
+    videos.next = -1;
+    videos.nextReady = false;
+    GV_LOG_INFO(kLogCategory, "video playlist: scene %d (%s) now on video %zu of %zu: %s", liveScene, scene.DisplayName().c_str(), videos.item + 1,
+                videos.keys.size(), next.source->Describe().c_str());
+    std::set<std::string> nowOnScreen = onScreen;
+    nowOnScreen.insert(*videos.Key());
+    PlanNext(videos, scene, nowOnScreen);
+}
+
+void VideoManager::PlanNext(SceneVideos& videos, const model::Scene& scene, const std::set<std::string>& onScreen)
+{
+    videos.next = engine::NextEntry(static_cast<int>(videos.item), static_cast<int>(videos.keys.size()), scene.video.playlist.shuffle, m_random);
+    videos.nextReady = false;
+    if (videos.next < 0)
+        return;
+    // Wait at the start point, paused, unless it's on screen right now (then it jumps at the change).
+    const std::string& key = videos.keys[static_cast<size_t>(videos.next)];
+    if (onScreen.count(key) == 0)
+    {
+        m_sources[key].source->Restart();
+        videos.nextReady = true;
     }
 }
 
@@ -156,6 +248,9 @@ void VideoManager::OnTrigger(int scene, int liveScene)
 {
     if (scene == liveScene || scene < 0 || scene >= static_cast<int>(m_performance.scenes.size()))
         return;
+    // A scene starts on its first video.
+    auto& videos = m_scenes[static_cast<size_t>(scene)];
+    videos = SceneVideos{videos.keys};
     if (!m_performance.scenes[static_cast<size_t>(scene)].video.restartOnEnter)
         return;
     if (auto* entry = EntryFor(scene))
@@ -200,6 +295,13 @@ auto VideoManager::StateFor(int scene) const -> std::optional<io::VideoState>
     return std::nullopt;
 }
 
+auto VideoManager::VideoItemFor(int scene) const -> int
+{
+    if (scene < 0 || scene >= static_cast<int>(m_scenes.size()))
+        return 0;
+    return static_cast<int>(m_scenes[static_cast<size_t>(scene)].item);
+}
+
 auto VideoManager::DescribeFor(int scene) const -> std::string
 {
     if (const auto* entry = EntryFor(scene))
@@ -229,9 +331,9 @@ auto VideoManager::StateOf(const std::string& videoId) const -> std::optional<io
 
 auto VideoManager::EntryFor(int scene) -> SourceEntry*
 {
-    if (scene < 0 || scene >= static_cast<int>(m_sceneKeys.size()) || m_sceneKeys[static_cast<size_t>(scene)].empty())
+    if (scene < 0 || scene >= static_cast<int>(m_scenes.size()) || m_scenes[static_cast<size_t>(scene)].Key() == nullptr)
         return nullptr;
-    auto it = m_sources.find(m_sceneKeys[static_cast<size_t>(scene)]);
+    auto it = m_sources.find(*m_scenes[static_cast<size_t>(scene)].Key());
     return it == m_sources.end() ? nullptr : &it->second;
 }
 

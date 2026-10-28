@@ -120,6 +120,10 @@ auto MoveScene(Performance& performance, int from, int to) -> bool;
 /// if `index` is out of range.
 auto ReplacePreset(Performance& performance, int index, int item, const std::filesystem::path& presetPath) -> int;
 
+/// Gives scene `index` pool video `videoId` (turning its video on as a file source): added to the end of its
+/// video playlist if it has one turned on, else as its video. Returns false if `index` is out of range.
+auto AssignVideo(Performance& performance, int index, const std::string& videoId) -> bool;
+
 /// The id of the pool video for `file`, adding it (start 0, speed 1) if it isn't in the pool yet.
 auto AddPoolVideo(Performance& performance, const std::filesystem::path& file) -> std::string;
 

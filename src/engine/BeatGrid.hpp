@@ -2,6 +2,16 @@
 
 namespace gv::engine {
 
+/// The incoming MIDI clock, as the engine needs it (set by the app each frame).
+struct ClockInput
+{
+    bool receiving{false};
+    bool running{false};
+    bool positionKnown{false}; //!< songPulses follows Ableton's song position.
+    long long songPulses{0};   //!< Since Start / song position, 24 per beat.
+    long long totalPulses{0};  //!< Every pulse received; used when the song position is unknown.
+};
+
 constexpr long long kPulsesPerBeat = 24; //!< MIDI clock resolution.
 constexpr long long kPulsesPerBar = 96;  //!< 4/4.
 

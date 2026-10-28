@@ -458,12 +458,9 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kVideoDragPayload))
                 {
                     auto edited = performance;
-                    auto& video = edited.scenes[static_cast<size_t>(i)].video;
-                    video.enabled = true;
-                    video.source.type = model::VideoSourceType::File;
-                    video.source.videoId = static_cast<const char*>(payload->Data);
+                    model::AssignVideo(edited, i, static_cast<const char*>(payload->Data));
                     selected = i;
-                    actions.Edit(std::move(edited), "Assign Video");
+                    actions.Edit(std::move(edited), scene.IsVideoPlaylist() ? "Add to Video Playlist" : "Assign Video");
                 }
                 ImGui::EndDragDropTarget();
             }
@@ -552,7 +549,8 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                 ImGui::SameLine(0, 4);
                 ImGui::TextColored(bad ? kRed : (waiting ? kAmber : kDim), "%s", scene.video.source.type == model::VideoSourceType::Syphon ? "S" : "V");
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Video: %s (%s)\n%s%s", state.video->DescribeFor(i).c_str(), videoState ? io::ToString(*videoState) : "none",
+                    ImGui::SetTooltip("Video: %s (%s)%s\n%s%s", state.video->DescribeFor(i).c_str(), videoState ? io::ToString(*videoState) : "none",
+                                      scene.IsVideoPlaylist() ? ("\nVideo playlist of " + std::to_string(scene.video.playlist.videos.size())).c_str() : "",
                                       scene.IsPlaylist() ? "look per preset"
                                                          : ("mix " + std::to_string(scene.video.look.mix).substr(0, 4) + ", luma gate " +
                                                             std::to_string(scene.video.look.lumaMin).substr(0, 4)).c_str(),
@@ -659,10 +657,7 @@ void Shell::HandleDrops(ShellState& state, AppActions& actions, int hoveredScene
         else if (IsVideoFile(file))
         {
             const int target = hoveredScene >= 0 ? hoveredScene : selected;
-            auto& video = edited.scenes[static_cast<size_t>(target)].video;
-            video.enabled = true;
-            video.source.type = model::VideoSourceType::File;
-            video.source.videoId = model::AddPoolVideo(edited, file);
+            model::AssignVideo(edited, target, model::AddPoolVideo(edited, file));
             selected = target;
             changes++;
         }
@@ -809,6 +804,26 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
         }
     }
     if (scene.video.source.type == model::VideoSourceType::File)
+    {
+        bool videoPlaylist = scene.video.playlist.enabled;
+        if (ImGui::Checkbox("Playlist of videos", &videoPlaylist))
+        {
+            edit(videoPlaylist ? "Make Video Playlist" : "Single Video", "video-playlist", [&](model::Scene& s) {
+                s.video.playlist.enabled = videoPlaylist;
+                if (videoPlaylist && s.video.playlist.videos.empty() && !s.video.source.videoId.empty())
+                    s.video.playlist.videos.push_back(s.video.source.videoId);
+                if (!videoPlaylist && s.video.source.videoId.empty() && !s.video.playlist.videos.empty())
+                    s.video.source.videoId = s.video.playlist.videos.front();
+            });
+            actions.EndEdit();
+        }
+        Hint("Cycle through several videos, each from its start point, every N seconds, beats or bars.");
+    }
+    if (scene.video.source.type == model::VideoSourceType::File && scene.video.playlist.enabled)
+    {
+        DrawVideoPlaylist(state, actions, index);
+    }
+    else if (scene.video.source.type == model::VideoSourceType::File)
     {
         const model::PoolVideo* current = performance.VideoFor(scene);
         ImGui::SetNextItemWidth(-1);
@@ -1057,6 +1072,199 @@ auto Shell::NewEntryLook(const model::Scene& scene) const -> model::VideoLook
     return scene.playlist.presets.empty() ? scene.video.look : scene.LookFor(SelectedEntry(scene));
 }
 
+namespace {
+
+/// "Change every [N] [seconds | beats | bars]" and Shuffle, for preset and video playlists. `edit(label,
+/// key, change)` applies `change` to the playlist as an undoable edit.
+template <class Playlist, class Edit>
+void DrawPlaylistTiming(const Playlist& playlist, const ShellState& state, AppActions& actions, Edit&& edit)
+{
+    // Every [N] [seconds | beats | bars].
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Change every");
+    ImGui::SameLine();
+    if (playlist.unit == model::IntervalUnit::Seconds)
+    {
+        float interval = static_cast<float>(playlist.intervalSeconds);
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::SliderFloat("##seconds", &interval, 1.f, 300.f, "%.3g", ImGuiSliderFlags_Logarithmic))
+            edit("Change Interval", "interval", [&](Playlist& p) {
+                p.intervalSeconds = std::clamp(static_cast<double>(interval), model::kMinPlaylistInterval, model::kMaxPlaylistInterval);
+            });
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            actions.EndEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Double-click (or Cmd+click) to type an exact value, up to 3600 s.");
+    }
+    else
+    {
+        int count = playlist.intervalCount;
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::InputInt("##count", &count, 1, 4))
+            edit("Change Interval", "interval-count", [&](Playlist& p) { p.intervalCount = std::clamp(count, 1, model::kMaxPlaylistCount); });
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            actions.EndEdit();
+    }
+    ImGui::SameLine();
+    const char* units[] = {"seconds", "beats", "bars"};
+    int unit = static_cast<int>(playlist.unit);
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::Combo("##unit", &unit, units, 3))
+    {
+        edit("Change Interval Unit", "interval-unit", [&](Playlist& p) { p.unit = static_cast<model::IntervalUnit>(unit); });
+        actions.EndEdit();
+    }
+    if (playlist.unit != model::IntervalUnit::Seconds)
+    {
+        const auto clock = state.midi != nullptr ? state.midi->Clock() : io::ClockState();
+        if (clock.receiving && clock.running && !clock.positionKnown)
+            ImGui::TextColored(kAmber, "Ableton was already playing, so its bar lines are a guess.\nStop and play Ableton once to line changes up with its bars.");
+        else
+            ImGui::TextColored(kDim, "Follows Ableton's MIDI clock; changes land on bar lines.");
+    }
+    bool shuffle = playlist.shuffle;
+    if (ImGui::Checkbox("Shuffle", &shuffle))
+    {
+        edit("Change Shuffle", "shuffle", [&](Playlist& p) { p.shuffle = shuffle; });
+        actions.EndEdit();
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(kDim, shuffle ? "random order, never the same twice in a row" : "top to bottom, then around again");
+
+}
+
+} // namespace
+
+void Shell::DrawVideoPlaylist(ShellState& state, AppActions& actions, int index)
+{
+    const auto& performance = state.document->Get();
+    const auto& scene = performance.scenes[static_cast<size_t>(index)];
+    const auto& playlist = scene.video.playlist;
+    auto edit = [&](const char* label, const std::string& key, auto&& change) {
+        auto edited = performance;
+        change(edited.scenes[static_cast<size_t>(index)].video.playlist);
+        actions.Edit(std::move(edited), label, "video-" + key + ":" + scene.id);
+    };
+
+    ImGui::PushID("video-playlist");
+    DrawPlaylistTiming(playlist, state, actions, edit);
+    const bool live = state.engine != nullptr && state.engine->LiveScene() == index;
+    const int playing = live && state.video != nullptr ? state.video->VideoItemFor(index) : -1;
+    if (playlist.videos.size() < 2)
+        ImGui::TextColored(kAmber, "Add at least two videos to cycle.");
+    else if (playing >= 0)
+        ImGui::TextColored(kGreen, "Now playing %d of %zu", playing + 1, playlist.videos.size());
+
+    // The list: reorder, remove, drop videos from the Videos panel onto it.
+    const float rowHeight = ImGui::GetFrameHeightWithSpacing();
+    const float padding = ImGui::GetStyle().WindowPadding.y * 2.f;
+    int moveFrom = -1;
+    int moveTo = -1;
+    int remove = -1;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, rowHeight * 2.f + padding), ImVec2(FLT_MAX, rowHeight * 9.f + padding));
+    ImGui::BeginChild("videos", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+    for (int i = 0; i < static_cast<int>(playlist.videos.size()); ++i)
+    {
+        ImGui::PushID(i);
+        const model::PoolVideo* video = performance.FindVideo(playlist.videos[static_cast<size_t>(i)]);
+        const bool missing = video == nullptr || video->missing;
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(i == playing ? kGreen : kDim, "%d", i + 1);
+        ImGui::SameLine(30.f);
+        const float buttons = ImGui::GetFrameHeight() * 3.f + ImGui::GetStyle().ItemSpacing.x * 2.f;
+        const std::string name = video == nullptr ? playlist.videos[static_cast<size_t>(i)] + "  (not in the pool)"
+                                                  : video->DisplayName() + (video->missing ? "  (file not found)" : "");
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        const float nameWidth = std::max(10.f, ImGui::GetContentRegionMax().x - buttons - ImGui::GetStyle().ItemSpacing.x - ImGui::GetCursorPosX());
+        ImGui::PushStyleColor(ImGuiCol_Text, missing ? kRed : (i == playing ? kGreen : ImGui::GetStyleColorVec4(ImGuiCol_Text)));
+        ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(start.x, start.y + ImGui::GetStyle().FramePadding.y),
+                                  ImVec2(start.x + nameWidth, start.y + ImGui::GetFrameHeight()), start.x + nameWidth, name.c_str(), nullptr, nullptr);
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(nameWidth, ImGui::GetFrameHeight()));
+        if (video != nullptr && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\nStarts at %.2f s, %.2fx (set in the Videos panel)", video->path.c_str(), video->startSeconds, video->speed);
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - buttons);
+        ImGui::BeginDisabled(i == 0);
+        if (ImGui::ArrowButton("##up", ImGuiDir_Up))
+        {
+            moveFrom = i;
+            moveTo = i - 1;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(i + 1 == static_cast<int>(playlist.videos.size()));
+        if (ImGui::ArrowButton("##down", ImGuiDir_Down))
+        {
+            moveFrom = i;
+            moveTo = i + 1;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("x", ImVec2(ImGui::GetFrameHeight(), 0)))
+            remove = i;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Remove from the playlist (it stays in the video pool)");
+        ImGui::PopID();
+    }
+    if (playlist.videos.empty())
+        ImGui::TextColored(kDim, "Drag videos here from the Videos panel.");
+    ImGui::EndChild();
+    if (ImGui::BeginDragDropTarget())
+    {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kVideoDragPayload))
+        {
+            const std::string id = static_cast<const char*>(payload->Data);
+            edit("Add to Video Playlist", "playlist-add", [&](model::VideoPlaylist& p) { p.videos.push_back(id); });
+            actions.EndEdit();
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (moveFrom >= 0)
+    {
+        edit("Reorder Video Playlist", "playlist-move", [&](model::VideoPlaylist& p) {
+            std::swap(p.videos[static_cast<size_t>(moveFrom)], p.videos[static_cast<size_t>(moveTo)]);
+        });
+        actions.EndEdit();
+    }
+    if (remove >= 0)
+    {
+        edit("Remove from Video Playlist", "playlist-remove", [&](model::VideoPlaylist& p) { p.videos.erase(p.videos.begin() + remove); });
+        actions.EndEdit();
+    }
+
+    // Add from the pool, or a new file (added to the pool too).
+    ImGui::SetNextItemWidth(160);
+    if (ImGui::BeginCombo("##add", "Add from pool", ImGuiComboFlags_None))
+    {
+        for (const auto& video : performance.videos)
+        {
+            ImGui::PushID(video.id.c_str());
+            if (ImGui::Selectable(video.DisplayName().c_str()))
+            {
+                const std::string id = video.id;
+                edit("Add to Video Playlist", "playlist-add", [&](model::VideoPlaylist& p) { p.videos.push_back(id); });
+                actions.EndEdit();
+            }
+            ImGui::PopID();
+        }
+        if (performance.videos.empty())
+            ImGui::TextColored(kDim, "The video pool is empty.");
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Add Video..."))
+    {
+        if (auto file = ChooseFile("Add a video", kVideoExtensions))
+        {
+            auto edited = performance;
+            model::AssignVideo(edited, index, model::AddPoolVideo(edited, *file));
+            actions.Edit(std::move(edited), "Add to Video Playlist");
+        }
+        actions.EndEdit();
+    }
+    ImGui::PopID();
+}
+
 void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info)
 {
     const auto& performance = state.document->Get();
@@ -1070,58 +1278,7 @@ void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, cons
         actions.Edit(std::move(edited), label, key + ":" + scene.id);
     };
 
-    // Every [N] [seconds | beats | bars].
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Change every");
-    ImGui::SameLine();
-    if (playlist.unit == model::IntervalUnit::Seconds)
-    {
-        float interval = static_cast<float>(playlist.intervalSeconds);
-        ImGui::SetNextItemWidth(110);
-        if (ImGui::SliderFloat("##seconds", &interval, 1.f, 300.f, "%.3g", ImGuiSliderFlags_Logarithmic))
-            edit("Change Interval", "interval", [&](model::ScenePlaylist& p) {
-                p.intervalSeconds = std::clamp(static_cast<double>(interval), model::kMinPlaylistInterval, model::kMaxPlaylistInterval);
-            });
-        if (ImGui::IsItemDeactivatedAfterEdit())
-            actions.EndEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Double-click (or Cmd+click) to type an exact value, up to 3600 s.");
-    }
-    else
-    {
-        int count = playlist.intervalCount;
-        ImGui::SetNextItemWidth(110);
-        if (ImGui::InputInt("##count", &count, 1, 4))
-            edit("Change Interval", "interval-count", [&](model::ScenePlaylist& p) { p.intervalCount = std::clamp(count, 1, model::kMaxPlaylistCount); });
-        if (ImGui::IsItemDeactivatedAfterEdit())
-            actions.EndEdit();
-    }
-    ImGui::SameLine();
-    const char* units[] = {"seconds", "beats", "bars"};
-    int unit = static_cast<int>(playlist.unit);
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::Combo("##unit", &unit, units, 3))
-    {
-        edit("Change Interval Unit", "interval-unit", [&](model::ScenePlaylist& p) { p.unit = static_cast<model::IntervalUnit>(unit); });
-        actions.EndEdit();
-    }
-    if (playlist.unit != model::IntervalUnit::Seconds)
-    {
-        const auto clock = state.midi != nullptr ? state.midi->Clock() : io::ClockState();
-        if (clock.receiving && clock.running && !clock.positionKnown)
-            ImGui::TextColored(kAmber, "Counting from when the scene started: Ableton was already playing.\nStop and play Ableton once to line changes up with its %s lines.",
-                               playlist.unit == model::IntervalUnit::Bars ? "bar" : "beat");
-        else
-            ImGui::TextColored(kDim, "Follows Ableton's MIDI clock; changes land on %s lines.", playlist.unit == model::IntervalUnit::Bars ? "bar" : "beat");
-    }
-    bool shuffle = playlist.shuffle;
-    if (ImGui::Checkbox("Shuffle", &shuffle))
-    {
-        edit("Change Shuffle", "shuffle", [&](model::ScenePlaylist& p) { p.shuffle = shuffle; });
-        actions.EndEdit();
-    }
-    ImGui::SameLine();
-    ImGui::TextColored(kDim, shuffle ? "random order, never the same twice in a row" : "top to bottom, then around again");
+    DrawPlaylistTiming(playlist, state, actions, edit);
 
     if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()) && info.waitingForClock)
         ImGui::TextColored(kAmber, "Now %d of %zu, waiting for MIDI clock (Ableton stopped, or Sync off)", info.playlistItem + 1, playlist.presets.size());
@@ -1817,7 +1974,7 @@ void Shell::DrawVideos(ShellState& state, AppActions& actions)
                 std::string names;
                 for (const auto& scene : performance.scenes)
                 {
-                    if (scene.video.source.type == model::VideoSourceType::File && scene.video.source.videoId == video.id)
+                    if (scene.UsesVideo(video.id))
                         names += (names.empty() ? "" : "\n") + scene.DisplayName();
                 }
                 ImGui::SetTooltip("%s", names.c_str());

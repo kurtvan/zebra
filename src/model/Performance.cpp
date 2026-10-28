@@ -26,9 +26,8 @@ auto Performance::FindVideo(const std::string& id) const -> const PoolVideo*
 
 auto Performance::VideoFor(const Scene& scene) const -> const PoolVideo*
 {
-    if (scene.video.source.type != VideoSourceType::File)
-        return nullptr;
-    return FindVideo(scene.video.source.videoId);
+    const auto ids = scene.VideoIds();
+    return ids.empty() ? nullptr : FindVideo(ids.front());
 }
 
 auto Performance::FreeCc20Value() const -> std::optional<int>
