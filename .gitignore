@@ -6,3 +6,5 @@ cmake-build-*/
 compile_commands.json
 build-*/
 .cache/
+# Show files live outside the repo.
+performances/

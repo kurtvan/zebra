@@ -50,10 +50,10 @@ projectM is built from a patched copy of the `third_party/projectm` submodule. S
 A performance is a JSON file (format: `technical-details-2026-10-22.md` §6). To convert one from the old libprojectM-4.1.4 fork:
 
 ```sh
-scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.txt performances/my-show.json
+scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.txt ~/Shows/my-show.json
 ```
 
-`performances/govtech-2026-11-06.json` is the fork's show, converted.
+Keep show files outside the repo (`performances/` is ignored, so a show saved there is never committed).
 
 ### Syphon test pattern
 
@@ -70,7 +70,7 @@ See `docs/show-checklist.md` before a performance.
 ### Headless smoke run
 
 ```sh
-./build/src/govtech-visualizer --smoke --smoke-seconds 30 --smoke-cut-every 2 performances/govtech-2026-11-06.json
+./build/src/govtech-visualizer --smoke --smoke-seconds 30 --smoke-cut-every 2 ~/Shows/my-show.json
 ```
 
 Plays the performance in a hidden window, cutting to the next scene every 2 seconds, then logs held frames (by cause and per scene) and each scene's video state, and exits with status 0 on success. `--smoke-snapshots DIR` saves the output just before each cut as a BMP; `--smoke-editor-snapshot FILE` saves the editor window; `--smoke-edits` makes scripted edits during playback (reorder, change the live preset, delete it, undo).
