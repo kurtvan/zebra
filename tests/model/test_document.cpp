@@ -115,6 +115,26 @@ TEST_CASE("adding scenes uses unique ids and free CC values")
     CHECK(AddScene(performance, 99, "/end.milk") == 4);
 }
 
+TEST_CASE("replacing a scene's preset, or the playlist entry on screen")
+{
+    auto performance = ThreeScenes();
+    CHECK(ReplacePreset(performance, 1, 5, "/new.milk") == 0);
+    CHECK(performance.scenes[1].presetPath == "/new.milk");
+    CHECK(ReplacePreset(performance, 3, 0, "/new.milk") == -1);
+
+    auto& scene = performance.scenes[2];
+    scene.playlist.enabled = true;
+    scene.playlist.Add("/a.milk", {});
+    scene.playlist.Add("/b.milk", {});
+    scene.playlist.Add("/c.milk", {});
+    CHECK(ReplacePreset(performance, 2, 1, "/new.milk") == 1);
+    CHECK(scene.playlist.presets[1] == "/new.milk");
+    CHECK(scene.playlist.looks.size() == 3); // looks stay with their entries
+    CHECK(ReplacePreset(performance, 2, 9, "/last.milk") == 2);
+    CHECK(scene.playlist.presets[2] == "/last.milk");
+    CHECK(scene.presetPath == "/p2.milk"); // a playlist scene keeps its own preset field
+}
+
 TEST_CASE("adding stops at 128 scenes")
 {
     Performance performance;

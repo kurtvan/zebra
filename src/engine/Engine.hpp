@@ -151,6 +151,11 @@ public:
     {
         return m_pool.LiveScene();
     }
+    /// The playlist entry on screen in the live scene (0 for a single-preset scene).
+    auto LiveItem() const -> int
+    {
+        return m_pool.LiveItem();
+    }
     auto PendingScene() const -> int
     {
         return m_pool.PendingScene();
