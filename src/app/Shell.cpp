@@ -422,6 +422,11 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
             ImGui::TextColored(kDim, "%d", scene.cc20Value);
 
             ImGui::TableNextColumn();
+            // The selection and hover are drawn as row backgrounds, so they fill the whole row like the live one.
+            const ImVec4 clear{0.f, 0.f, 0.f, 0.f};
+            ImGui::PushStyleColor(ImGuiCol_Header, clear);
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, clear);
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive, clear);
             if (ImGui::Selectable(scene.DisplayName().c_str(), i == selected,
                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick,
                                   ImVec2(0, 26.f)))
@@ -429,6 +434,13 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                 selected = i;
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                     actions.Trigger(i);
+            }
+            ImGui::PopStyleColor(3);
+            const bool rowHovered = ImGui::IsItemHovered();
+            if (ImGui::IsItemActive() || rowHovered || i == selected)
+            {
+                const ImGuiCol color = ImGui::IsItemActive() ? ImGuiCol_HeaderActive : (rowHovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header);
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, ImGui::GetColorU32(color));
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
                 hoveredScene = i;
