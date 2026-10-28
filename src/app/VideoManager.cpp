@@ -96,7 +96,7 @@ void VideoManager::Load(const model::Performance& performance)
             entry.source = io::CreateFileVideoSource(video.path);
             sources.emplace(key, std::move(entry));
         }
-        sources[key].source->SetPlayback(video.startSeconds, video.speed, video.loop);
+        sources[key].source->SetPlayback(video.startSeconds, video.speed);
         if (m_canvasWidth > 0)
             sources[key].source->SetLayout(ToIo(video.fit), m_canvasWidth, m_canvasHeight);
     }
@@ -168,6 +168,12 @@ void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene
     for (auto& [key, entry] : m_sources)
     {
         entry.source->SetActive(playing.count(key) > 0);
+    }
+    // A shared video loops or not as the scene showing it says; the live scene wins over the others.
+    for (int scene : {handoverScene, pendingScene, liveScene})
+    {
+        if (const auto* key = keyOf(scene))
+            m_sources[*key].source->SetLoop(m_performance.scenes[static_cast<size_t>(scene)].video.loop);
     }
     const int anchor = liveScene >= 0 ? liveScene : 0;
     for (int scene = anchor - kWarmBehind; scene <= anchor + kWarmAhead; ++scene)

@@ -131,17 +131,23 @@ public:
         SeekToStart();
     }
 
-    void SetPlayback(double startSeconds, double speed, bool loop) override
+    void SetPlayback(double startSeconds, double speed) override
     {
         const bool startChanged = !m_playbackSet || startSeconds != m_startSeconds;
         m_playbackSet = true;
         m_startSeconds = startSeconds;
         m_speed = speed;
-        m_loop = loop;
-        if (startChanged || (loop && m_ended))
-            SeekToStart(); // a held video starts looping again when looping is turned back on
+        if (startChanged)
+            SeekToStart();
         else if (m_player != nil && m_active)
             m_player.rate = static_cast<float>(m_speed);
+    }
+
+    void SetLoop(bool loop) override
+    {
+        m_loop = loop;
+        if (loop && m_ended)
+            SeekToStart(); // a held video starts looping again
     }
 
     void SetLayout(VideoFit fit, int canvasWidth, int canvasHeight) override

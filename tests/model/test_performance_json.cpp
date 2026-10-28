@@ -51,10 +51,11 @@ TEST_CASE("a performance survives a save/load round trip")
     a.video.enabled = true;
     a.video.source.type = VideoSourceType::File;
     a.video.source.videoId = "intro";
-    performance.videos = {PoolVideo{"intro", "Intro loop", "/videos/intro.mp4", 12.5, 0.5, VideoFit::Fit, false}};
+    performance.videos = {PoolVideo{"intro", "Intro loop", "/videos/intro.mp4", 12.5, 0.5, VideoFit::Fit}};
     a.video.look.mix = 0.5f;
     a.video.look.lumaMin = 0.25f;
     a.video.restartOnEnter = false;
+    a.video.loop = false;
     a.video.look.contrast = 80.0f; // high contrast is allowed
     a.video.look.saturation = 0.0f;
     auto b = MakeScene("cave", 7);
@@ -82,13 +83,14 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK(loaded.videos[0].startSeconds == 12.5);
     CHECK(loaded.videos[0].speed == 0.5);
     CHECK(loaded.videos[0].fit == VideoFit::Fit);
-    CHECK_FALSE(loaded.videos[0].loop);
     CHECK(loaded.scenes[0].video.look.mix == 0.5f);
     CHECK(loaded.scenes[0].video.look.lumaMin == 0.25f);
     CHECK_FALSE(loaded.scenes[0].video.restartOnEnter);
+    CHECK_FALSE(loaded.scenes[0].video.loop);
     CHECK(loaded.scenes[0].video.look.contrast == 80.0f);
     CHECK(loaded.scenes[0].video.look.saturation == 0.0f);
     CHECK(loaded.scenes[1].video.look.contrast == 1.0f); // defaults
+    CHECK(loaded.scenes[1].video.loop);
     CHECK(loaded.scenes[1].cc20Value == 7);
     CHECK(loaded.scenes[1].video.source.type == VideoSourceType::Syphon);
     CHECK(loaded.scenes[1].video.source.appName == "Resolume");
@@ -335,7 +337,6 @@ TEST_CASE("format 1 file videos become pool videos, one per file")
     CHECK(performance.videos[0].startSeconds == 0.0);
     CHECK(performance.videos[0].speed == 1.0);
     CHECK(performance.videos[0].fit == VideoFit::Fill); // no "fit" in the file
-    CHECK(performance.videos[0].loop);                  // nor "loop"
     CHECK(performance.videos[1].id == "hearts-intro-2");
     CHECK(performance.scenes[0].video.source.videoId == "hearts-intro");
     CHECK(performance.scenes[1].video.source.videoId == "hearts-intro");

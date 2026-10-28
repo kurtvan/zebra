@@ -51,10 +51,15 @@ public:
     {
     }
 
-    /// Where playback starts, restarts and loops back to, how fast it plays, and whether it loops (file
-    /// sources). Without `loop` it stops at the end on its last frame until Restart(). Moving the start
-    /// point jumps there, so an edit shows straight away.
-    virtual void SetPlayback(double startSeconds, double speed, bool loop)
+    /// Where playback starts, restarts and loops back to, and how fast it plays (file sources). Moving the
+    /// start point jumps there, so an edit shows straight away.
+    virtual void SetPlayback(double startSeconds, double speed)
+    {
+    }
+
+    /// Whether it loops at the end (file sources, default on). Off: it stops on its last frame until
+    /// Restart(). Turning it back on while it holds restarts it. Cheap when unchanged.
+    virtual void SetLoop(bool loop)
     {
     }
 

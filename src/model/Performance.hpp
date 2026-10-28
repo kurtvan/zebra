@@ -64,6 +64,7 @@ struct SceneVideo
     VideoSource source;
     VideoLook look; //!< Single-preset scenes. Playlist entries have their own (ScenePlaylist::looks).
     bool restartOnEnter{true};
+    bool loop{true}; //!< File sources. Off: the video plays to the end once and holds its last frame until restarted.
     VideoPlaylist playlist; //!< File sources only.
 };
 
@@ -121,7 +122,6 @@ struct PoolVideo
     double startSeconds{0.0}; //!< Where playback starts, restarts and loops back to.
     double speed{1.0};        //!< kMinVideoSpeed..kMaxVideoSpeed, forward only.
     VideoFit fit{VideoFit::Fill};
-    bool loop{true}; //!< Off: plays to the end once and holds its last frame until a scene restarts it.
 
     bool missing{false}; //!< Set by the file checks, not serialized.
 

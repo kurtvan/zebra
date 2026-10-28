@@ -549,12 +549,12 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                 ImGui::SameLine(0, 4);
                 ImGui::TextColored(bad ? kRed : (waiting ? kAmber : kDim), "%s", scene.video.source.type == model::VideoSourceType::Syphon ? "S" : "V");
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Video: %s (%s)%s\n%s%s", state.video->DescribeFor(i).c_str(), videoState ? io::ToString(*videoState) : "none",
+                    ImGui::SetTooltip("Video: %s (%s)%s\n%s%s%s", state.video->DescribeFor(i).c_str(), videoState ? io::ToString(*videoState) : "none",
                                       scene.IsVideoPlaylist() ? ("\nVideo playlist of " + std::to_string(scene.video.playlist.videos.size())).c_str() : "",
                                       scene.IsPlaylist() ? "look per preset"
                                                          : ("mix " + std::to_string(scene.video.look.mix).substr(0, 4) + ", luma gate " +
                                                             std::to_string(scene.video.look.lumaMin).substr(0, 4)).c_str(),
-                                      scene.video.restartOnEnter ? ", restarts on entry" : "");
+                                      scene.video.restartOnEnter ? ", restarts on entry" : "", scene.video.loop ? "" : ", plays once");
             }
             ImGui::PopID();
         }
@@ -969,6 +969,17 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     {
         edit("Change Restart", "restart", [&](model::Scene& s) { s.video.restartOnEnter = restart; });
         actions.EndEdit();
+    }
+    if (scene.video.source.type == model::VideoSourceType::File)
+    {
+        bool loop = scene.video.loop;
+        if (ImGui::Checkbox("Loop video", &loop))
+        {
+            edit(loop ? "Loop Video" : "Play Video Once", "video-loop", [&](model::Scene& s) { s.video.loop = loop; });
+            actions.EndEdit();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("On: the video loops back to its start point at the end.\nOff: it plays to the end once and holds its last frame, until a scene\nthat restarts it (or the video playlist coming back to it) starts it again.");
     }
     ImGui::EndDisabled();
     ImGui::End();
@@ -1880,7 +1891,7 @@ void Shell::DrawVideos(ShellState& state, AppActions& actions)
 
     std::string removeId;
     const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
-    if (ImGui::BeginTable("videos", 8, flags))
+    if (ImGui::BeginTable("videos", 7, flags))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 2.0f);
@@ -1888,7 +1899,6 @@ void Shell::DrawVideos(ShellState& state, AppActions& actions)
         ImGui::TableSetupColumn("Start", ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn("Fit", ImGuiTableColumnFlags_WidthFixed, 90.f);
-        ImGui::TableSetupColumn("Loop", ImGuiTableColumnFlags_WidthFixed, 40.f);
         ImGui::TableSetupColumn("Used by", ImGuiTableColumnFlags_WidthFixed, 70.f);
         ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 130.f);
         ImGui::TableHeadersRow();
@@ -1966,16 +1976,6 @@ void Shell::DrawVideos(ShellState& state, AppActions& actions)
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("How the picture meets the output's shape.\nFill: covers it, cropping the edges.\nFit: the whole picture, with black bars.\nStretch: stretched to the output's shape.");
-
-            ImGui::TableNextColumn();
-            bool loop = video.loop;
-            if (ImGui::Checkbox("##loop", &loop))
-            {
-                edit(loop ? "Loop Video" : "Play Video Once", "video-loop", i, [&](model::PoolVideo& v) { v.loop = loop; });
-                actions.EndEdit();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("On: loops back to the start point at the end.\nOff: plays to the end once and holds its last frame, until a scene\nwith \"Restart video when the scene starts\" restarts it.");
 
             ImGui::TableNextColumn();
             const int usage = model::VideoUsage(performance, video.id);

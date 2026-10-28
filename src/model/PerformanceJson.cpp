@@ -180,6 +180,7 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
         ReadField(*video, "enabled", scene.video.enabled, videoPath, issues);
         scene.video.look = ParseLook(*video, videoPath, issues);
         ReadField(*video, "restartOnEnter", scene.video.restartOnEnter, videoPath, issues);
+        ReadField(*video, "loop", scene.video.loop, videoPath, issues);
         if (auto source = video->find("source"); source != video->end() && source->is_object())
         {
             scene.video.source = ParseVideoSource(*source, videoPath + "/source", issues);
@@ -287,7 +288,6 @@ auto ParsePerformance(const std::string& text) -> LoadResult
             ReadField((*videos)[i], "path", filePath, videoPath, result.issues);
             ReadField((*videos)[i], "startSeconds", video.startSeconds, videoPath, result.issues);
             ReadField((*videos)[i], "speed", video.speed, videoPath, result.issues);
-            ReadField((*videos)[i], "loop", video.loop, videoPath, result.issues);
             std::string fit = "fill";
             ReadField((*videos)[i], "fit", fit, videoPath, result.issues);
             if (fit == "fill")
@@ -385,7 +385,8 @@ auto SerializePerformance(const Performance& performance) -> std::string
             {"lumaMin", scene.video.look.lumaMin},
             {"contrast", scene.video.look.contrast},
             {"saturation", scene.video.look.saturation},
-            {"restartOnEnter", scene.video.restartOnEnter}};
+            {"restartOnEnter", scene.video.restartOnEnter},
+            {"loop", scene.video.loop}};
         if (scene.video.playlist.enabled || !scene.video.playlist.videos.empty())
         {
             object["video"]["playlist"] = {{"enabled", scene.video.playlist.enabled}, {"videos", scene.video.playlist.videos}};
@@ -398,8 +399,7 @@ auto SerializePerformance(const Performance& performance) -> std::string
     for (const auto& video : performance.videos)
     {
         json object = {{"id", video.id}, {"path", video.path.string()}, {"startSeconds", video.startSeconds}, {"speed", video.speed},
-                       {"fit", video.fit == VideoFit::Fill ? "fill" : video.fit == VideoFit::Fit ? "fit" : "stretch"},
-                       {"loop", video.loop}};
+                       {"fit", video.fit == VideoFit::Fill ? "fill" : video.fit == VideoFit::Fit ? "fit" : "stretch"}};
         if (!video.name.empty())
             object["name"] = video.name;
         root["videos"].push_back(std::move(object));
