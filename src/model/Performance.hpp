@@ -121,6 +121,7 @@ struct PoolVideo
     double startSeconds{0.0}; //!< Where playback starts, restarts and loops back to.
     double speed{1.0};        //!< kMinVideoSpeed..kMaxVideoSpeed, forward only.
     VideoFit fit{VideoFit::Fill};
+    bool loop{true}; //!< Off: plays to the end once and holds its last frame until a scene restarts it.
 
     bool missing{false}; //!< Set by the file checks, not serialized.
 

@@ -96,7 +96,7 @@ void VideoManager::Load(const model::Performance& performance)
             entry.source = io::CreateFileVideoSource(video.path);
             sources.emplace(key, std::move(entry));
         }
-        sources[key].source->SetPlayback(video.startSeconds, video.speed);
+        sources[key].source->SetPlayback(video.startSeconds, video.speed, video.loop);
         if (m_canvasWidth > 0)
             sources[key].source->SetLayout(ToIo(video.fit), m_canvasWidth, m_canvasHeight);
     }

@@ -287,6 +287,7 @@ auto ParsePerformance(const std::string& text) -> LoadResult
             ReadField((*videos)[i], "path", filePath, videoPath, result.issues);
             ReadField((*videos)[i], "startSeconds", video.startSeconds, videoPath, result.issues);
             ReadField((*videos)[i], "speed", video.speed, videoPath, result.issues);
+            ReadField((*videos)[i], "loop", video.loop, videoPath, result.issues);
             std::string fit = "fill";
             ReadField((*videos)[i], "fit", fit, videoPath, result.issues);
             if (fit == "fill")
@@ -397,7 +398,8 @@ auto SerializePerformance(const Performance& performance) -> std::string
     for (const auto& video : performance.videos)
     {
         json object = {{"id", video.id}, {"path", video.path.string()}, {"startSeconds", video.startSeconds}, {"speed", video.speed},
-                       {"fit", video.fit == VideoFit::Fill ? "fill" : video.fit == VideoFit::Fit ? "fit" : "stretch"}};
+                       {"fit", video.fit == VideoFit::Fill ? "fill" : video.fit == VideoFit::Fit ? "fit" : "stretch"},
+                       {"loop", video.loop}};
         if (!video.name.empty())
             object["name"] = video.name;
         root["videos"].push_back(std::move(object));
