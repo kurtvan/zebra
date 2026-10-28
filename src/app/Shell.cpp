@@ -701,6 +701,19 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     };
 
     const bool isLive = state.engine->LiveScene() == index;
+    // While the scene is live, the selected playlist entry follows the one on screen, so the Video sliders
+    // change what you see. Clicking another entry selects it until the playlist moves on (never mid-drag).
+    if (isLive && scene.IsPlaylist())
+    {
+        const int onScreen = state.engine->LiveItem();
+        if ((m_followScene != scene.id || m_followEntry != onScreen) && !ImGui::IsAnyItemActive())
+        {
+            m_followScene = scene.id;
+            m_followEntry = onScreen;
+            m_entryScene = scene.id;
+            m_entry = onScreen;
+        }
+    }
     ImGui::BeginDisabled(isLive);
     if (ImGui::Button(isLive ? "Live" : "Go Live", ImVec2(110, 0)))
         actions.Trigger(index);
@@ -910,7 +923,12 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     if (lookItem >= 0)
     {
         ImGui::TextColored(kAccent, "Look for preset %d: %s", lookItem + 1, scene.playlist.presets[static_cast<size_t>(lookItem)].stem().c_str());
-        Hint("Each preset in the playlist has its own look. Click a preset in the list above to edit its look.");
+        Hint("Each preset in the playlist has its own look. While the scene is live, the sliders follow the preset on screen;\n"
+             "click another preset in the list above to edit its look.");
+        if (isLive && lookItem != state.engine->LiveItem())
+            ImGui::TextColored(kAmber, "Not on screen: you'll see this look when preset %d comes up.", lookItem + 1);
+        else if (!isLive)
+            ImGui::TextColored(kDim, "The scene isn't live: you'll see this look when preset %d comes up.", lookItem + 1);
     }
     float mix = look.mix;
     ImGui::SetNextItemWidth(-90);
