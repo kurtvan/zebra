@@ -57,6 +57,12 @@ public:
     {
     }
 
+    /// Whether it loops at the end (file sources, default on). Off: it stops on its last frame until
+    /// Restart(). Turning it back on while it holds restarts it. Cheap when unchanged.
+    virtual void SetLoop(bool loop)
+    {
+    }
+
     /// Fits the upright picture to a canvas of this size (file sources): the texture then has the canvas's size.
     virtual void SetLayout(VideoFit fit, int canvasWidth, int canvasHeight)
     {

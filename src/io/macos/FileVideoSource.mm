@@ -53,13 +53,13 @@ public:
         m_player.muted = YES;
         m_player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
 
-        // Loop forever, back to the start point. The observer is removed before this object goes away.
+        // At the end: back to the start point, or stay on the last frame. The observer is removed before this object goes away.
         FileVideoSource* owner = this;
         m_loopObserver = [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
                                                                            object:item
                                                                             queue:[NSOperationQueue mainQueue]
                                                                        usingBlock:^(NSNotification*) {
-                                                                           owner->SeekToStart();
+                                                                           owner->OnEnd();
                                                                        }];
         GV_LOG_INFO(kLogCategory, "opened %s", file.c_str());
     }
@@ -143,6 +143,13 @@ public:
             m_player.rate = static_cast<float>(m_speed);
     }
 
+    void SetLoop(bool loop) override
+    {
+        m_loop = loop;
+        if (loop && m_ended)
+            SeekToStart(); // a held video starts looping again
+    }
+
     void SetLayout(VideoFit fit, int canvasWidth, int canvasHeight) override
     {
         if (fit == m_placement.fit && canvasWidth == m_placement.width && canvasHeight == m_placement.height)
@@ -180,6 +187,17 @@ public:
     }
 
 private:
+    void OnEnd()
+    {
+        if (m_loop)
+        {
+            SeekToStart();
+            return;
+        }
+        m_ended = true; // the player stays on the last frame, which stays converted
+        GV_LOG_INFO(kLogCategory, "%s reached its end; holding the last frame", m_file.filename().c_str());
+    }
+
     /// Phones store a vertical video as a landscape frame plus a rotation for the player to apply.
     void ReadOrientation()
     {
@@ -216,6 +234,7 @@ private:
         // A start point past the end (or a length not known yet) plays from the beginning.
         const double duration = DurationSeconds();
         const double start = duration > 0.0 && m_startSeconds < duration ? m_startSeconds : (duration > 0.0 ? 0.0 : m_startSeconds);
+        m_ended = false;
         [m_player seekToTime:CMTimeMakeWithSeconds(start, 600) toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
         if (m_active)
             m_player.rate = static_cast<float>(m_speed);
@@ -225,6 +244,8 @@ private:
     double m_startSeconds{0.0};
     double m_speed{1.0};
     bool m_playbackSet{false};
+    bool m_loop{true};
+    bool m_ended{false}; //!< Not looping, and played to the end.
     VideoState m_state{VideoState::Starting};
     AVPlayer* m_player{nil};
     AVPlayerItemVideoOutput* m_output{nil};

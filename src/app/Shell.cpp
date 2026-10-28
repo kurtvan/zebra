@@ -549,12 +549,12 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                 ImGui::SameLine(0, 4);
                 ImGui::TextColored(bad ? kRed : (waiting ? kAmber : kDim), "%s", scene.video.source.type == model::VideoSourceType::Syphon ? "S" : "V");
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Video: %s (%s)%s\n%s%s", state.video->DescribeFor(i).c_str(), videoState ? io::ToString(*videoState) : "none",
+                    ImGui::SetTooltip("Video: %s (%s)%s\n%s%s%s", state.video->DescribeFor(i).c_str(), videoState ? io::ToString(*videoState) : "none",
                                       scene.IsVideoPlaylist() ? ("\nVideo playlist of " + std::to_string(scene.video.playlist.videos.size())).c_str() : "",
                                       scene.IsPlaylist() ? "look per preset"
                                                          : ("mix " + std::to_string(scene.video.look.mix).substr(0, 4) + ", luma gate " +
                                                             std::to_string(scene.video.look.lumaMin).substr(0, 4)).c_str(),
-                                      scene.video.restartOnEnter ? ", restarts on entry" : "");
+                                      scene.video.restartOnEnter ? ", restarts on entry" : "", scene.video.loop ? "" : ", plays once");
             }
             ImGui::PopID();
         }
@@ -969,6 +969,17 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     {
         edit("Change Restart", "restart", [&](model::Scene& s) { s.video.restartOnEnter = restart; });
         actions.EndEdit();
+    }
+    if (scene.video.source.type == model::VideoSourceType::File)
+    {
+        bool loop = scene.video.loop;
+        if (ImGui::Checkbox("Loop video", &loop))
+        {
+            edit(loop ? "Loop Video" : "Play Video Once", "video-loop", [&](model::Scene& s) { s.video.loop = loop; });
+            actions.EndEdit();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("On: the video loops back to its start point at the end.\nOff: it plays to the end once and holds its last frame, until a scene\nthat restarts it (or the video playlist coming back to it) starts it again.");
     }
     ImGui::EndDisabled();
     ImGui::End();
