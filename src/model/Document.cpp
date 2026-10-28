@@ -37,6 +37,10 @@ void Document::Edit(Performance edited, std::string label, std::string coalesceK
         if (m_undo.size() > kMaxUndoSteps)
             m_undo.erase(m_undo.begin());
     }
+    else
+    {
+        m_retired.push_back(std::move(m_current)); // the UI may still be reading it this frame
+    }
     m_coalesceKey = std::move(coalesceKey);
     m_current = std::move(edited);
     m_currentId = m_nextId++;
