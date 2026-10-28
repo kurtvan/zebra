@@ -765,6 +765,7 @@ private:
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;
         shell.Draw(state, *this);
+        m_document.ReleaseRetired();
 
         ImGui::Render();
         int width = 0;

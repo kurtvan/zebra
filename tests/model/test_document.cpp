@@ -82,6 +82,22 @@ TEST_CASE("edits with the same coalesce key form one undo step until coalescing 
     CHECK_FALSE(document.CanUndo());
 }
 
+TEST_CASE("references into the performance survive coalesced edits until released")
+{
+    // The editor keeps references to a scene while a slider edits it, frame after frame.
+    Document document(ThreeScenes(), "");
+    auto edited = document.Get();
+    edited.scenes[2].video.look.mix = 0.1f;
+    document.Edit(edited, "Change mix", "mix:s2"); // the old state goes to the undo stack
+    const auto& scene = document.Get().scenes[2];
+    edited.scenes[2].video.look.mix = 0.2f;
+    document.Edit(edited, "Change mix", "mix:s2"); // coalesced: replaces the state `scene` points into
+    CHECK(scene.id == "s2"); // still readable, not freed memory
+    CHECK(scene.video.look.mix == 0.1f);
+    document.ReleaseRetired();
+    CHECK(document.Get().scenes[2].video.look.mix == 0.2f);
+}
+
 TEST_CASE("revision increases on every change")
 {
     Document document(ThreeScenes(), "");

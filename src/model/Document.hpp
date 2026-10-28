@@ -45,6 +45,14 @@ public:
     /// Consecutive edits with the same non-empty `coalesceKey` merge into one step (e.g. a slider drag).
     void Edit(Performance edited, std::string label, std::string coalesceKey = {});
 
+    /// Frees the states replaced by coalesced edits. References into Get() (a scene, a playlist's looks)
+    /// stay valid until this is called, so UI code can keep drawing from them after an edit in the same
+    /// frame. Call once per frame, outside the UI.
+    void ReleaseRetired()
+    {
+        m_retired.clear();
+    }
+
     /// Ends the current coalescing run, so the next edit starts a new undo step.
     void EndCoalescing()
     {
@@ -81,6 +89,7 @@ private:
     std::filesystem::path m_path;
     std::vector<Step> m_undo;
     std::vector<Step> m_redo;
+    std::vector<Performance> m_retired; //!< Replaced by coalesced edits; kept alive until ReleaseRetired().
     std::string m_coalesceKey;
     uint64_t m_nextId{1};
     uint64_t m_currentId{0};
