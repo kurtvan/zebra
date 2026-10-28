@@ -96,6 +96,10 @@ private:
     void DrawBrowser(ShellState& state, AppActions& actions);
     void DrawPresetGrid(ShellState& state, AppActions& actions);
     void AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene);
+    /// Puts the preset in the live scene, in place of the playlist entry on screen if it's a playlist.
+    /// Returns false when nothing is live.
+    auto ReplaceLivePreset(const ShellState& state, AppActions& actions, const std::filesystem::path& preset) -> bool;
+    void DoubleClickPreset(const ShellState& state, AppActions& actions, const std::filesystem::path& preset);
     void DrawVideos(ShellState& state, AppActions& actions);
     void DrawStatus(const ShellState& state);
     void DrawMessages(const ShellState& state);

@@ -115,6 +115,11 @@ auto DeleteScene(Performance& performance, int index) -> bool;
 /// Moves scene `from` to position `to`. CC values move with their scenes. Returns false if out of range.
 auto MoveScene(Performance& performance, int from, int to) -> bool;
 
+/// Puts `presetPath` in scene `index`: in place of playlist entry `item` for a playlist scene (clamped to
+/// its entries), else as the scene's preset. Returns the entry replaced (0 for a single-preset scene), or -1
+/// if `index` is out of range.
+auto ReplacePreset(Performance& performance, int index, int item, const std::filesystem::path& presetPath) -> int;
+
 /// The id of the pool video for `file`, adding it (start 0, speed 1) if it isn't in the pool yet.
 auto AddPoolVideo(Performance& performance, const std::filesystem::path& file) -> std::string;
 
