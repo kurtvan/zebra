@@ -376,6 +376,19 @@ TEST_CASE("beat and bar cycles start on the grid line, or the next one when well
     CHECK(CycleStart(24 * 5 + 20, 24) == 24 * 6); // late in a beat: the next beat
 }
 
+TEST_CASE("beat and bar playlists only switch on bar lines")
+{
+    using gv::engine::NextBarLine;
+    using gv::engine::NextSwitch;
+    CHECK(NextBarLine(0) == 0);
+    CHECK(NextBarLine(96 * 2) == 96 * 2);
+    CHECK(NextBarLine(96 * 2 + 1) == 96 * 3);
+    CHECK(NextSwitch(96 * 3, 96 * 4) == 96 * 7);     // every 4 bars
+    CHECK(NextSwitch(96 * 3, 24 * 8) == 96 * 5);     // every 8 beats = 2 bars
+    CHECK(NextSwitch(96 * 3, 24 * 6) == 96 * 5);     // every 6 beats: rounded up to 2 bars
+    CHECK(NextSwitch(96 * 3, 24) == 96 * 4);         // every beat: every bar
+}
+
 TEST_CASE("jumping to an entry of the live playlist scene cuts to it when it's ready")
 {
     Harness h({3, 1, 3});
