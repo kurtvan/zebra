@@ -114,9 +114,11 @@ private:
     std::vector<std::string> m_audioDevices;
     bool m_listsLoaded{false};
     int m_scrollToScene{-1};
-    bool m_videosHovered{false};
+    bool m_videosHovered{false}; //!< Last frame: Finder drops add to the pool instead of a scene.
     std::string m_entryScene; //!< Scene id of the selected playlist entry (whose look the Video sliders edit).
-    int m_entry{0}; //!< Last frame: Finder drops add to the pool instead of a scene.
+    int m_entry{0};
+    std::string m_followScene; //!< The live playlist entry the selection last followed (scene id, entry).
+    int m_followEntry{-1};
 
     // Preset browser.
     library::Query m_query;
