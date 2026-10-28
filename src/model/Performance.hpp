@@ -34,6 +34,8 @@ struct VideoLook
     float lumaMin{0.0f}; //!< 0..1
     float contrast{1.0f};   //!< 0..kMaxContrast, 1 = unchanged; very high = hard black/white (with saturation 0). Before the luma gate.
     float saturation{1.0f}; //!< 0..2, 1 = unchanged, 0 = greyscale.
+    bool overlay{false};    //!< Also draw the video on top of the finished frame, masked by the luma gate.
+    float softness{0.0f};   //!< 0..1: overlay mask edge, 0 = hard.
 
     auto operator==(const VideoLook&) const -> bool = default;
 };

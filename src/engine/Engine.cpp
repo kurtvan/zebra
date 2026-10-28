@@ -253,7 +253,7 @@ void Engine::UpdatePerformance(const model::Performance& performance)
 auto Engine::VideoSettingsFor(const model::Scene& scene, int item) -> VideoSettings
 {
     const auto& look = scene.LookFor(item);
-    return {scene.video.enabled, look.mix, look.lumaMin, look.contrast, look.saturation};
+    return {scene.video.enabled, look.mix, look.lumaMin, look.contrast, look.saturation, look.overlay, look.softness};
 }
 
 void Engine::TriggerItem(int index, int item)

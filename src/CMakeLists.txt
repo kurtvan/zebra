@@ -62,7 +62,9 @@ add_library(gv_engine STATIC
     engine/Engine.cpp
     engine/Engine.hpp
     engine/CycleTimer.cpp
-    engine/CycleTimer.hpp)
+    engine/CycleTimer.hpp
+    engine/VideoOverlay.cpp
+    engine/VideoOverlay.hpp)
 target_link_libraries(gv_engine PUBLIC gv_common gv_model SDL2::SDL2 OpenGL::GL libprojectM::projectM PRIVATE gv_warnings)
 target_compile_definitions(gv_engine PRIVATE GL_SILENCE_DEPRECATION)
 

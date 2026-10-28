@@ -58,6 +58,8 @@ TEST_CASE("a performance survives a save/load round trip")
     a.video.loop = false;
     a.video.look.contrast = 80.0f; // high contrast is allowed
     a.video.look.saturation = 0.0f;
+    a.video.look.overlay = true;
+    a.video.look.softness = 0.25f;
     auto b = MakeScene("cave", 7);
     b.video.enabled = true;
     b.video.source.type = VideoSourceType::Syphon;
@@ -89,6 +91,8 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK_FALSE(loaded.scenes[0].video.loop);
     CHECK(loaded.scenes[0].video.look.contrast == 80.0f);
     CHECK(loaded.scenes[0].video.look.saturation == 0.0f);
+    CHECK(loaded.scenes[0].video.look.overlay);
+    CHECK(loaded.scenes[0].video.look.softness == 0.25f);
     CHECK(loaded.scenes[1].video.look.contrast == 1.0f); // defaults
     CHECK(loaded.scenes[1].video.loop);
     CHECK(loaded.scenes[1].cc20Value == 7);
@@ -148,12 +152,14 @@ TEST_CASE("validation rules")
         scene.video.look.lumaMin = -0.1f;
         scene.video.look.contrast = 150.f;
         scene.video.look.saturation = -1.f;
+        scene.video.look.softness = 2.f;
         performance.scenes = {scene};
         const auto issues = Validate(performance);
         CHECK(HasIssueAt(issues, "/scenes/0/video/mix"));
         CHECK(HasIssueAt(issues, "/scenes/0/video/lumaMin"));
         CHECK(HasIssueAt(issues, "/scenes/0/video/contrast"));
         CHECK(HasIssueAt(issues, "/scenes/0/video/saturation"));
+        CHECK(HasIssueAt(issues, "/scenes/0/video/softness"));
     }
 
     SECTION("files without contrast/saturation load with defaults")
@@ -163,6 +169,8 @@ TEST_CASE("validation rules")
         REQUIRE(result.ok);
         CHECK(result.performance.scenes[0].video.look.contrast == 1.0f);
         CHECK(result.performance.scenes[0].video.look.saturation == 1.0f);
+        CHECK_FALSE(result.performance.scenes[0].video.look.overlay);
+        CHECK(result.performance.scenes[0].video.look.softness == 0.0f);
     }
     SECTION("enabled file video needs a pool video; Syphon without names means any server")
     {
@@ -449,14 +457,14 @@ TEST_CASE("playlist entries have their own video look")
         auto scene = MakeScene("a", 0);
         scene.playlist.enabled = true;
         scene.playlist.Add("/a.milk", VideoLook{0.5f, 0.1f, 1.f, 1.f});
-        scene.playlist.Add("/b.milk", VideoLook{1.f, 0.f, 100.f, 0.f});
+        scene.playlist.Add("/b.milk", VideoLook{1.f, 0.f, 100.f, 0.f, true, 0.5f});
         scene.video.look.mix = 0.7f;
         performance.scenes = {scene};
         const auto loaded = ParsePerformance(SerializePerformance(performance));
         REQUIRE(loaded.ok);
         const auto& back = loaded.performance.scenes[0];
         CHECK(back.LookFor(0) == VideoLook{0.5f, 0.1f, 1.f, 1.f});
-        CHECK(back.LookFor(1) == VideoLook{1.f, 0.f, 100.f, 0.f});
+        CHECK(back.LookFor(1) == VideoLook{1.f, 0.f, 100.f, 0.f, true, 0.5f});
         CHECK(back.video.look.mix == 0.7f);
         CHECK(back.LookFor(-1).mix == 0.7f);
 

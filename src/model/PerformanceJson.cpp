@@ -77,12 +77,15 @@ auto ParseLook(const json& object, const std::string& path, std::vector<Issue>& 
     ReadField(object, "lumaMin", look.lumaMin, path, issues);
     ReadField(object, "contrast", look.contrast, path, issues);
     ReadField(object, "saturation", look.saturation, path, issues);
+    ReadField(object, "overlay", look.overlay, path, issues);
+    ReadField(object, "softness", look.softness, path, issues);
     return look;
 }
 
 auto LookJson(const VideoLook& look) -> json
 {
-    return {{"mix", look.mix}, {"lumaMin", look.lumaMin}, {"contrast", look.contrast}, {"saturation", look.saturation}};
+    return {{"mix", look.mix},         {"lumaMin", look.lumaMin}, {"contrast", look.contrast},
+            {"saturation", look.saturation}, {"overlay", look.overlay}, {"softness", look.softness}};
 }
 
 void ValidateLook(const VideoLook& look, const std::string& path, std::vector<Issue>& issues)
@@ -95,6 +98,8 @@ void ValidateLook(const VideoLook& look, const std::string& path, std::vector<Is
         issues.push_back(Error(path + "/contrast", "must be between 0 and 100"));
     if (look.saturation < 0.f || look.saturation > 2.f)
         issues.push_back(Error(path + "/saturation", "must be between 0 and 2"));
+    if (look.softness < 0.f || look.softness > 1.f)
+        issues.push_back(Error(path + "/softness", "must be between 0 and 1"));
 }
 
 /// The timing shared by preset and video playlists: interval unit, length and shuffle.
@@ -378,15 +383,11 @@ auto SerializePerformance(const Performance& performance) -> std::string
         {
             source = {{"type", "syphon"}, {"appName", scene.video.source.appName}, {"serverName", scene.video.source.serverName}};
         }
-        object["video"] = {
-            {"enabled", scene.video.enabled},
-            {"source", source},
-            {"mix", scene.video.look.mix},
-            {"lumaMin", scene.video.look.lumaMin},
-            {"contrast", scene.video.look.contrast},
-            {"saturation", scene.video.look.saturation},
-            {"restartOnEnter", scene.video.restartOnEnter},
-            {"loop", scene.video.loop}};
+        object["video"] = LookJson(scene.video.look);
+        object["video"]["enabled"] = scene.video.enabled;
+        object["video"]["source"] = source;
+        object["video"]["restartOnEnter"] = scene.video.restartOnEnter;
+        object["video"]["loop"] = scene.video.loop;
         if (scene.video.playlist.enabled || !scene.video.playlist.videos.empty())
         {
             object["video"]["playlist"] = {{"enabled", scene.video.playlist.enabled}, {"videos", scene.video.playlist.videos}};

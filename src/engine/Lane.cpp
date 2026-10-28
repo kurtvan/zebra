@@ -1,6 +1,7 @@
 #include "engine/Lane.hpp"
 
 #include "common/log.hpp"
+#include "engine/VideoOverlay.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -284,7 +285,9 @@ void Lane::Run()
             case Job::Type::UpdateVideo:
                 if (auto hosted = m_instances.find(job.instance); hosted != m_instances.end())
                 {
-                    hosted->second.video = job.video.enabled;
+                    hosted->second.video = job.video;
+                    if (job.video.enabled && job.video.overlay && !m_overlay)
+                        m_overlay = std::make_unique<VideoOverlay>();
                     projectm_set_feedback_mix(hosted->second.handle, job.video.mix);
                     projectm_set_feedback_luma_gate(hosted->second.handle, job.video.lumaMin);
                     projectm_set_feedback_contrast(hosted->second.handle, job.video.contrast);
@@ -297,6 +300,7 @@ void Lane::Run()
                 m_instances.clear();
                 if (m_placeholderVideo != 0)
                     glDeleteTextures(1, &m_placeholderVideo);
+                m_overlay.reset();
                 {
                     std::lock_guard<std::mutex> lock(m_publishMutex);
                     if (m_published.fence != nullptr && !m_publishedTaken)
@@ -386,6 +390,9 @@ void Lane::DoPrepare(const Job& job, bool keep)
             glBindTexture(GL_TEXTURE_2D, 0);
         }
         projectm_set_feedback_texture(instance, m_placeholderVideo);
+        // The overlay's shader is compiled now too, not on the first live frame.
+        if (job.video.overlay && !m_overlay)
+            m_overlay = std::make_unique<VideoOverlay>();
     }
 
     if (failure.failed)
@@ -430,7 +437,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
         projectm_destroy(instance);
         return;
     }
-    m_instances[job.instance] = {instance, job.video.enabled};
+    m_instances[job.instance] = {instance, job.video};
     m_sink(std::move(event));
 }
 
@@ -516,7 +523,8 @@ void Lane::DoTick(PendingTick tick)
     }
     const bool timeThisFrame = !m_queryPending[slot];
     // Video: wait (on the GPU) until the producer finished writing this frame, then blend it.
-    const GLuint video = it->second.video ? tick.video.texture : 0;
+    const VideoSettings& settings = it->second.video;
+    const GLuint video = settings.enabled ? tick.video.texture : 0;
     if (video != 0 && tick.video.fence != nullptr && glIsSync(tick.video.fence))
     {
         glWaitSync(tick.video.fence, 0, GL_TIMEOUT_IGNORED);
@@ -529,6 +537,15 @@ void Lane::DoTick(PendingTick tick)
     glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
     glViewport(0, 0, m_width, m_height);
     projectm_opengl_render_frame_fbo(it->second.handle, m_slotFbo[slot]);
+    // Overlay: the video again, on top of the finished frame (it's not fed back; the blend above is).
+    if (video != 0 && settings.overlay)
+    {
+        if (!m_overlay)
+            m_overlay = std::make_unique<VideoOverlay>();
+        glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
+        glViewport(0, 0, m_width, m_height);
+        m_overlay->Draw(video, settings);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     if (timeThisFrame)

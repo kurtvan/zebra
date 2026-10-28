@@ -940,7 +940,7 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     if (ImGui::SliderFloat("Luma gate", &luma, 0.f, 1.f, "%.2f"))
         editLook("Change Luma Gate", "luma", [&](model::VideoLook& l) { l.lumaMin = luma; });
     endEditIfReleased();
-    Hint("Video pixels darker than this are left out of the blend.");
+    Hint("Video pixels darker than this are left out of the blend (and of the overlay).");
     float contrast = look.contrast;
     ImGui::SetNextItemWidth(-90);
     if (ImGui::SliderFloat("Contrast", &contrast, 0.f, model::kMaxContrast, contrast < 10.f ? "%.2f" : "%.0f", ImGuiSliderFlags_Logarithmic))
@@ -974,6 +974,24 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
             l.saturation = 1.f;
         });
         actions.EndEdit();
+    }
+    bool overlay = look.overlay;
+    if (ImGui::Checkbox("Overlay on top", &overlay))
+    {
+        editLook(overlay ? "Overlay Video" : "Stop Overlaying Video", "video-overlay", [&](model::VideoLook& l) { l.overlay = overlay; });
+        actions.EndEdit();
+    }
+    Hint("Also draws the video crisp on top of the visuals wherever it's brighter than the luma gate, with Mix as its opacity.\n"
+         "It still feeds the preset underneath. Use it to make the video stand out.");
+    if (look.overlay)
+    {
+        float softness = look.softness;
+        ImGui::SetNextItemWidth(-90);
+        if (ImGui::SliderFloat("Softness", &softness, 0.f, 1.f, "%.2f"))
+            editLook("Change Softness", "softness", [&](model::VideoLook& l) { l.softness = softness; });
+        endEditIfReleased();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The overlay's edge: 0 is a hard cut at the luma gate, higher feathers it.");
     }
     if (lookItem >= 0 && scene.playlist.presets.size() > 1 && ImGui::SmallButton("Use this look for every preset"))
     {
