@@ -126,6 +126,20 @@ auto ReplacePreset(Performance& performance, int index, int item, const std::fil
     return item;
 }
 
+auto AssignVideo(Performance& performance, int index, const std::string& videoId) -> bool
+{
+    if (index < 0 || index >= static_cast<int>(performance.scenes.size()))
+        return false;
+    auto& video = performance.scenes[static_cast<size_t>(index)].video;
+    video.enabled = true;
+    video.source.type = VideoSourceType::File;
+    if (video.playlist.enabled)
+        video.playlist.videos.push_back(videoId);
+    else
+        video.source.videoId = videoId;
+    return true;
+}
+
 auto AddScene(Performance& performance, int after, const std::filesystem::path& presetPath) -> int
 {
     const auto cc = performance.FreeCc20Value();
@@ -201,7 +215,7 @@ auto VideoUsage(const Performance& performance, const std::string& id) -> int
     int count = 0;
     for (const auto& scene : performance.scenes)
     {
-        if (scene.video.source.type == VideoSourceType::File && scene.video.source.videoId == id)
+        if (scene.UsesVideo(id))
             count++;
     }
     return count;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -37,20 +38,33 @@ struct VideoLook
     auto operator==(const VideoLook&) const -> bool = default;
 };
 
-struct SceneVideo
-{
-    bool enabled{false};
-    VideoSource source;
-    VideoLook look; //!< Single-preset scenes. Playlist entries have their own (ScenePlaylist::looks).
-    bool restartOnEnter{true};
-};
-
 /// What a playlist's interval counts.
 enum class IntervalUnit
 {
     Seconds,
     Beats, //!< MIDI clock beats.
     Bars,  //!< MIDI clock bars (4/4).
+};
+
+/// A scene's file video that cycles through several pool videos instead of showing one. Each video plays
+/// from its start point when it comes up.
+struct VideoPlaylist
+{
+    bool enabled{false};
+    std::vector<std::string> videos; //!< Pool video ids, in order.
+    IntervalUnit unit{IntervalUnit::Seconds};
+    double intervalSeconds{30.0}; //!< Unit Seconds: 1..3600.
+    int intervalCount{4};         //!< Units Beats/Bars: 1..256, changing on bar lines of the MIDI clock.
+    bool shuffle{false};          //!< Random order (never the same video twice in a row) instead of top to bottom.
+};
+
+struct SceneVideo
+{
+    bool enabled{false};
+    VideoSource source;
+    VideoLook look; //!< Single-preset scenes. Playlist entries have their own (ScenePlaylist::looks).
+    bool restartOnEnter{true};
+    VideoPlaylist playlist; //!< File sources only.
 };
 
 /// A scene that cycles through several presets instead of showing one.
@@ -139,6 +153,29 @@ struct Scene
         return playlist.enabled && !playlist.presets.empty();
     }
 
+    /// True if the scene's video cycles through a playlist of pool videos.
+    auto IsVideoPlaylist() const -> bool
+    {
+        return video.source.type == VideoSourceType::File && video.playlist.enabled && !video.playlist.videos.empty();
+    }
+
+    /// The pool videos the scene shows: the video playlist, or just the chosen one (none for Syphon).
+    auto VideoIds() const -> std::vector<std::string>
+    {
+        if (IsVideoPlaylist())
+            return video.playlist.videos;
+        if (video.source.type == VideoSourceType::File && !video.source.videoId.empty())
+            return {video.source.videoId};
+        return {};
+    }
+
+    /// Whether the scene uses pool video `id` (as its video or in its video playlist).
+    auto UsesVideo(const std::string& id) const -> bool
+    {
+        const auto ids = VideoIds();
+        return std::find(ids.begin(), ids.end(), id) != ids.end();
+    }
+
     /// The presets the scene shows: the playlist, or just presetPath.
     auto Presets() const -> std::vector<std::filesystem::path>
     {
@@ -186,7 +223,8 @@ struct Performance
 
     auto FindVideo(const std::string& id) const -> const PoolVideo*;
 
-    /// The pool video a scene's video uses, if it's a file source that exists in the pool.
+    /// The pool video a scene's video starts with (the first of a video playlist), if it's a file source
+    /// that exists in the pool.
     auto VideoFor(const Scene& scene) const -> const PoolVideo*;
 
     /// Index of the scene triggered by CC 20 value `value`, if any.

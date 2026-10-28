@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/BeatGrid.hpp"
 #include "engine/Lane.hpp"
 #include "engine/ScenePool.hpp"
 #include "model/Performance.hpp"
@@ -19,16 +20,6 @@
 #include <vector>
 
 namespace gv::engine {
-
-/// The incoming MIDI clock, as the engine needs it (set by the app each frame).
-struct ClockInput
-{
-    bool receiving{false};
-    bool running{false};
-    bool positionKnown{false}; //!< songPulses follows Ableton's song position.
-    long long songPulses{0};   //!< Since Start / song position, 24 per beat.
-    long long totalPulses{0};  //!< Every pulse received; used when the song position is unknown.
-};
 
 /// Supplies the current video frame of a scene (implemented by the app, which owns the video sources).
 class VideoProvider

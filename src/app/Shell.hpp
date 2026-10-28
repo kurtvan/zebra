@@ -92,6 +92,7 @@ private:
     void DrawScenes(ShellState& state, AppActions& actions);
     void DrawSceneProperties(ShellState& state, AppActions& actions);
     void DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info);
+    void DrawVideoPlaylist(ShellState& state, AppActions& actions, int index);
     void DrawSetup(ShellState& state, AppActions& actions);
     void DrawBrowser(ShellState& state, AppActions& actions);
     void DrawPresetGrid(ShellState& state, AppActions& actions);

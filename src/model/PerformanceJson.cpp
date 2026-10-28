@@ -97,6 +97,43 @@ void ValidateLook(const VideoLook& look, const std::string& path, std::vector<Is
         issues.push_back(Error(path + "/saturation", "must be between 0 and 2"));
 }
 
+/// The timing shared by preset and video playlists: interval unit, length and shuffle.
+template <class Playlist>
+void ParseTiming(const json& object, Playlist& playlist, const std::string& path, std::vector<Issue>& issues)
+{
+    ReadField(object, "intervalSeconds", playlist.intervalSeconds, path, issues);
+    ReadField(object, "intervalCount", playlist.intervalCount, path, issues);
+    std::string unit = "seconds";
+    ReadField(object, "intervalUnit", unit, path, issues);
+    if (unit == "seconds")
+        playlist.unit = IntervalUnit::Seconds;
+    else if (unit == "beats")
+        playlist.unit = IntervalUnit::Beats;
+    else if (unit == "bars")
+        playlist.unit = IntervalUnit::Bars;
+    else
+        issues.push_back(Error(path + "/intervalUnit", "unknown unit \"" + unit + "\" (expected \"seconds\", \"beats\" or \"bars\")"));
+    ReadField(object, "shuffle", playlist.shuffle, path, issues);
+}
+
+template <class Playlist>
+void WriteTiming(json& object, const Playlist& playlist)
+{
+    object["intervalUnit"] = playlist.unit == IntervalUnit::Seconds ? "seconds" : playlist.unit == IntervalUnit::Beats ? "beats" : "bars";
+    object["intervalSeconds"] = playlist.intervalSeconds;
+    object["intervalCount"] = playlist.intervalCount;
+    object["shuffle"] = playlist.shuffle;
+}
+
+template <class Playlist>
+void ValidateTiming(const Playlist& playlist, const std::string& path, std::vector<Issue>& issues)
+{
+    if (playlist.unit == IntervalUnit::Seconds && (playlist.intervalSeconds < kMinPlaylistInterval || playlist.intervalSeconds > kMaxPlaylistInterval))
+        issues.push_back(Error(path + "/intervalSeconds", "must be between 1 and 3600 seconds"));
+    if (playlist.unit != IntervalUnit::Seconds && (playlist.intervalCount < 1 || playlist.intervalCount > kMaxPlaylistCount))
+        issues.push_back(Error(path + "/intervalCount", "must be between 1 and 256"));
+}
+
 auto ParseScene(const json& object, const std::string& path, std::vector<Issue>& issues) -> Scene
 {
     Scene scene;
@@ -115,19 +152,7 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
     {
         const std::string playlistPath = path + "/playlist";
         ReadField(*playlist, "enabled", scene.playlist.enabled, playlistPath, issues);
-        ReadField(*playlist, "intervalSeconds", scene.playlist.intervalSeconds, playlistPath, issues);
-        ReadField(*playlist, "intervalCount", scene.playlist.intervalCount, playlistPath, issues);
-        std::string unit = "seconds";
-        ReadField(*playlist, "intervalUnit", unit, playlistPath, issues);
-        if (unit == "seconds")
-            scene.playlist.unit = IntervalUnit::Seconds;
-        else if (unit == "beats")
-            scene.playlist.unit = IntervalUnit::Beats;
-        else if (unit == "bars")
-            scene.playlist.unit = IntervalUnit::Bars;
-        else
-            issues.push_back(Error(playlistPath + "/intervalUnit", "unknown unit \"" + unit + "\" (expected \"seconds\", \"beats\" or \"bars\")"));
-        ReadField(*playlist, "shuffle", scene.playlist.shuffle, playlistPath, issues);
+        ParseTiming(*playlist, scene.playlist, playlistPath, issues);
         if (auto presets = playlist->find("presets"); presets != playlist->end() && presets->is_array())
         {
             for (size_t i = 0; i < presets->size(); ++i)
@@ -158,6 +183,13 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
         if (auto source = video->find("source"); source != video->end() && source->is_object())
         {
             scene.video.source = ParseVideoSource(*source, videoPath + "/source", issues);
+        }
+        if (auto playlist = video->find("playlist"); playlist != video->end() && playlist->is_object())
+        {
+            const std::string playlistPath = videoPath + "/playlist";
+            ReadField(*playlist, "enabled", scene.video.playlist.enabled, playlistPath, issues);
+            ParseTiming(*playlist, scene.video.playlist, playlistPath, issues);
+            ReadField(*playlist, "videos", scene.video.playlist.videos, playlistPath, issues);
         }
     }
 
@@ -332,13 +364,8 @@ auto SerializePerformance(const Performance& performance) -> std::string
             json presets = json::array();
             for (size_t i = 0; i < scene.playlist.presets.size(); ++i)
                 presets.push_back({{"path", scene.playlist.presets[i].string()}, {"look", LookJson(i < scene.playlist.looks.size() ? scene.playlist.looks[i] : scene.video.look)}});
-            object["playlist"] = {
-                {"enabled", scene.playlist.enabled},
-                {"presets", presets},
-                {"intervalUnit", scene.playlist.unit == IntervalUnit::Seconds ? "seconds" : scene.playlist.unit == IntervalUnit::Beats ? "beats" : "bars"},
-                {"intervalSeconds", scene.playlist.intervalSeconds},
-                {"intervalCount", scene.playlist.intervalCount},
-                {"shuffle", scene.playlist.shuffle}};
+            object["playlist"] = {{"enabled", scene.playlist.enabled}, {"presets", presets}};
+            WriteTiming(object["playlist"], scene.playlist);
         }
 
         json source;
@@ -358,6 +385,11 @@ auto SerializePerformance(const Performance& performance) -> std::string
             {"contrast", scene.video.look.contrast},
             {"saturation", scene.video.look.saturation},
             {"restartOnEnter", scene.video.restartOnEnter}};
+        if (scene.video.playlist.enabled || !scene.video.playlist.videos.empty())
+        {
+            object["video"]["playlist"] = {{"enabled", scene.video.playlist.enabled}, {"videos", scene.video.playlist.videos}};
+            WriteTiming(object["video"]["playlist"], scene.video.playlist);
+        }
         object["midi"] = {{"cc20Value", scene.cc20Value}};
         root["scenes"].push_back(object);
     }
@@ -430,11 +462,7 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
                 if (scene.playlist.presets[i].empty())
                     issues.push_back(Error(path + "/playlist/presets/" + std::to_string(i) + "/path", "is empty"));
             }
-            if (scene.playlist.unit == IntervalUnit::Seconds &&
-                (scene.playlist.intervalSeconds < kMinPlaylistInterval || scene.playlist.intervalSeconds > kMaxPlaylistInterval))
-                issues.push_back(Error(path + "/playlist/intervalSeconds", "must be between 1 and 3600 seconds"));
-            if (scene.playlist.unit != IntervalUnit::Seconds && (scene.playlist.intervalCount < 1 || scene.playlist.intervalCount > kMaxPlaylistCount))
-                issues.push_back(Error(path + "/playlist/intervalCount", "must be between 1 and 256"));
+            ValidateTiming(scene.playlist, path + "/playlist", issues);
         }
         else if (scene.presetPath.empty())
         {
@@ -453,7 +481,20 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
         ValidateLook(scene.video.look, path + "/video", issues);
         for (size_t i = 0; i < scene.playlist.looks.size(); ++i)
             ValidateLook(scene.playlist.looks[i], path + "/playlist/presets/" + std::to_string(i) + "/look", issues);
-        if (scene.video.enabled && scene.video.source.type == VideoSourceType::File && performance.FindVideo(scene.video.source.videoId) == nullptr)
+        const auto& videoPlaylist = scene.video.playlist;
+        if (scene.video.source.type == VideoSourceType::File && videoPlaylist.enabled)
+        {
+            const std::string playlistPath = path + "/video/playlist";
+            if (videoPlaylist.videos.empty() && scene.video.enabled)
+                issues.push_back(Error(playlistPath + "/videos", "a video playlist needs at least one video"));
+            for (size_t v = 0; v < videoPlaylist.videos.size(); ++v)
+            {
+                if (performance.FindVideo(videoPlaylist.videos[v]) == nullptr)
+                    issues.push_back(Error(playlistPath + "/videos/" + std::to_string(v), "video \"" + videoPlaylist.videos[v] + "\" isn't in the video pool"));
+            }
+            ValidateTiming(videoPlaylist, playlistPath, issues);
+        }
+        else if (scene.video.enabled && scene.video.source.type == VideoSourceType::File && performance.FindVideo(scene.video.source.videoId) == nullptr)
         {
             issues.push_back(Error(path + "/video/source/video",
                                    scene.video.source.videoId.empty() ? "no video chosen but video is enabled"

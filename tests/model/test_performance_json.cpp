@@ -370,6 +370,63 @@ TEST_CASE("the video pool: adding dedupes by file, removing needs it unused")
     CHECK(performance.videos.size() == 1);
 }
 
+TEST_CASE("video playlists round-trip, validate and count as using their videos")
+{
+    Performance performance;
+    AddPoolVideo(performance, "/v/a.mov");
+    AddPoolVideo(performance, "/v/b.mov");
+    auto scene = MakeScene("s", 0);
+    scene.video.enabled = true;
+    scene.video.source.videoId = "a";
+    scene.video.playlist = {true, {"b", "a"}, IntervalUnit::Bars, 30.0, 8, true};
+    performance.scenes = {scene};
+    CHECK(performance.scenes[0].IsVideoPlaylist());
+    CHECK(performance.VideoFor(performance.scenes[0])->id == "b"); // starts on the playlist's first video
+    CHECK(VideoUsage(performance, "b") == 1);
+    CHECK_FALSE(RemovePoolVideo(performance, "b"));
+
+    const auto result = ParsePerformance(SerializePerformance(performance));
+    REQUIRE(result.ok);
+    CHECK(result.issues.empty());
+    const auto& playlist = result.performance.scenes[0].video.playlist;
+    CHECK(playlist.enabled);
+    CHECK(playlist.videos == std::vector<std::string>{"b", "a"});
+    CHECK(playlist.unit == IntervalUnit::Bars);
+    CHECK(playlist.intervalCount == 8);
+    CHECK(playlist.shuffle);
+
+    // A turned-off playlist keeps its list, and the scene shows its single video again.
+    performance.scenes[0].video.playlist.enabled = false;
+    const auto off = ParsePerformance(SerializePerformance(performance));
+    CHECK_FALSE(off.performance.scenes[0].IsVideoPlaylist());
+    CHECK(off.performance.scenes[0].video.playlist.videos.size() == 2);
+    CHECK(off.performance.VideoFor(off.performance.scenes[0])->id == "a");
+
+    // Validation: unknown ids, empty list, interval range.
+    performance.scenes[0].video.playlist.enabled = true;
+    performance.scenes[0].video.playlist.videos = {"a", "nope"};
+    performance.scenes[0].video.playlist.intervalCount = 0;
+    auto issues = Validate(performance);
+    CHECK(HasIssueAt(issues, "/scenes/0/video/playlist/videos/1"));
+    CHECK(HasIssueAt(issues, "/scenes/0/video/playlist/intervalCount"));
+    performance.scenes[0].video.playlist.videos.clear();
+    CHECK(HasIssueAt(Validate(performance), "/scenes/0/video/playlist/videos"));
+}
+
+TEST_CASE("a dropped video joins a scene's video playlist, or becomes its video")
+{
+    Performance performance;
+    performance.scenes = {MakeScene("a", 0), MakeScene("b", 1)};
+    performance.scenes[1].video.playlist.enabled = true;
+    CHECK(AssignVideo(performance, 0, "x"));
+    CHECK(performance.scenes[0].video.enabled);
+    CHECK(performance.scenes[0].video.source.videoId == "x");
+    CHECK(AssignVideo(performance, 1, "x"));
+    CHECK(AssignVideo(performance, 1, "y"));
+    CHECK(performance.scenes[1].video.playlist.videos == std::vector<std::string>{"x", "y"});
+    CHECK_FALSE(AssignVideo(performance, 2, "x"));
+}
+
 TEST_CASE("playlist entries have their own video look")
 {
     SECTION("older files: every entry takes the scene's look")
