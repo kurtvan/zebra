@@ -92,7 +92,7 @@ void InstallMenus()
         AddItem(scene, @"Go Live", MenuCommand::TriggerSelected, @"", 0); // Return is handled in the scene list, not here: a menu key equivalent would steal it from text fields
 
         NSMenu* view = AddMenu(@"View", 4);
-        AddItem(view, @"Fullscreen", MenuCommand::Fullscreen, @"f");
+        AddItem(view, @"Fullscreen Visuals", MenuCommand::Fullscreen, @"f");
 
         SetRecentFiles({});
     }
