@@ -257,20 +257,51 @@ public:
         SyncEngine();
     }
 
+    /// Cmd+F, Esc and the Fullscreen button: only the visuals, on a full screen with no menu bar. macOS full
+    /// screen (green button, Globe+F) is separate and keeps the editor; this enters it too if needed and
+    /// leaves it again afterwards.
     void ToggleFullscreen() override
     {
-        gv::app::ToggleNativeFullscreen(m_editorWindow);
+        m_fullscreen = !m_fullscreen;
+        const bool native = gv::app::IsNativeFullscreen(m_editorWindow);
+        if (m_fullscreen)
+        {
+            m_nativeForFullscreen = !native;
+            m_nativeSeen = native;
+            if (!native)
+                gv::app::ToggleNativeFullscreen(m_editorWindow);
+        }
+        else
+        {
+            gv::app::SetMenuBarHidden(false);
+            m_menuBarHidden = false;
+            if (m_nativeForFullscreen && native)
+                gv::app::ToggleNativeFullscreen(m_editorWindow);
+            m_nativeForFullscreen = false;
+        }
+        SDL_ShowCursor(m_fullscreen ? SDL_DISABLE : SDL_ENABLE);
+        GV_LOG_INFO(kLogCategory, "fullscreen visuals %s", m_fullscreen ? "on" : "off");
     }
 
-    /// Follows macOS full screen, which the green button and Globe+F can also enter and leave.
+    /// Hides the menu bar once macOS full screen has started, and leaves the visuals view if the window
+    /// leaves macOS full screen some other way (Globe+F, the green button).
     void SyncFullscreen()
     {
-        const bool fullscreen = gv::app::IsNativeFullscreen(m_editorWindow);
-        if (fullscreen == m_fullscreen)
+        if (!m_fullscreen)
             return;
-        m_fullscreen = fullscreen;
-        SDL_ShowCursor(m_fullscreen ? SDL_DISABLE : SDL_ENABLE);
-        GV_LOG_INFO(kLogCategory, "fullscreen %s", m_fullscreen ? "on" : "off");
+        const bool native = gv::app::IsNativeFullscreen(m_editorWindow);
+        if (native && !m_menuBarHidden)
+        {
+            gv::app::SetMenuBarHidden(true);
+            m_menuBarHidden = true;
+        }
+        if (native)
+            m_nativeSeen = true;
+        else if (m_nativeSeen)
+        {
+            m_nativeForFullscreen = false;
+            ToggleFullscreen();
+        }
     }
 
     void SetAudioDevice(const std::string& deviceName) override
@@ -1109,7 +1140,10 @@ private:
 
     gv::app::VideoManager m_video; // declared before the engine: destroyed after it, so lanes never see freed textures
     gv::engine::Engine m_engine;
-    bool m_fullscreen{false};
+    bool m_fullscreen{false};          //!< Only the visuals (Cmd+F).
+    bool m_nativeForFullscreen{false}; //!< The visuals view entered macOS full screen, so leaving it leaves that too.
+    bool m_nativeSeen{false};          //!< The window has been in macOS full screen since the visuals view started.
+    bool m_menuBarHidden{false};
     GLuint m_readFbo{0};
     gv::SpscRingBuffer<float> m_ring;
     std::vector<float> m_pcm = std::vector<float>(48000 * 2);
