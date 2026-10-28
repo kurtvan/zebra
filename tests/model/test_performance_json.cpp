@@ -55,6 +55,7 @@ TEST_CASE("a performance survives a save/load round trip")
     a.video.look.mix = 0.5f;
     a.video.look.lumaMin = 0.25f;
     a.video.restartOnEnter = false;
+    a.video.loop = false;
     a.video.look.contrast = 80.0f; // high contrast is allowed
     a.video.look.saturation = 0.0f;
     auto b = MakeScene("cave", 7);
@@ -85,9 +86,11 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK(loaded.scenes[0].video.look.mix == 0.5f);
     CHECK(loaded.scenes[0].video.look.lumaMin == 0.25f);
     CHECK_FALSE(loaded.scenes[0].video.restartOnEnter);
+    CHECK_FALSE(loaded.scenes[0].video.loop);
     CHECK(loaded.scenes[0].video.look.contrast == 80.0f);
     CHECK(loaded.scenes[0].video.look.saturation == 0.0f);
     CHECK(loaded.scenes[1].video.look.contrast == 1.0f); // defaults
+    CHECK(loaded.scenes[1].video.loop);
     CHECK(loaded.scenes[1].cc20Value == 7);
     CHECK(loaded.scenes[1].video.source.type == VideoSourceType::Syphon);
     CHECK(loaded.scenes[1].video.source.appName == "Resolume");
