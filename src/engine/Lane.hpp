@@ -35,6 +35,7 @@ struct VideoSettings
     float saturation{1.0f};
     bool overlay{false};  //!< Also draw the video over the rendered frame, masked by lumaMin.
     float softness{0.0f}; //!< Overlay mask edge, 0 = hard.
+    bool lumaInvert{false}; //!< The gate keeps pixels darker than lumaMin instead (blend and overlay).
 };
 
 /// The current frame of the live scene's video, if it has one.

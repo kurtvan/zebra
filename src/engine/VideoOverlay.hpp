@@ -31,6 +31,7 @@ private:
     GLint m_contrastLocation{-1};
     GLint m_saturationLocation{-1};
     GLint m_softnessLocation{-1};
+    GLint m_lumaInvertLocation{-1};
 };
 
 } // namespace gv::engine

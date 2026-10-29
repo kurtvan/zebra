@@ -56,6 +56,7 @@ TEST_CASE("a performance survives a save/load round trip")
     a.video.look.lumaMin = 0.25f;
     a.video.restartOnEnter = false;
     a.video.loop = false;
+    a.video.invertLuma = true;
     a.video.look.contrast = 80.0f; // high contrast is allowed
     a.video.look.saturation = 0.0f;
     a.video.look.overlay = true;
@@ -89,6 +90,8 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK(loaded.scenes[0].video.look.lumaMin == 0.25f);
     CHECK_FALSE(loaded.scenes[0].video.restartOnEnter);
     CHECK_FALSE(loaded.scenes[0].video.loop);
+    CHECK(loaded.scenes[0].video.invertLuma);
+    CHECK_FALSE(loaded.scenes[1].video.invertLuma);
     CHECK(loaded.scenes[0].video.look.contrast == 80.0f);
     CHECK(loaded.scenes[0].video.look.saturation == 0.0f);
     CHECK(loaded.scenes[0].video.look.overlay);

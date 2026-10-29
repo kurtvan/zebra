@@ -66,6 +66,7 @@ struct SceneVideo
     VideoSource source;
     VideoLook look; //!< Single-preset scenes. Playlist entries have their own (ScenePlaylist::looks).
     bool restartOnEnter{true};
+    bool invertLuma{false}; //!< The luma gate keeps the video's dark parts instead of its bright ones (every look of the scene).
     bool loop{true}; //!< File sources. Off: the video plays to the end once and holds its last frame until restarted.
     VideoPlaylist playlist; //!< File sources only.
 };

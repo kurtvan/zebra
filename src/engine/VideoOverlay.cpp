@@ -19,7 +19,8 @@ void main()
 }
 )GLSL";
 
-// Contrast and saturation as in the feedback blend, then a hard luma mask, feathered by uSoftness.
+// Contrast and saturation as in the feedback blend, then a hard luma mask (inverted like the blend's
+// gate, patch 0005), feathered by uSoftness.
 constexpr const char* kFragmentShader = R"GLSL(#version 330 core
 uniform sampler2D uTexture;
 uniform float uMix;
@@ -27,6 +28,7 @@ uniform float uLumaMin;
 uniform float uContrast;
 uniform float uSaturation;
 uniform float uSoftness;
+uniform bool uLumaInvert;
 in vec2 vUv;
 out vec4 fragColor;
 void main()
@@ -39,6 +41,8 @@ void main()
     float luma = dot(color, lumaWeights);
     float edge = uSoftness * 0.5;
     float mask = edge > 0.0 ? smoothstep(uLumaMin - edge, uLumaMin + edge, luma) : step(uLumaMin, luma);
+    if (uLumaInvert)
+        mask = 1.0 - mask;
     fragColor = vec4(color, uMix * mask);
 }
 )GLSL";
@@ -85,6 +89,7 @@ VideoOverlay::VideoOverlay()
     m_contrastLocation = glGetUniformLocation(m_program, "uContrast");
     m_saturationLocation = glGetUniformLocation(m_program, "uSaturation");
     m_softnessLocation = glGetUniformLocation(m_program, "uSoftness");
+    m_lumaInvertLocation = glGetUniformLocation(m_program, "uLumaInvert");
     glGenVertexArrays(1, &m_vao);
 }
 
@@ -103,6 +108,7 @@ void VideoOverlay::Draw(GLuint texture, const VideoSettings& settings)
     glUniform1f(m_contrastLocation, settings.contrast);
     glUniform1f(m_saturationLocation, settings.saturation);
     glUniform1f(m_softnessLocation, settings.softness);
+    glUniform1i(m_lumaInvertLocation, settings.lumaInvert ? 1 : 0);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);

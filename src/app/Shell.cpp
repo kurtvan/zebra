@@ -952,7 +952,16 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     if (ImGui::SliderFloat("Luma gate", &luma, 0.f, 1.f, "%.2f"))
         editLook("Change Luma Gate", "luma", [&](model::VideoLook& l) { l.lumaMin = luma; });
     endEditIfReleased();
-    Hint("Video pixels darker than this are left out of the blend (and of the overlay).");
+    Hint("Video pixels darker than this are left out of the blend (and of the overlay); brighter ones with Invert.");
+    bool invertLuma = scene.video.invertLuma;
+    if (ImGui::Checkbox("Invert luma gate", &invertLuma))
+    {
+        edit(invertLuma ? "Invert Luma Gate" : "Uninvert Luma Gate", "invert-luma", [&](model::Scene& s) { s.video.invertLuma = invertLuma; });
+        actions.EndEdit();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Keeps the video's dark parts instead of its bright ones: pixels brighter than the luma gate are left out.\n"
+                          "Raise the luma gate to let more through. For the whole scene, every playlist preset included.");
     float contrast = look.contrast;
     ImGui::SetNextItemWidth(-90);
     if (ImGui::SliderFloat("Contrast", &contrast, 0.f, model::kMaxContrast, contrast < 10.f ? "%.2f" : "%.0f", ImGuiSliderFlags_Logarithmic))

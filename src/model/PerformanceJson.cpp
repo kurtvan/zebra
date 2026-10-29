@@ -186,6 +186,7 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
         scene.video.look = ParseLook(*video, videoPath, issues);
         ReadField(*video, "restartOnEnter", scene.video.restartOnEnter, videoPath, issues);
         ReadField(*video, "loop", scene.video.loop, videoPath, issues);
+        ReadField(*video, "invertLuma", scene.video.invertLuma, videoPath, issues);
         if (auto source = video->find("source"); source != video->end() && source->is_object())
         {
             scene.video.source = ParseVideoSource(*source, videoPath + "/source", issues);
@@ -388,6 +389,7 @@ auto SerializePerformance(const Performance& performance) -> std::string
         object["video"]["source"] = source;
         object["video"]["restartOnEnter"] = scene.video.restartOnEnter;
         object["video"]["loop"] = scene.video.loop;
+        object["video"]["invertLuma"] = scene.video.invertLuma;
         if (scene.video.playlist.enabled || !scene.video.playlist.videos.empty())
         {
             object["video"]["playlist"] = {{"enabled", scene.video.playlist.enabled}, {"videos", scene.video.playlist.videos}};

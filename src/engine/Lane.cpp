@@ -292,6 +292,7 @@ void Lane::Run()
                     projectm_set_feedback_luma_gate(hosted->second.handle, job.video.lumaMin);
                     projectm_set_feedback_contrast(hosted->second.handle, job.video.contrast);
                     projectm_set_feedback_saturation(hosted->second.handle, job.video.saturation);
+                    projectm_set_feedback_luma_invert(hosted->second.handle, job.video.lumaInvert);
                 }
                 break;
             case Job::Type::Shutdown:
@@ -377,6 +378,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
         projectm_set_feedback_luma_gate(instance, job.video.lumaMin);
         projectm_set_feedback_contrast(instance, job.video.contrast);
         projectm_set_feedback_saturation(instance, job.video.saturation);
+        projectm_set_feedback_luma_invert(instance, job.video.lumaInvert);
         // Warm up with a placeholder so the blend shader is compiled now, not on the first live frame.
         if (m_placeholderVideo == 0)
         {
