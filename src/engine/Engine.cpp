@@ -215,6 +215,7 @@ void Engine::UpdatePerformance(const model::Performance& performance)
         // with its playlist entry's look.
         if (!presetChanged[static_cast<size_t>(it->second)] &&
             (before.video.enabled != after.video.enabled || before.video.look != after.video.look || before.playlist.looks != after.playlist.looks ||
+             before.video.invertLuma != after.video.invertLuma ||
              before.IsPlaylist() != after.IsPlaylist()))
         {
             for (const auto& hosted : m_pool.InstancesOf(old))
@@ -253,7 +254,7 @@ void Engine::UpdatePerformance(const model::Performance& performance)
 auto Engine::VideoSettingsFor(const model::Scene& scene, int item) -> VideoSettings
 {
     const auto& look = scene.LookFor(item);
-    return {scene.video.enabled, look.mix, look.lumaMin, look.contrast, look.saturation};
+    return {scene.video.enabled, look.mix, look.lumaMin, look.contrast, look.saturation, look.overlay, look.softness, scene.video.invertLuma};
 }
 
 void Engine::TriggerItem(int index, int item)

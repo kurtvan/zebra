@@ -21,6 +21,8 @@
 
 namespace gv::engine {
 
+class VideoOverlay;
+
 using PcmChunk = std::shared_ptr<const std::vector<float>>; //!< Interleaved stereo float samples.
 
 /// A scene's video blend settings, applied to its instance when prepared.
@@ -31,6 +33,9 @@ struct VideoSettings
     float lumaMin{0.0f};
     float contrast{1.0f};
     float saturation{1.0f};
+    bool overlay{false};  //!< Also draw the video over the rendered frame, masked by lumaMin.
+    float softness{0.0f}; //!< Overlay mask edge, 0 = hard.
+    bool lumaInvert{false}; //!< The gate keeps pixels darker than lumaMin instead (blend and overlay).
 };
 
 /// The current frame of the live scene's video, if it has one.
@@ -185,10 +190,11 @@ private:
     struct Hosted
     {
         projectm_handle handle{nullptr};
-        bool video{false}; //!< The scene blends video.
+        VideoSettings video; //!< The scene's video blend (enabled: it blends video).
     };
     std::map<InstanceId, Hosted> m_instances;
     GLuint m_placeholderVideo{0}; //!< 1x1 black texture used while warming up video scenes (compiles the blend).
+    std::unique_ptr<VideoOverlay> m_overlay; //!< Created for the first scene with an overlay.
     static constexpr int kSlots = 3;
     GLuint m_slotTexture[kSlots]{};
     GLuint m_slotFbo[kSlots]{};

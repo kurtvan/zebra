@@ -35,4 +35,5 @@ To change an existing patch, amend or fix up its commit in the worktree and re-e
 | `0001-render-to-target-fbo.patch` | Backport of `projectm_opengl_render_frame_fbo()` from upstream 4.2.0 so projectM draws into our offscreen FBO. |
 | `0004-feedback-contrast-saturation.patch` | `projectm_set_feedback_contrast/_saturation`: colour adjustments of the feedback texture, applied before the luma gate. |
 | `0003-shader-program-cache.patch` | Reuses linked shader programs per thread (macOS's GL driver leaks ~35 KB per program, even after deletion); fixes two GL buffer leaks. |
+| `0005-feedback-luma-invert.patch` | `projectm_set_feedback_luma_invert`: the luma gate keeps the feedback texture's dark pixels instead of its bright ones. |
 | `0002-feedback-texture-api.patch` | `projectm_set_feedback_texture/_mix/_luma_gate`: blends a caller's texture (video) into the preset's feedback buffer before the warp. |
