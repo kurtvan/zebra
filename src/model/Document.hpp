@@ -115,6 +115,9 @@ auto DeleteScene(Performance& performance, int index) -> bool;
 /// Moves scene `from` to position `to`. CC values move with their scenes. Returns false if out of range.
 auto MoveScene(Performance& performance, int from, int to) -> bool;
 
+/// Gives every scene the CC 20 value of its position in the list (0, 1, 2, ...). Returns how many changed.
+auto RenumberCc20(Performance& performance) -> int;
+
 /// Puts `presetPath` in scene `index`: in place of playlist entry `item` for a playlist scene (clamped to
 /// its entries), else as the scene's preset. Returns the entry replaced (0 for a single-preset scene), or -1
 /// if `index` is out of range.

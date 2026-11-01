@@ -187,6 +187,20 @@ auto MoveScene(Performance& performance, int from, int to) -> bool
     return true;
 }
 
+auto RenumberCc20(Performance& performance) -> int
+{
+    int changed = 0;
+    for (size_t i = 0; i < performance.scenes.size(); ++i)
+    {
+        if (performance.scenes[i].cc20Value != static_cast<int>(i))
+        {
+            performance.scenes[i].cc20Value = static_cast<int>(i);
+            changed++;
+        }
+    }
+    return changed;
+}
+
 auto AddPoolVideo(Performance& performance, const std::filesystem::path& file) -> std::string
 {
     for (const auto& video : performance.videos)

@@ -384,7 +384,58 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
+    bool inOrder = true;
+    for (int i = 0; i < count; ++i)
+        inOrder = inOrder && performance.scenes[static_cast<size_t>(i)].cc20Value == i;
+    ImGui::BeginDisabled(inOrder);
+    if (ImGui::Button("Renumber CCs"))
+        ImGui::OpenPopup("Renumber CCs?");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(inOrder ? "CC values already follow the list order." : "Give every scene the CC value of its position in the list (0, 1, 2, ...).");
+    ImGui::SameLine();
     ImGui::TextColored(kDim, "%d / %d", count, model::kMaxScenes);
+
+    ImGui::SetNextWindowSizeConstraints(ImVec2(360, 0), ImVec2(560, 520));
+    if (ImGui::BeginPopupModal("Renumber CCs?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted("Each scene gets the CC value of its position in the list.");
+        ImGui::TextColored(kAmber, "Update anything that sends CC 20 (e.g. Ableton clips) to the new values.");
+        ImGui::Spacing();
+        if (ImGui::BeginTable("renumber", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp, ImVec2(0, 300)))
+        {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("Scene", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Now", ImGuiTableColumnFlags_WidthFixed, 50.f);
+            ImGui::TableSetupColumn("New", ImGuiTableColumnFlags_WidthFixed, 50.f);
+            ImGui::TableHeadersRow();
+            for (int i = 0; i < count; ++i)
+            {
+                const auto& scene = performance.scenes[static_cast<size_t>(i)];
+                const bool changes = scene.cc20Value != i;
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextColored(changes ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : kDim, "%s", scene.DisplayName().c_str());
+                ImGui::TableNextColumn();
+                ImGui::TextColored(changes ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : kDim, "%d", scene.cc20Value);
+                ImGui::TableNextColumn();
+                ImGui::TextColored(changes ? kAmber : kDim, "%d", i);
+            }
+            ImGui::EndTable();
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("Renumber"))
+        {
+            auto edited = performance;
+            if (model::RenumberCc20(edited) > 0)
+                actions.Edit(std::move(edited), "Renumber CCs");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 
     if (count == 0)
     {

@@ -160,6 +160,18 @@ TEST_CASE("adding stops at 128 scenes")
     CHECK(AddScene(performance, -1, "/p.milk") == -1);
 }
 
+TEST_CASE("renumbering gives CC values in list order")
+{
+    auto performance = ThreeScenes();
+    CHECK(RenumberCc20(performance) == 0); // already in order
+    CHECK(MoveScene(performance, 2, 0));
+    performance.scenes[1].cc20Value = 2; // a duplicate value
+    CHECK(RenumberCc20(performance) == 3); // s2, s0, s1 had 2, 2, 1
+    CHECK(performance.scenes[0].id == "s2"); // the order doesn't change
+    for (int i = 0; i < 3; ++i)
+        CHECK(performance.scenes[static_cast<size_t>(i)].cc20Value == i);
+}
+
 TEST_CASE("duplicate, delete and move")
 {
     auto performance = ThreeScenes();
