@@ -57,6 +57,7 @@ TEST_CASE("a performance survives a save/load round trip")
     a.video.restartOnEnter = false;
     a.video.loop = false;
     a.video.invertLuma = true;
+    a.beatHit = {true, BeatHitEvery::Bar, BeatHitSound::Snare, 0.8f};
     a.video.look.contrast = 80.0f; // high contrast is allowed
     a.video.look.saturation = 0.0f;
     a.video.look.overlay = true;
@@ -92,6 +93,8 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK_FALSE(loaded.scenes[0].video.loop);
     CHECK(loaded.scenes[0].video.invertLuma);
     CHECK_FALSE(loaded.scenes[1].video.invertLuma);
+    CHECK(loaded.scenes[0].beatHit == BeatHit{true, BeatHitEvery::Bar, BeatHitSound::Snare, 0.8f});
+    CHECK(loaded.scenes[1].beatHit == BeatHit{}); // off by default
     CHECK(loaded.scenes[0].video.look.contrast == 80.0f);
     CHECK(loaded.scenes[0].video.look.saturation == 0.0f);
     CHECK(loaded.scenes[0].video.look.overlay);
@@ -156,6 +159,7 @@ TEST_CASE("validation rules")
         scene.video.look.contrast = 150.f;
         scene.video.look.saturation = -1.f;
         scene.video.look.softness = 2.f;
+        scene.beatHit.strength = 1.5f;
         performance.scenes = {scene};
         const auto issues = Validate(performance);
         CHECK(HasIssueAt(issues, "/scenes/0/video/mix"));
@@ -163,6 +167,7 @@ TEST_CASE("validation rules")
         CHECK(HasIssueAt(issues, "/scenes/0/video/contrast"));
         CHECK(HasIssueAt(issues, "/scenes/0/video/saturation"));
         CHECK(HasIssueAt(issues, "/scenes/0/video/softness"));
+        CHECK(HasIssueAt(issues, "/scenes/0/beatHit/strength"));
     }
 
     SECTION("files without contrast/saturation load with defaults")

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/BeatGrid.hpp"
+#include "engine/BeatHit.hpp"
 #include "engine/Lane.hpp"
 #include "engine/ScenePool.hpp"
 #include "model/Performance.hpp"
@@ -99,6 +100,12 @@ public:
         m_clock = clock;
     }
 
+    /// The audio input's sample rate (0: not known), for the beat hits mixed into the live scene's audio.
+    void SetSampleRate(int sampleRate)
+    {
+        m_sampleRate = sampleRate > 0 ? sampleRate : 48000;
+    }
+
     /// Where live scenes get their video frames from (may be null: no video).
     void SetVideoProvider(VideoProvider* provider)
     {
@@ -193,6 +200,9 @@ private:
     PlaylistState m_playlist;
     std::mt19937 m_random{std::random_device{}()};
     ClockInput m_clock;
+    BeatHitClock m_beatHitClock;
+    BeatHitSynth m_beatHitSynth;
+    int m_sampleRate{48000};
     ScenePool m_pool;
     model::Performance m_performance;
     int m_width{1920};

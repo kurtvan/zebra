@@ -728,6 +728,7 @@ public:
         const gv::engine::ClockInput clock{midiClock.receiving, midiClock.running, midiClock.positionKnown, midiClock.pulses, midiClock.totalPulses};
         m_video.BeginFrame(m_engine.LiveScene(), m_engine.PendingScene(), m_engine.HandoverScene(), clock);
         m_engine.SetClock(clock);
+        m_engine.SetSampleRate(m_audio.SampleRate());
         m_engine.Tick(m_pcm.data(), samples / 2, m_settings.gain);
 
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);

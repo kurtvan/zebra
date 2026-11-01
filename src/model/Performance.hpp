@@ -105,6 +105,34 @@ struct ScenePlaylist
 constexpr int kMaxPlaylistCount = 256;
 
 /// How a pool video's picture is fitted to the output canvas.
+/// Which MIDI clock beats get a beat hit.
+enum class BeatHitEvery
+{
+    Beat,     //!< Every beat.
+    TwoBeats, //!< Every second beat (beats 1 and 3 of a bar on the song grid).
+    Bar,      //!< The first beat of each bar (4/4).
+};
+
+/// The synthetic transient a beat hit adds to the audio.
+enum class BeatHitSound
+{
+    Kick,  //!< A low thump: drives bass.
+    Snare, //!< A noisy snap: drives mid and treble.
+    Burst, //!< A short broadband click: drives every band.
+};
+
+/// Adds a synthetic transient to the live scene's audio on the MIDI clock's beats, to strengthen the
+/// visuals' reaction. Only while the clock is running; the visuals hear it, nothing is played.
+struct BeatHit
+{
+    bool enabled{false};
+    BeatHitEvery every{BeatHitEvery::Beat};
+    BeatHitSound sound{BeatHitSound::Kick};
+    float strength{0.5f}; //!< 0..1, peak level relative to full scale.
+
+    auto operator==(const BeatHit&) const -> bool = default;
+};
+
 enum class VideoFit
 {
     Fill,   //!< Covers the canvas, cropping the edges that don't fit.
@@ -144,6 +172,7 @@ struct Scene
     std::filesystem::path presetPath; //!< The preset, when the scene isn't a playlist.
     ScenePlaylist playlist;
     SceneVideo video;
+    BeatHit beatHit;
     int cc20Value{0}; //!< 0..127, unique within the performance. Doesn't change when scenes are reordered.
 
     /// Set by the loader / file checks, not serialized.

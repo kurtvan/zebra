@@ -858,6 +858,46 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
         ImGui::TextColored(info.heavy ? kAmber : kDim, "%.1f ms per frame%s", info.frameMs, info.heavy ? ": too heavy for 60 fps" : "");
     }
 
+    ImGui::SeparatorText("Beat hits");
+    const model::BeatHit& hit = scene.beatHit;
+    bool hitEnabled = hit.enabled;
+    if (ImGui::Checkbox("Add a hit on the clock's beats", &hitEnabled))
+    {
+        edit(hitEnabled ? "Enable Beat Hits" : "Disable Beat Hits", "beat-hit", [&](model::Scene& s) { s.beatHit.enabled = hitEnabled; });
+        actions.EndEdit();
+    }
+    Hint("Mixes a short sound into the audio this scene's visuals hear, on the MIDI clock's beats, to make them\n"
+         "react harder. Only while the clock is running (Ableton playing); nothing is played out loud.");
+    if (hit.enabled)
+    {
+        const char* everyNames[] = {"Every beat", "Every 2 beats", "Every bar"};
+        int every = static_cast<int>(hit.every);
+        ImGui::SetNextItemWidth(-90);
+        if (ImGui::Combo("When", &every, everyNames, IM_ARRAYSIZE(everyNames)))
+        {
+            edit("Change Beat Hit Timing", "beat-hit-every", [&](model::Scene& s) { s.beatHit.every = static_cast<model::BeatHitEvery>(every); });
+            actions.EndEdit();
+        }
+        const char* soundNames[] = {"Kick (bass)", "Snare (mid and treble)", "Burst (every band)"};
+        int sound = static_cast<int>(hit.sound);
+        ImGui::SetNextItemWidth(-90);
+        if (ImGui::Combo("Sound", &sound, soundNames, IM_ARRAYSIZE(soundNames)))
+        {
+            edit("Change Beat Hit Sound", "beat-hit-sound", [&](model::Scene& s) { s.beatHit.sound = static_cast<model::BeatHitSound>(sound); });
+            actions.EndEdit();
+        }
+        float strength = hit.strength;
+        ImGui::SetNextItemWidth(-90);
+        if (ImGui::SliderFloat("Strength", &strength, 0.f, 1.f, "%.2f"))
+            edit("Change Beat Hit Strength", "beat-hit-strength", [&](model::Scene& s) { s.beatHit.strength = strength; });
+        endEditIfReleased();
+        const auto clock = state.midi != nullptr ? state.midi->Clock() : io::ClockState();
+        if (!clock.receiving || !clock.running)
+            ImGui::TextColored(kDim, "No hits now: the MIDI clock isn't running.");
+        else if (hit.every != model::BeatHitEvery::Beat && !clock.positionKnown)
+            ImGui::TextColored(kDim, "Counting from the clock's start: no song position, so hits may not land on the bar's first beat.");
+    }
+
     ImGui::SeparatorText("Video");
     bool videoEnabled = scene.video.enabled;
     if (ImGui::Checkbox("Blend video into the visuals", &videoEnabled))
