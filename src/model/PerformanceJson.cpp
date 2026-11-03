@@ -200,6 +200,33 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
         }
     }
 
+    if (auto hit = object.find("beatHit"); hit != object.end() && hit->is_object())
+    {
+        const std::string hitPath = path + "/beatHit";
+        ReadField(*hit, "enabled", scene.beatHit.enabled, hitPath, issues);
+        ReadField(*hit, "strength", scene.beatHit.strength, hitPath, issues);
+        std::string every = "beat";
+        ReadField(*hit, "every", every, hitPath, issues);
+        if (every == "beat")
+            scene.beatHit.every = BeatHitEvery::Beat;
+        else if (every == "2beats")
+            scene.beatHit.every = BeatHitEvery::TwoBeats;
+        else if (every == "bar")
+            scene.beatHit.every = BeatHitEvery::Bar;
+        else
+            issues.push_back(Error(hitPath + "/every", "unknown value \"" + every + "\" (expected \"beat\", \"2beats\" or \"bar\")"));
+        std::string sound = "kick";
+        ReadField(*hit, "sound", sound, hitPath, issues);
+        if (sound == "kick")
+            scene.beatHit.sound = BeatHitSound::Kick;
+        else if (sound == "snare")
+            scene.beatHit.sound = BeatHitSound::Snare;
+        else if (sound == "burst")
+            scene.beatHit.sound = BeatHitSound::Burst;
+        else
+            issues.push_back(Error(hitPath + "/sound", "unknown sound \"" + sound + "\" (expected \"kick\", \"snare\" or \"burst\")"));
+    }
+
     if (auto midi = object.find("midi"); midi != object.end() && midi->is_object())
     {
         ReadField(*midi, "cc20Value", scene.cc20Value, path + "/midi", issues);
@@ -396,6 +423,14 @@ auto SerializePerformance(const Performance& performance) -> std::string
             WriteTiming(object["video"]["playlist"], scene.video.playlist);
         }
         object["midi"] = {{"cc20Value", scene.cc20Value}};
+        if (scene.beatHit != BeatHit{})
+        {
+            const auto& hit = scene.beatHit;
+            object["beatHit"] = {{"enabled", hit.enabled},
+                                 {"every", hit.every == BeatHitEvery::Beat ? "beat" : hit.every == BeatHitEvery::TwoBeats ? "2beats" : "bar"},
+                                 {"sound", hit.sound == BeatHitSound::Kick ? "kick" : hit.sound == BeatHitSound::Snare ? "snare" : "burst"},
+                                 {"strength", hit.strength}};
+        }
         root["scenes"].push_back(object);
     }
     root["videos"] = json::array();
@@ -482,6 +517,9 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
         {
             issues.push_back(Error(path + "/midi/cc20Value", std::to_string(scene.cc20Value) + " is used by another scene"));
         }
+
+        if (scene.beatHit.strength < 0.f || scene.beatHit.strength > 1.f)
+            issues.push_back(Error(path + "/beatHit/strength", "must be between 0 and 1"));
 
         ValidateLook(scene.video.look, path + "/video", issues);
         for (size_t i = 0; i < scene.playlist.looks.size(); ++i)

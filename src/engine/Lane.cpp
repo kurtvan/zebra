@@ -177,11 +177,15 @@ void Lane::SetLive(InstanceId instance)
     m_live = instance;
 }
 
-void Lane::Tick(PcmChunk pcm, long long tick, VideoFrame video)
+void Lane::Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm)
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_pendingTick.has = true;
+        if (livePcm && !livePcm->empty())
+            m_pendingTick.livePcm.push_back(std::move(livePcm));
+        else if (pcm && !pcm->empty())
+            m_pendingTick.livePcm.push_back(pcm);
         if (pcm && !pcm->empty())
         {
             m_pendingTick.pcm.push_back(std::move(pcm));
@@ -475,19 +479,19 @@ void Lane::DoConfigure(const Job& job)
 
 void Lane::DoTick(PendingTick tick)
 {
-    for (auto& [id, hosted] : m_instances)
-    {
-        for (const auto& chunk : tick.pcm)
-        {
-            AddPcm(hosted.handle, *chunk);
-        }
-    }
-
     InstanceId live = 0;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         live = m_live;
     }
+    for (auto& [id, hosted] : m_instances)
+    {
+        for (const auto& chunk : id == live ? tick.livePcm : tick.pcm)
+        {
+            AddPcm(hosted.handle, *chunk);
+        }
+    }
+
     auto it = m_instances.find(live);
     if (live != m_renderedLive)
     {

@@ -327,8 +327,30 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
 
     UpdatePlaylist();
 
-    // Video for the live scene and, during a handover, the outgoing one; other lanes only take PCM.
+    // Beat hits: a transient on the clock's beats, heard only by the live scene's preset.
     const int liveScene = m_pool.LiveScene();
+    const model::BeatHit* beatHit =
+        liveScene >= 0 && liveScene < static_cast<int>(m_performance.scenes.size()) ? &m_performance.scenes[static_cast<size_t>(liveScene)].beatHit : nullptr;
+    if (beatHit != nullptr && beatHit->enabled)
+    {
+        if (m_beatHitClock.Advance(m_clock, BeatHitInterval(beatHit->every)))
+            m_beatHitSynth.Trigger(beatHit->sound, beatHit->strength);
+    }
+    else
+    {
+        m_beatHitClock.Reset();
+        m_beatHitSynth.Stop();
+    }
+    PcmChunk liveChunk;
+    if (m_beatHitSynth.Active())
+    {
+        // Without input audio this frame, the hit goes into a frame's worth of silence.
+        auto buffer = chunk ? std::make_shared<std::vector<float>>(*chunk) : std::make_shared<std::vector<float>>(static_cast<size_t>(m_sampleRate / 60) * 2, 0.f);
+        m_beatHitSynth.MixInto(buffer->data(), buffer->size() / 2, m_sampleRate);
+        liveChunk = std::move(buffer);
+    }
+
+    // Video for the live scene and, during a handover, the outgoing one; other lanes only take PCM.
     for (int i = 0; i < static_cast<int>(m_lanes.size()); ++i)
     {
         VideoFrame video;
@@ -339,7 +361,7 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
             else if (i == m_handover.lane && m_handover.scene >= 0)
                 video = m_videoProvider->FrameFor(m_handover.scene);
         }
-        m_lanes[static_cast<size_t>(i)]->Tick(chunk, m_tick, video);
+        m_lanes[static_cast<size_t>(i)]->Tick(chunk, m_tick, video, i == m_liveLane ? liveChunk : nullptr);
     }
 
     // Once a scene has been live for half a second, its lane's average render time replaces the

@@ -112,8 +112,9 @@ public:
     void SetLive(InstanceId instance);
 
     /// Feeds `pcm` to every hosted instance and, if live, renders one frame blending `video` into it.
+    /// The live instance gets `livePcm` instead when it's set (the same audio plus beat hits).
     /// Coalesces with an unprocessed tick (the newest video frame wins).
-    void Tick(PcmChunk pcm, long long tick, VideoFrame video);
+    void Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm = nullptr);
 
     /// The newest published frame not yet taken, or tick -1.
     auto TakeLatest() -> PublishedFrame;
@@ -156,6 +157,7 @@ private:
     {
         bool has{false};
         std::vector<PcmChunk> pcm;
+        std::vector<PcmChunk> livePcm; //!< What the live instance hears: livePcm where given, else pcm.
         long long tick{-1};
         VideoFrame video;
     };
