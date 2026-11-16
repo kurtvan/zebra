@@ -122,7 +122,7 @@ using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationPar
 
 - **Field names:** params keep today's names where they exist. `lumaMin` becomes `threshold`, since a gate now stands alone. The format is new, so this is the moment to rename.
 - **Preset inputs** are written as names (`feedback`, `beforeComposite`, `onTop`, `texture`), so the file reads clearly.
-- **Parsing** follows the existing `ReadField` and `Issue` style. Unknown node types and malformed wires produce an `Issue` and are dropped. Then `ValidateGraph` runs (§N1.4). A scene that fails it has its viewport wire removed (it loads unfinished), with a warning naming the scene and the reason.
+- **Parsing** follows the existing `ReadField` and `Issue` style. Unknown node types and malformed wires produce an `Issue` and are dropped. Then `ValidateGraph` runs (§N1.4). A scene that fails it has its viewport wire removed (it loads unfinished), with one warning per error, each naming the scene.
 - **Serializing** writes nodes in their stored order and wires sorted, so saves are stable and diffs stay readable.
 - **Versions:** `kCurrentFormatVersion = 3`. v1 and v2 still load: they're parsed into the legacy structs as today, `MigrateFileSources` runs, then `GraphFromV2Scene` converts each scene.
 - **D2 backup:** handled in the app's save path (`main.cpp`), not in `SavePerformance`. It applies when the document was loaded from a file older than v3 and the backup doesn't exist yet.
@@ -160,10 +160,12 @@ The rules are linear in nodes and wires, so the editor can run them on every dra
 
   ```cpp
   auto TryEditGraph(Document& document, int scene, const std::function<void(Graph&)>& edit,
-                    std::string label, std::string coalesceKey = {}) -> std::optional<std::string>;
+                    std::string label, std::string coalesceKey = {}) -> std::vector<GraphError>;
   ```
 
-  It copies the performance, applies `edit` to the scene's graph, then validates. If the graph is valid it calls `Document::Edit` and returns nullopt; otherwise it returns the first error's message.
+  It copies the performance, applies `edit` to the scene's graph, then validates. If the graph is valid it calls `Document::Edit` and returns an empty list; otherwise it changes nothing and returns **every** error, not just the first.
+
+  One edit can break several rules at once. For example, a single wire can close a loop and also give a preset a second video source. Showing only the first would leave the artist fixing one problem only to hit the next, so the editor shows them all (§N4.4). Errors that repeat the same message for the same node are listed once.
 - **Existing whole-show edits move onto graphs:**
   - `ReplacePreset(performance, scene, nodeId, path)`;
   - `AssignVideo` sets the source on the scene's video source node, adding a source → feedback chain if there's none;
@@ -433,10 +435,10 @@ PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
 | --- | --- |
 | Add | Right-click the canvas → menu of node types. Dropping a preset or video on empty canvas adds the node. |
 | Replace | Dropping a preset or video on a node of that type replaces its file. |
-| Wire | Drag from an output; hovering an input runs `ValidateGraph` on a trial copy, and inputs that would fail are dimmed. Release on a dimmed input shows the reason. |
+| Wire | Drag from an output; hovering an input runs `ValidateGraph` on a trial copy, and inputs that would fail are dimmed. Hovering or releasing on a dimmed input shows every reason it's refused. |
 | Delete | Select, then Delete or Backspace. The viewport refuses, with a message. |
 | Move | Drag a title bar. One undo step per drag (coalesce key `move:<scene>:<node>`). |
-| Errors | A message near the mouse for 3 seconds, from `TryEditGraph`'s return value. |
+| Errors | Every error from `TryEditGraph`, as a list near the mouse, one line each. The nodes they name are outlined in red. The list stays until the mouse moves away or after 3 seconds plus 1 second per extra error. |
 | Undo and redo | Unchanged: `Document` snapshots. |
 
 ### N4.5 Live edits

@@ -119,7 +119,7 @@ input 3 ─┘
 - **Controls:** these are on each node, so editing is done on the canvas. There's no separate inspector.
 - **Adding nodes:** right-click the canvas, or drag a preset or video onto it.
 - **Wiring:** drag from an output to an input. While dragging, inputs that can't take the wire are dimmed. A second wire into a taken input replaces the first.
-- **Invalid edits are blocked:** an edit that would break the graph is refused, and a short message says why. Nothing changes and the scene keeps playing. Refused edits include:
+- **Invalid edits are blocked:** an edit that would break the graph is refused, and short messages say why: every reason, if it breaks more than one rule, with the nodes involved outlined. Nothing changes and the scene keeps playing. Refused edits include:
   - a loop;
   - wires between different kinds;
   - two presets or two videos active at once;

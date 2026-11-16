@@ -58,10 +58,10 @@ struct Graph { std::vector<Node> nodes; std::vector<Wire> wires; };
 
 ### Blocking invalid edits
 
-- **One gate for all edits:** every graph edit goes through `TryEditGraph(scene, std::function<void(Graph&)>, label) -> std::optional<std::string>`. It applies the change to a copy and validates it. If it's valid, it commits through `Document::Edit` as one undo step; otherwise it discards the copy and returns the first error. The editor shows that error as a short message near the mouse for about 3 seconds.
+- **One gate for all edits:** every graph edit goes through `TryEditGraph(scene, std::function<void(Graph&)>, label) -> std::vector<GraphError>`. It applies the change to a copy and validates it. If it's valid, it commits through `Document::Edit` as one undo step; otherwise it discards the copy and returns every error, since one edit can break several rules at once. The editor lists them all near the mouse and outlines the nodes they name.
 - **Prevention during dragging:** while a wire is being dragged, inputs that would fail validation are dimmed, so most errors are prevented before they happen.
 - **Undo and redo** only ever restore graphs that were valid when committed, so they never need validating.
-- **Loading** validates every scene. If a hand-edited or damaged file fails, the bad scene loads as unfinished (its viewport disconnected), with a load warning naming the scene, instead of refusing the whole show.
+- **Loading** validates every scene. If a hand-edited or damaged file fails, the bad scene loads as unfinished (its viewport disconnected), with a load warning for each error, naming the scene, instead of refusing the whole show.
 
 ## 2. File format v3 and migration
 
