@@ -1,6 +1,6 @@
 # Node Graph: Technical Details & Milestones
 
-*Drafted 2026-11-12; revised 2026-11-13 from review comments on PR #34. Companion to `product-node-graph-2026-11-12.md`; read that first for what each node does.*
+*Drafted 2026-11-12; revised 2026-11-13 from review comments on PR #34, and 2026-11-16 with corrections from the implementation plan. Companion to `product-node-graph-2026-11-12.md`; read that first for what each node does.*
 
 ## 0. Summary
 
@@ -69,14 +69,14 @@ struct Graph { std::vector<Node> nodes; std::vector<Wire> wires; };
 - **Reading v2:** each scene is converted with `GraphFromV2Scene(const Scene&) -> Graph`, following the product doc's conversion table.
   - **Effect order:** today's order is fixed (contrast, saturation, gate, mix), so the converter emits nodes in that order.
   - **Invert:** `invertLuma` becomes `LumaGate.invert` on every gate in the scene.
-  - **Overlay:** a second chain from the same source, with its own gate (using `softness`) and mix, into the On top input. Today's feedback gate is hard-edged, so the feedback chain's gate gets softness 0.
+  - **Overlay:** a second chain from the same source, with its own gate (using `softness`) and mix, into the On top input. Today's feedback gate has a fixed edge (`smoothstep` ±0.05), so the feedback chain's gate gets softness 0.1, the same curve.
   - **Preset playlist:** a Frame switcher. Each entry becomes a preset node fed by that entry's look chain from the shared source, wired into switcher input N.
   - **Video playlist:** a Video switcher of video sources, feeding the look chain(s).
   - **Both playlists together:** the Video switcher fans out into every entry's look chain.
 - **Writing and reading:** the app writes v3 only, and keeps reading v1 and v2.
 - **Tests:**
   - round-trips and each conversion case, in `test_performance_json.cpp`;
-  - a test that converts the real 16-scene show (from a fixture copy), compiles its plans, and checks them against plans built from the v2 settings (section 3).
+  - a test that converts the real 19-scene show (from a fixture copy), compiles its plans, and checks them against plans built from the v2 settings (section 3).
 
 ## 3. Render plan (`src/engine`)
 
@@ -95,7 +95,6 @@ struct RenderPlan {
 
 - **Lane interface:** `VideoSettings` (Lane.hpp) is replaced by `RenderPlan` minus the preset path. `Lane::UpdateVideo` becomes `Lane::SetPlan`, queued like a tick and applied at the start of the next tick. Plans are small and copied.
 - **The next selection:** the same compiler, run with each switcher's *next* input selected, gives the plan to prepare ahead (section 6).
-- **Shared passes:** where branches share a prefix (e.g. contrast, then saturation, feeding both the feedback and on-top chains), the shared passes could run once. That's an N2 optimisation, not a requirement.
 
 ## 4. Effect passes on the lane
 
@@ -109,8 +108,8 @@ struct RenderPlan {
   - **Feedback and before composite** go through projectM: `projectm_set_layer_texture(handle, layer, texture)`, blended alpha-over (section 5).
   - **On top:** `VideoOverlay` shrinks to a plain alpha-over draw of the branch texture, after `projectm_opengl_render_frame_fbo`.
   - **Texture:** the branch result is copied into a **stable lane-owned texture per sampler name**, which the preset reads through the override (section 5). Its ID stays the same frame to frame, so nothing is rebound.
-- **Cost:** about one fullscreen pass per effect per branch, at canvas size. N2 measures it with the existing GPU timer queries (`Lane::LiveGpuMs`) on the real show; the budget is the current headroom per frame.
-- **Equality check:** the feedback blend's colour math moves from the patch into these passes. N2 has to prove the output is unchanged by diffing `--smoke-snapshots` before and after, on a copy of the show, within a small per-pixel tolerance.
+- **Cost:** one fullscreen pass per branch, at canvas size: a single effect-chain shader runs the branch's whole list of effects from uniforms (see the implementation plan, §N2.1). N2 measures it with the existing GPU timer queries (`Lane::LiveGpuMs`) on the real show; the budget is the current headroom per frame.
+- **Equality check:** the feedback blend's colour math moves from the patch into these passes. Smoke snapshots aren't repeatable (live audio, video timing, preset randomness), so N2 proves the output is unchanged with a deterministic GPU test that compares today's shader with the new chain on fixed images, within 1/255 per channel. Smoke snapshots stay as a visual check.
 
 ## 5. projectM patches
 
@@ -118,7 +117,7 @@ struct RenderPlan {
 | --- | --- |
 | 0002 (reworked), 0004 and 0005 (dropped) | `FeedbackBlend` loses contrast, saturation, gate and invert, and alpha-blends a straight-alpha texture with opacity 1. API: `projectm_set_layer_texture(handle, PROJECTM_LAYER_FEEDBACK, tex)`. The old setters go. |
 | 0006 (new): before composite | In `MilkdropPreset::RenderFrame`, after the second `m_flipTexture.Draw` and before `m_finalComposite.Draw`, blend the before-composite layer into **the flip texture**, not `m_currentFrameBuffer`. After the swap, the current framebuffer becomes next frame's feedback, so drawing there would smear the video like the feedback layer. Only the composite reads the flip texture. |
-| 0007 (new): texture override | `projectm_set_texture_override(handle, name, tex)` and `projectm_clear_texture_overrides(handle)`. `TextureManager::GetTexture` resolves overridden names to a non-owning `Texture` wrapping the caller's ID. To attach or detach an override on a **live** preset without reloading it, each sampler name's descriptor gets one level of indirection, so its texture can be swapped in place. Spike in N3. |
+| 0007 (new): texture override | `projectm_set_texture_override(handle, name, tex)` and `projectm_clear_texture_overrides(handle)`. `TextureManager::GetTexture` resolves overridden names to a non-owning `Texture` wrapping the caller's ID. To attach or detach on a **live** preset without reloading it, the lane registers its own texture for every texture the preset uses before loading it, and only changes what it copies into that texture (see the implementation plan, §N3.3). Spike in N3. |
 
 - **Workflow:** follow the existing patch workflow (`scripts/patches.sh start/export/finish`), then re-run `cmake -S . -B build`.
 - **Listing a preset's texture samplers** for the preset node:
@@ -218,7 +217,7 @@ Each one is a PR to main. N1 and N2 keep the app visually unchanged. N6 is indep
 | --- | --- |
 | Moving the blend math out of the patch changes the look of existing shows | Snapshot diffs in N2 against today's build, on a copy of the real show |
 | Texture override on a live preset needs deeper changes in projectM's texture binding than expected | Spike first in N3. The fallback is to re-prepare the preset in the background and swap it in, which resets its feedback history once |
-| GPU cost of fan-out and several passes at 4K | Run shared-prefix passes once; measure in N2 and N6; warn in the UI when over budget |
+| GPU cost of fan-out and several passes at 4K | One pass per branch; measure in N2 and N6; warn in the UI when over budget |
 | Node library can't host real widgets (combos, popups) in node bodies, or is incompatible with ImGui 1.92.9b | Both are checked in the N4 spike. Both candidates are small enough to patch or vendor |
 | Device-style nodes make big graphs crowded | Collapsing to title bars, fixed node widths, and title-only drawing when zoomed out |
 | Graph edits racing with switcher changes on the live scene | Both run on the main thread and produce plans with revisions; the lane applies only the newest |
