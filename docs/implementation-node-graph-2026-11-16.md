@@ -17,7 +17,9 @@ Reading the code for this plan turned up corrections and simplifications. The te
 
 ## 1. Ground rules for every milestone
 
-- One PR per milestone, targeting main. The next one opens after the previous one merges.
+- **Feature branch (D1):** all node-graph work lands on a long-lived `node-graph` branch, cut from main. Main stays as it is today until the whole feature is ready; then one final PR merges `node-graph` into main.
+- One PR per milestone, targeting `node-graph`. The next one opens after the previous one merges. If main gets fixes meanwhile, I merge main into `node-graph` (no rebases, since force-push is blocked).
+- **Clean up as we go (D4):** each milestone deletes the code it replaces, rather than leaving old paths behind.
 - **Verification**, run by me before opening each PR:
   - `cmake --build build` with no warnings (`gv_warnings` stays on);
   - `ctest --test-dir build`;
@@ -29,16 +31,16 @@ Reading the code for this plan turned up corrections and simplifications. The te
 
 ## 2. Decisions needed
 
-Each is marked with the milestone that needs it. My recommendation comes first.
+All decided on PR #35 (2026-11-16).
 
-| # | Needed by | Question | Recommendation |
+| # | Needed by | Question | Decision |
 | --- | --- | --- | --- |
-| D1 | N1 | Until the canvas lands (N4), how is a scene edited? | **A temporary "classic" bridge** (§N1.6). The current Scene panel keeps working unchanged, reading and writing graphs through two conversion functions, and N4 deletes it. The alternative is building the canvas first, which leaves main unable to edit video between N1 and N4. |
+| D1 | N1 | Until the canvas lands (N4), how is a scene edited? | **Work on a `node-graph` feature branch** and leave main untouched until the feature is ready. On the branch, the Scene panel's video and playlist settings are shown read-only from N1 until the canvas replaces them in N4, so no throwaway editing bridge is built (§N1.6). |
 | D2 | N1 | First save of a v2 show in the new format | **Write a one-time backup** `<name>.v2-backup.json` next to it, then save v3. Older builds can't open v3. |
 | D3 | N2 | Texture format of branch results | **RGBA8.** One write per branch, so the difference from today is at most 1/255 per channel. RGBA16F doubles memory, about 66 MB per branch at 4K. |
-| D4 | N2 | Remove the old `projectm_set_feedback_*` setters? | **Remove them.** Only this app uses them, and keeping both paths doubles the testing. |
-| D5 | N4 | Preset node preview | The product doc asks for a small live preview. Rendering every preset node live costs a lane render each. **Proposal:** the library thumbnail on every preset node, plus the real output on the node that's live. |
-| D6 | N3 | Random textures (`sampler_rand00` and so on) | **Not offered as texture inputs** in the first version. projectM picks their image at random when the preset loads, so the name doesn't say which image it is. |
+| D4 | N2 | Remove the old `projectm_set_feedback_*` setters? | **Remove them**, and clean up replaced code wherever possible. Only this app uses them, and keeping both paths doubles the testing. |
+| D5 | N4 | Preset node preview | The product doc asks for a small live preview. Rendering every preset node live costs a lane render each. **Decided:** the library thumbnail on every preset node, plus the real output on the node that's live. |
+| D6 | N3 | Random textures (`sampler_rand00` and so on) | **Not offered as texture inputs** in the first version. projectM picks their image at random when the preset loads, so the input couldn't show which image it replaces, and overriding them needs a second projectM hook. 226 of the 9,795 library presets use them. Can be added later as "Random texture N" inputs (about a day). |
 | D7 | — | Should N6 (canvas) move earlier? | **Yes: right after N1.** It's small, visible, and doesn't touch the lane work. |
 
 ## 3. Milestone order
@@ -46,6 +48,8 @@ Each is marked with the milestone that needs it. My recommendation comes first.
 ```
 N1 model + format + compiler ──► N6 canvas (D7) ──► N2 lane effect passes ──► N3 layer + texture patches
                                                                      └──► N4 node canvas (spike can start during N3) ──► N5 switchers
+
+all on the node-graph branch ──► one final PR: node-graph → main, when the feature is ready
 ```
 
 ---
@@ -60,8 +64,8 @@ N1 model + format + compiler ──► N6 canvas (D7) ──► N2 lane effect p
 | --- | --- |
 | `src/model/Graph.hpp/.cpp` | `NodeType`, `PortKind`, per-type param structs, `NodeParams` variant, `Node`, `Wire`, `Graph`; lookup helpers; pure edit helpers (§N1.5) |
 | `src/model/GraphValidate.cpp` | `ValidateGraph` |
-| `src/model/GraphConvert.hpp/.cpp` | `GraphFromV2Scene`, the classic bridge (§N1.6), and the default layout of node positions |
-| `src/model/LegacyScene.hpp` | Today's `VideoLook`, `ScenePlaylist`, `SceneVideo` and `VideoPlaylist`, moved here and only used by the v2 parser and the bridge |
+| `src/model/GraphConvert.hpp/.cpp` | `GraphFromV2Scene`, the read-only classic view (§N1.6), and the default layout of node positions |
+| `src/model/LegacyScene.hpp` | Today's `VideoLook`, `ScenePlaylist`, `SceneVideo` and `VideoPlaylist`, moved here and only used by the v2 parser and the classic view |
 | `src/engine/RenderPlan.hpp/.cpp` | `RenderPlan`, `EffectPass`, `VideoBranch`, `SwitcherSelection`, `CompilePlan` |
 | `tests/model/test_graph.cpp`, `test_graph_convert.cpp`, `tests/engine/test_render_plan.cpp` | Unit tests |
 | `tests/fixtures/govtech-nov-6th.json` | A copy of the real show, with absolute paths kept. Missing files only produce warnings, so the test doesn't depend on your Movies folder. |
@@ -166,19 +170,16 @@ The rules are linear in nodes and wires, so the editor can run them on every dra
   - `VideoUsage` and `RemovePoolVideo` scan video source nodes;
   - `AddScene(…, presetPath)` builds a minimal graph: preset → viewport.
 
-### N1.6 The classic bridge (D1, deleted in N4)
+### N1.6 Classic view, read-only (D1)
 
 ```cpp
 struct ClassicScene { std::filesystem::path presetPath; ScenePlaylist playlist; SceneVideo video; };
 auto ClassicFromGraph(const Graph&) -> std::optional<ClassicScene>;   // nullopt: not a classic-shaped graph
-auto GraphFromClassic(const ClassicScene&) -> Graph;                  // same as GraphFromV2Scene
 ```
 
-- **Reading:** Shell's scene section reads a `ClassicScene` once per frame for the selected scene and draws exactly as today. Draw code that keeps references keeps them into that per-frame copy.
-- **Writing:** every widget edit becomes `TryEditGraph(…, [&](Graph& g){ g = GraphFromClassic(edited); })`.
-- **Engine and VideoManager** read the classic view for playlist timing and video playlists until N5. The video **look** is the exception: it comes from `CompilePlan` (§N1.7).
-- **Positions and ids:** `GraphFromClassic` lays nodes out in fixed columns (source, contrast, saturation, gate, mix, preset, switcher, viewport), with deterministic ids. Nothing can move a node before N4, so regenerating loses nothing.
-- **Key test:** `ClassicFromGraph(GraphFromClassic(c)) == c` for every scene of the fixture show, and for generated cases (each playlist type, overlay on and off, invert, Syphon, video off).
+- **Why it exists:** until switchers run in the engine (N5), the engine and `VideoManager` keep today's playlist timing and video-playlist cycling, and read them through this view. The video **look** is the exception: it comes from `CompilePlan` (§N1.7). N5 deletes the view.
+- **Scene panel on the branch:** the video and playlist sections show the scene's settings **read-only**, from the same view, with a line saying they'll be edited on the node canvas. Name, CC value, beat hits and the preset (including drag and drop) stay editable through the graph helpers (§N1.5). There's no write path back from the old widgets, so nothing throwaway is built (D1).
+- **Key test:** `ClassicFromGraph(GraphFromV2Scene(scene))` equals the scene's v2 settings for every scene of the fixture show, and for generated cases (each playlist type, overlay on and off, invert, Syphon, video off).
 
 ### N1.7 Plan compiler
 
@@ -211,18 +212,18 @@ auto CompilePlan(const Graph&, const SwitcherSelection&) -> RenderPlan;
 | `Document.cpp/.hpp` | `TryEditGraph`; edits moved onto graphs |
 | `Engine.cpp` | Reads presets and playlist timing through the classic view; `VideoSettingsFor` goes through the plan; `UpdatePerformance` compares plans instead of looks |
 | `VideoManager.cpp` | Reads video sources and the video playlist through the classic view |
-| `Shell.cpp` | Uses the bridge (§N1.6). No visible change. |
+| `Shell.cpp` | Video and playlist sections become read-only (§N1.6); their editing code is deleted. Preset, name, CC and beat hits stay editable. |
 | `main.cpp` | D2 backup on save; smoke edits go through the new edit helpers |
 | `Library.cpp/.hpp` | "Used in scenes" goes through `PresetsOf` |
 | `scripts/convert_fork_performance.py` | Writes v2 as now, and the app converts. A note in the script says so. |
-| tests | `test_performance_json.cpp` and `test_document.cpp` are updated for the new fields. About 140 references move to graph helpers or the classic bridge. |
+| tests | `test_performance_json.cpp` and `test_document.cpp` are updated for the new fields. About 140 references move to graph helpers or the classic view. |
 
 ### N1 done when
 
 - [ ] All tests pass, including the new graph, validation, conversion, round-trip and equivalence tests.
 - [ ] The fixture show converts, validates with no errors, and compiles plans equal to today's settings for every scene and entry.
 - [ ] A smoke run with `--smoke-edits` on a scratch copy matches main's stats (held ticks within noise), and the saved file is v3 and reloads.
-- [ ] You open your show in the PR build and see no difference. That's your check, listed in the PR.
+- [ ] You open your show in the PR build: it plays exactly as before, and its video and playlist settings show read-only. That's your check, listed in the PR.
 
 ---
 
@@ -397,7 +398,7 @@ PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
 
 ## N4: Node canvas
 
-**Goal:** edit a scene's graph on a canvas whose nodes carry their own controls. The old video section and the classic bridge are deleted. Size: L, the largest milestone.
+**Goal:** edit a scene's graph on a canvas whose nodes carry their own controls. The read-only video section is replaced. Size: L, the largest milestone.
 
 ### N4.1 Library spike (half a day, can start during N3)
 
@@ -417,7 +418,7 @@ PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
 | `src/app/GraphEditor.hpp/.cpp` | Wraps the library: `Draw(const Graph&, const GraphView& state, GraphActions&)`; owns zoom and pan per scene (not saved); hit-testing; the wire being dragged |
 | `src/app/nodes/NodeDraw.hpp` | `DrawNodeBody(const Node&, NodeContext&) -> std::optional<NodeEdit>`, one per type |
 | `src/app/nodes/VideoSourceNode.cpp`, `EffectNodes.cpp`, `PresetNode.cpp`, `SwitcherNode.cpp`, `ViewportNode.cpp` | Each node's body, using today's widgets moved out of `Shell.cpp` (about 650 lines move) |
-| `Shell.cpp` | `DrawSceneProperties` keeps name, CC and beat hits, then hosts the canvas. The video section, playlist editors and the classic bridge are deleted. |
+| `Shell.cpp` | `DrawSceneProperties` keeps name, CC and beat hits, then hosts the canvas. The read-only video and playlist sections are deleted. |
 
 ### N4.3 Node layout
 
@@ -502,12 +503,12 @@ PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
 
 | Risk | Where | Mitigation |
 | --- | --- | --- |
-| The bridge (D1) has subtle round-trip gaps, so a Scene panel edit changes something unrelated | N1 | A round-trip test over every fixture scene and generated cases, and the equivalence test against today's `VideoSettingsFor` |
+| The classic view misreads a converted graph, so the engine plays something different | N1 | A round-trip test over every fixture scene and generated cases, and the equivalence test against today's `VideoSettingsFor` |
 | The GL test can't create a context in some environments | N2 | It's skipped with a message, never failed silently. Smoke runs and your visual check remain. |
 | The clamp order in the chain shader differs subtly from today's | N2 | §N2.1, proven by the 200-case pixel test |
 | projectM resolves textures in a way the cache insert doesn't catch | N3 | Decided in the first two days, with the re-prepare fallback ready |
 | The node library fights ImGui 1.92 popups or zoom | N4 | Both candidates are built in the spike before committing to one |
-| Shell.cpp churn conflicts with other work | N1, N4 | No other work is planned in parallel; milestones merge one at a time |
+| Main and `node-graph` drift apart | All | Main gets only fixes until the feature merges; I merge main into `node-graph` whenever main changes |
 
 ## 5. Not in this plan
 
