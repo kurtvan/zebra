@@ -40,6 +40,11 @@ auto LoadPerformance(const std::filesystem::path& file) -> LoadResult;
 /// Serializes to pretty-printed JSON (format version kCurrentFormatVersion).
 auto SerializePerformance(const Performance& performance) -> std::string;
 
+/// Before `file` is overwritten in the current format: if it holds an older format, copies it once to
+/// "<name>.v<version>-backup.json" next to it, since older builds can't open the new format. Returns the backup's
+/// path when one was written, else empty (nothing to back up, or the backup already exists).
+auto BackupOlderFormat(const std::filesystem::path& file) -> std::filesystem::path;
+
 /// Writes atomically (temp file + rename). Returns an error message, or empty on success.
 auto SavePerformance(const Performance& performance, const std::filesystem::path& file) -> std::string;
 

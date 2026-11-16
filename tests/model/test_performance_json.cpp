@@ -1,24 +1,19 @@
 #include "model/PerformanceJson.hpp"
 
 #include "model/Document.hpp"
+#include "TestScenes.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 using namespace gv::model;
+using gv::test::MakeScene;
+using gv::test::WithVideo;
 
 namespace {
-
-auto MakeScene(const std::string& id, int cc) -> Scene
-{
-    Scene scene;
-    scene.id = id;
-    scene.presetPath = "/presets/" + id + ".milk";
-    scene.cc20Value = cc;
-    return scene;
-}
 
 auto HasIssueAt(const LoadResult& result, const std::string& path, Issue::Severity severity = Issue::Severity::Error) -> bool
 {
@@ -30,14 +25,28 @@ auto HasIssueAt(const LoadResult& result, const std::string& path, Issue::Severi
     return false;
 }
 
+auto CountIssuesAt(const std::vector<Issue>& issues, const std::string& path) -> int
+{
+    int count = 0;
+    for (const auto& issue : issues)
+        count += issue.path == path ? 1 : 0;
+    return count;
+}
+
 auto HasIssueAt(const std::vector<Issue>& issues, const std::string& path) -> bool
 {
-    for (const auto& issue : issues)
+    return CountIssuesAt(issues, path) > 0;
+}
+
+/// The first node of `type` in a scene's graph.
+auto NodeOf(Scene& scene, NodeType type) -> Node&
+{
+    for (auto& node : scene.graph.nodes)
     {
-        if (issue.path == path)
-            return true;
+        if (node.type == type)
+            return node;
     }
-    return false;
+    throw std::runtime_error("no such node");
 }
 
 } // namespace
@@ -46,40 +55,36 @@ TEST_CASE("a performance survives a save/load round trip")
 {
     Performance performance;
     performance.name = "Show";
-    auto a = MakeScene("intro", 0);
-    a.name = "Intro";
-    a.video.enabled = true;
-    a.video.source.type = VideoSourceType::File;
-    a.video.source.videoId = "intro";
     performance.videos = {PoolVideo{"intro", "Intro loop", "/videos/intro.mp4", 12.5, 0.5, VideoFit::Fit}};
-    a.video.look.mix = 0.5f;
-    a.video.look.lumaMin = 0.25f;
-    a.video.restartOnEnter = false;
-    a.video.loop = false;
-    a.video.invertLuma = true;
+    auto classic = WithVideo("/presets/intro.milk", "intro", VideoLook{0.5f, 0.25f, 80.0f, 0.0f, true, 0.25f}); // high contrast is allowed
+    classic.video.restartOnEnter = false;
+    classic.video.loop = false;
+    classic.video.invertLuma = true;
+    auto a = MakeScene("intro", 0, classic);
+    a.name = "Intro";
     a.beatHit = {true, BeatHitEvery::Bar, BeatHitSound::Snare, 0.8f};
-    a.video.look.contrast = 80.0f; // high contrast is allowed
-    a.video.look.saturation = 0.0f;
-    a.video.look.overlay = true;
-    a.video.look.softness = 0.25f;
-    auto b = MakeScene("cave", 7);
-    b.video.enabled = true;
-    b.video.source.type = VideoSourceType::Syphon;
-    b.video.source.appName = "Resolume";
-    b.video.source.serverName = "Composition";
+    ClassicScene syphon;
+    syphon.presetPath = "/presets/cave.milk";
+    syphon.video.enabled = true;
+    syphon.video.source = {VideoSourceType::Syphon, {}, {}, "Resolume", "Composition"};
+    auto b = MakeScene("cave", 7, syphon);
+    a.graph.nodes[0].x = 12.5f;
+    a.graph.nodes[0].expanded = false;
     performance.scenes = {a, b};
 
     const auto result = ParsePerformance(SerializePerformance(performance));
     REQUIRE(result.ok);
     REQUIRE(result.issues.empty());
     const auto& loaded = result.performance;
+    CHECK(loaded.version == 3);
     CHECK(loaded.name == "Show");
     REQUIRE(loaded.scenes.size() == 2);
+    CHECK(loaded.scenes[0].graph == a.graph); // node positions and expanded state included
+    CHECK(loaded.scenes[1].graph == b.graph);
     CHECK(loaded.scenes[0].id == "intro");
     CHECK(loaded.scenes[0].name == "Intro");
-    CHECK(loaded.scenes[0].presetPath == "/presets/intro.milk");
-    CHECK(loaded.scenes[0].video.enabled);
-    CHECK(loaded.scenes[0].video.source.videoId == "intro");
+    CHECK(loaded.scenes[0].classic == NormalizeClassic(classic));
+    CHECK(loaded.scenes[0].FirstPreset() == "/presets/intro.milk");
     REQUIRE(loaded.videos.size() == 1);
     CHECK(loaded.videos[0].id == "intro");
     CHECK(loaded.videos[0].name == "Intro loop");
@@ -87,24 +92,58 @@ TEST_CASE("a performance survives a save/load round trip")
     CHECK(loaded.videos[0].startSeconds == 12.5);
     CHECK(loaded.videos[0].speed == 0.5);
     CHECK(loaded.videos[0].fit == VideoFit::Fit);
-    CHECK(loaded.scenes[0].video.look.mix == 0.5f);
-    CHECK(loaded.scenes[0].video.look.lumaMin == 0.25f);
-    CHECK_FALSE(loaded.scenes[0].video.restartOnEnter);
-    CHECK_FALSE(loaded.scenes[0].video.loop);
-    CHECK(loaded.scenes[0].video.invertLuma);
-    CHECK_FALSE(loaded.scenes[1].video.invertLuma);
     CHECK(loaded.scenes[0].beatHit == BeatHit{true, BeatHitEvery::Bar, BeatHitSound::Snare, 0.8f});
     CHECK(loaded.scenes[1].beatHit == BeatHit{}); // off by default
-    CHECK(loaded.scenes[0].video.look.contrast == 80.0f);
-    CHECK(loaded.scenes[0].video.look.saturation == 0.0f);
-    CHECK(loaded.scenes[0].video.look.overlay);
-    CHECK(loaded.scenes[0].video.look.softness == 0.25f);
-    CHECK(loaded.scenes[1].video.look.contrast == 1.0f); // defaults
-    CHECK(loaded.scenes[1].video.loop);
     CHECK(loaded.scenes[1].cc20Value == 7);
-    CHECK(loaded.scenes[1].video.source.type == VideoSourceType::Syphon);
-    CHECK(loaded.scenes[1].video.source.appName == "Resolume");
-    CHECK(loaded.scenes[1].video.source.serverName == "Composition");
+    CHECK(loaded.scenes[1].classic.video.source.type == VideoSourceType::Syphon);
+    CHECK(loaded.scenes[1].classic.video.source.appName == "Resolume");
+    CHECK(loaded.scenes[1].classic.video.source.serverName == "Composition");
+    CHECK(loaded.scenes[1].classic.video.loop);
+}
+
+TEST_CASE("format 3 files name preset inputs and keep switcher inputs stable")
+{
+    Performance performance;
+    ClassicScene classic;
+    classic.playlist.enabled = true;
+    classic.playlist.presets = {"/a.milk", "/b.milk"};
+    classic.playlist.looks = {VideoLook{}, VideoLook{0.5f, 0.0f, 1.0f, 1.0f, true}};
+    classic.video.enabled = true;
+    classic.video.source.type = VideoSourceType::Syphon;
+    performance.scenes = {MakeScene("s", 0, classic)};
+    const std::string text = SerializePerformance(performance);
+    CHECK(text.find("\"input\": \"feedback\"") != std::string::npos);
+    CHECK(text.find("\"input\": \"onTop\"") != std::string::npos);
+    CHECK(text.find("\"kind\": \"frame\"") != std::string::npos);
+    CHECK(text.find("\"type\": \"lumaGate\"") != std::string::npos);
+    CHECK(text.find("\"preset\"") != std::string::npos);
+    CHECK(text.find("\"playlist\"") == std::string::npos); // no format 2 fields
+    CHECK(SerializePerformance(ParsePerformance(text).performance) == text); // stable
+}
+
+TEST_CASE("damaged graphs load unfinished, with a warning per problem")
+{
+    const auto result = ParsePerformance(R"({"version": 3, "scenes": [{"id": "a", "midi": {"cc20Value": 0}, "graph": {
+        "nodes": [{"id": "p", "type": "preset", "path": "/x.milk"}, {"id": "v", "type": "viewport"}, {"id": "c", "type": "contrast"},
+                  {"id": "w", "type": "wormhole"}],
+        "wires": [{"from": "p", "to": "v", "input": 0}, {"from": "p", "to": "c", "input": 0}, {"from": "c", "to": "c", "input": 0},
+                  {"from": "c", "to": "p", "input": "sideways"}]}}]})");
+    REQUIRE(result.ok); // only warnings
+    const auto& scene = result.performance.scenes[0];
+    CHECK(scene.graph.nodes.size() == 3);           // the unknown node is left out
+    CHECK(scene.graph.wires.empty());               // nothing wired: unfinished
+    CHECK(ValidateGraph(scene.graph).empty());
+    CHECK(HasIssueAt(result, "/scenes/0/graph/nodes/3/type", Issue::Severity::Warning));
+    CHECK(HasIssueAt(result, "/scenes/0/graph/wires/3/input", Issue::Severity::Warning));
+    CHECK(CountIssuesAt(result.issues, "/scenes/0/graph") >= 3); // each problem, then the note that wires were removed
+    CHECK(scene.FirstPreset().empty());
+
+    // Bad values are still errors, as in format 2.
+    const auto bad = ParsePerformance(R"({"version": 3, "scenes": [{"id": "a", "midi": {"cc20Value": 0}, "graph": {
+        "nodes": [{"id": "p", "type": "preset", "path": "/x.milk"}, {"id": "v", "type": "viewport"}, {"id": "m", "type": "mix", "opacity": 3}],
+        "wires": [{"from": "p", "to": "v", "input": 0}]}}]})");
+    CHECK_FALSE(bad.ok);
+    CHECK(HasIssueAt(bad, "/scenes/0/graph"));
 }
 
 TEST_CASE("unparseable or structurally wrong files are rejected with a message")
@@ -136,11 +175,11 @@ TEST_CASE("validation rules")
     SECTION("empty id and preset path")
     {
         auto scene = MakeScene("", 0);
-        scene.presetPath.clear();
+        ParamsOf<PresetParams>(NodeOf(scene, NodeType::Preset)).path.clear();
         performance.scenes = {scene};
         const auto issues = Validate(performance);
         CHECK(HasIssueAt(issues, "/scenes/0/id"));
-        CHECK(HasIssueAt(issues, "/scenes/0/preset/path"));
+        CHECK(HasIssueAt(issues, "/scenes/0/graph"));
     }
     SECTION("CC 20 value out of range or duplicated")
     {
@@ -153,20 +192,17 @@ TEST_CASE("validation rules")
     }
     SECTION("mix, luma, contrast and saturation ranges")
     {
-        auto scene = MakeScene("a", 0);
-        scene.video.look.mix = 1.5f;
-        scene.video.look.lumaMin = -0.1f;
-        scene.video.look.contrast = 150.f;
-        scene.video.look.saturation = -1.f;
-        scene.video.look.softness = 2.f;
+        performance.videos = {PoolVideo{"v", "", "/v.mp4"}};
+        auto scene = MakeScene("a", 0, WithVideo("/a.milk", "v"));
+        ParamsOf<MixParams>(NodeOf(scene, NodeType::Mix)).opacity = 1.5f;
+        ParamsOf<LumaGateParams>(NodeOf(scene, NodeType::LumaGate)).threshold = -0.1f;
+        ParamsOf<LumaGateParams>(NodeOf(scene, NodeType::LumaGate)).softness = 2.f;
+        ParamsOf<ContrastParams>(NodeOf(scene, NodeType::Contrast)).contrast = 150.f;
+        ParamsOf<SaturationParams>(NodeOf(scene, NodeType::Saturation)).saturation = -1.f;
         scene.beatHit.strength = 1.5f;
         performance.scenes = {scene};
         const auto issues = Validate(performance);
-        CHECK(HasIssueAt(issues, "/scenes/0/video/mix"));
-        CHECK(HasIssueAt(issues, "/scenes/0/video/lumaMin"));
-        CHECK(HasIssueAt(issues, "/scenes/0/video/contrast"));
-        CHECK(HasIssueAt(issues, "/scenes/0/video/saturation"));
-        CHECK(HasIssueAt(issues, "/scenes/0/video/softness"));
+        CHECK(CountIssuesAt(issues, "/scenes/0/graph") == 5);
         CHECK(HasIssueAt(issues, "/scenes/0/beatHit/strength"));
     }
 
@@ -175,24 +211,25 @@ TEST_CASE("validation rules")
         const auto result = ParsePerformance(R"({"version": 1, "scenes": [{"id": "a", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 0},
             "video": {"enabled": true, "source": {"type": "file", "path": "/v.mp4"}, "mix": 1, "lumaMin": 0}}]})");
         REQUIRE(result.ok);
-        CHECK(result.performance.scenes[0].video.look.contrast == 1.0f);
-        CHECK(result.performance.scenes[0].video.look.saturation == 1.0f);
-        CHECK_FALSE(result.performance.scenes[0].video.look.overlay);
-        CHECK(result.performance.scenes[0].video.look.softness == 0.0f);
+        const auto& look = result.performance.scenes[0].classic.video.look;
+        CHECK(look.contrast == 1.0f);
+        CHECK(look.saturation == 1.0f);
+        CHECK_FALSE(look.overlay);
+        CHECK(look.softness == 0.0f);
     }
     SECTION("enabled file video needs a pool video; Syphon without names means any server")
     {
-        auto file = MakeScene("a", 0);
-        file.video.enabled = true;
-        auto syphon = MakeScene("b", 1);
-        syphon.video.enabled = true;
-        syphon.video.source.type = VideoSourceType::Syphon;
-        performance.scenes = {file, syphon};
+        auto file = MakeScene("a", 0, WithVideo("/a.milk", ""));
+        ClassicScene syphonScene;
+        syphonScene.presetPath = "/b.milk";
+        syphonScene.video.enabled = true;
+        syphonScene.video.source.type = VideoSourceType::Syphon;
+        performance.scenes = {file, MakeScene("b", 1, syphonScene)};
         const auto issues = Validate(performance);
-        CHECK(HasIssueAt(issues, "/scenes/0/video/source/video"));
-        CHECK_FALSE(HasIssueAt(issues, "/scenes/1/video/source"));
-        performance.scenes[0].video.source.videoId = "gone";
-        CHECK(HasIssueAt(Validate(performance), "/scenes/0/video/source/video"));
+        CHECK(HasIssueAt(issues, "/scenes/0/graph"));
+        CHECK_FALSE(HasIssueAt(issues, "/scenes/1/graph"));
+        performance.scenes[0] = MakeScene("a", 0, WithVideo("/a.milk", "gone"));
+        CHECK(HasIssueAt(Validate(performance), "/scenes/0/graph"));
     }
     SECTION("pool videos: unique ids, speed 0.1-4, start not negative")
     {
@@ -227,13 +264,10 @@ TEST_CASE("missing files are warnings and the performance still loads")
     std::ofstream(preset) << "[preset00]\n";
 
     Performance performance;
-    auto present = MakeScene("present", 0);
+    ClassicScene present;
     present.presetPath = preset;
-    auto missing = MakeScene("missing", 1);
-    missing.presetPath = dir / "nope.milk";
-    missing.video.enabled = true;
-    missing.video.source.videoId = AddPoolVideo(performance, dir / "nope.mp4");
-    performance.scenes = {present, missing};
+    const std::string video = AddPoolVideo(performance, dir / "nope.mp4");
+    performance.scenes = {MakeScene("present", 0, present), MakeScene("missing", 1, WithVideo((dir / "nope.milk").string(), video))};
 
     const auto file = dir / "performance.json";
     REQUIRE(SavePerformance(performance, file).empty());
@@ -243,7 +277,7 @@ TEST_CASE("missing files are warnings and the performance still loads")
     CHECK_FALSE(result.performance.scenes[0].presetMissing);
     CHECK(result.performance.scenes[1].presetMissing);
     CHECK(result.performance.scenes[1].videoMissing);
-    CHECK(HasIssueAt(result, "/scenes/1/preset/path", Issue::Severity::Warning));
+    CHECK(HasIssueAt(result, "/scenes/1/graph", Issue::Severity::Warning));
     CHECK(result.performance.videos[0].missing);
     CHECK(HasIssueAt(result, "/videos/0/path", Issue::Severity::Warning));
 
@@ -267,13 +301,12 @@ TEST_CASE("playlists round-trip, validate and report missing entries")
     std::ofstream(dir / "b.milk") << "[preset00]\n";
 
     Performance performance;
-    auto scene = MakeScene("p", 0);
-    scene.presetPath.clear();
-    scene.playlist.enabled = true;
-    scene.playlist.presets = {dir / "a.milk", dir / "missing.milk", dir / "b.milk"};
-    scene.playlist.intervalSeconds = 12.5;
-    scene.playlist.shuffle = true;
-    performance.scenes = {scene, MakeScene("plain", 1)};
+    ClassicScene classic;
+    classic.playlist.enabled = true;
+    classic.playlist.presets = {dir / "a.milk", dir / "missing.milk", dir / "b.milk"};
+    classic.playlist.intervalSeconds = 12.5;
+    classic.playlist.shuffle = true;
+    performance.scenes = {MakeScene("p", 0, classic), MakeScene("plain", 1)};
     CHECK(Validate(performance).empty());
 
     const auto file = dir / "performance.json";
@@ -282,57 +315,54 @@ TEST_CASE("playlists round-trip, validate and report missing entries")
     REQUIRE(result.ok);
     const auto& loaded = result.performance.scenes[0];
     CHECK(loaded.IsPlaylist());
-    CHECK(loaded.playlist.presets.size() == 3);
-    CHECK(loaded.playlist.intervalSeconds == 12.5);
-    CHECK(loaded.playlist.shuffle);
+    CHECK(loaded.classic.playlist.presets.size() == 3);
+    CHECK(loaded.classic.playlist.intervalSeconds == 12.5);
+    CHECK(loaded.classic.playlist.shuffle);
     CHECK(loaded.FirstPreset() == dir / "a.milk");
     CHECK_FALSE(loaded.presetMissing);
     CHECK(loaded.playlistMissing == std::vector<bool>{false, true, false});
-    CHECK(HasIssueAt(result, "/scenes/0/playlist/presets/1/path", Issue::Severity::Warning));
+    CHECK(HasIssueAt(result, "/scenes/0/graph", Issue::Severity::Warning));
     CHECK_FALSE(result.performance.scenes[1].IsPlaylist());
     CHECK(result.performance.scenes[1].Presets().size() == 1);
 
-    SECTION("an enabled playlist needs presets and a sane interval")
+    SECTION("intervals are validated")
     {
         auto bad = performance;
-        bad.scenes[0].playlist.presets.clear();
-        bad.scenes[0].playlist.intervalSeconds = 0.2;
-        const auto issues = Validate(bad);
-        CHECK(HasIssueAt(issues, "/scenes/0/playlist/presets"));
-        CHECK(HasIssueAt(issues, "/scenes/0/playlist/intervalSeconds"));
+        ParamsOf<SwitcherParams>(NodeOf(bad.scenes[0], NodeType::Switcher)).intervalSeconds = 0.2;
+        CHECK(HasIssueAt(Validate(bad), "/scenes/0/graph"));
     }
     SECTION("beat and bar intervals round-trip and validate")
     {
         auto bars = performance;
-        bars.scenes[0].playlist.unit = IntervalUnit::Bars;
-        bars.scenes[0].playlist.intervalCount = 8;
-        bars.scenes[0].playlist.intervalSeconds = 0.0; // ignored for bars
+        auto& params = ParamsOf<SwitcherParams>(NodeOf(bars.scenes[0], NodeType::Switcher));
+        params.unit = IntervalUnit::Bars;
+        params.intervalCount = 8;
+        params.intervalSeconds = 0.0; // ignored for bars
         CHECK(Validate(bars).empty());
         const auto reloaded = ParsePerformance(SerializePerformance(bars));
         REQUIRE(reloaded.ok);
-        CHECK(reloaded.performance.scenes[0].playlist.unit == IntervalUnit::Bars);
-        CHECK(reloaded.performance.scenes[0].playlist.intervalCount == 8);
+        CHECK(reloaded.performance.scenes[0].classic.playlist.unit == IntervalUnit::Bars);
+        CHECK(reloaded.performance.scenes[0].classic.playlist.intervalCount == 8);
 
-        bars.scenes[0].playlist.intervalCount = 0;
-        CHECK(HasIssueAt(Validate(bars), "/scenes/0/playlist/intervalCount"));
+        params.intervalCount = 0;
+        CHECK(HasIssueAt(Validate(bars), "/scenes/0/graph"));
         CHECK(HasIssueAt(ParsePerformance(R"({"version": 1, "scenes": [{"id": "a", "midi": {"cc20Value": 0},
             "playlist": {"enabled": true, "presets": [{"path": "/a.milk"}], "intervalUnit": "fortnights"}}]})"), "/scenes/0/playlist/intervalUnit"));
     }
     SECTION("older playlists without a unit are in seconds")
     {
-        const auto result = ParsePerformance(R"({"version": 1, "scenes": [{"id": "a", "midi": {"cc20Value": 0},
+        const auto older = ParsePerformance(R"({"version": 1, "scenes": [{"id": "a", "midi": {"cc20Value": 0},
             "playlist": {"enabled": true, "presets": [{"path": "/a.milk"}], "intervalSeconds": 20}}]})");
-        REQUIRE(result.ok);
-        CHECK(result.performance.scenes[0].playlist.unit == IntervalUnit::Seconds);
+        REQUIRE(older.ok);
+        CHECK(older.performance.scenes[0].classic.playlist.unit == IntervalUnit::Seconds);
     }
-    SECTION("a disabled playlist falls back to the single preset")
+    SECTION("a format 2 playlist that's turned off loads as the single preset")
     {
-        auto plain = performance;
-        plain.scenes[0].playlist.enabled = false;
-        CHECK(HasIssueAt(Validate(plain), "/scenes/0/preset/path")); // presetPath is empty
-        plain.scenes[0].presetPath = dir / "b.milk";
-        CHECK(Validate(plain).empty());
-        CHECK(plain.scenes[0].FirstPreset() == dir / "b.milk");
+        const auto off = ParsePerformance(R"({"version": 2, "scenes": [{"id": "a", "midi": {"cc20Value": 0}, "preset": {"path": "/b.milk"},
+            "playlist": {"enabled": false, "presets": [{"path": "/a.milk"}]}}]})");
+        REQUIRE(off.ok);
+        CHECK_FALSE(off.performance.scenes[0].IsPlaylist());
+        CHECK(off.performance.scenes[0].FirstPreset() == "/b.milk");
     }
     std::filesystem::remove_all(dir);
 }
@@ -354,15 +384,15 @@ TEST_CASE("format 1 file videos become pool videos, one per file")
     CHECK(performance.videos[0].speed == 1.0);
     CHECK(performance.videos[0].fit == VideoFit::Fill); // no "fit" in the file
     CHECK(performance.videos[1].id == "hearts-intro-2");
-    CHECK(performance.scenes[0].video.source.videoId == "hearts-intro");
-    CHECK(performance.scenes[1].video.source.videoId == "hearts-intro");
-    CHECK(performance.scenes[2].video.source.videoId == "hearts-intro-2"); // kept for when it's switched on
-    CHECK(performance.scenes[3].video.source.videoId.empty());
-    CHECK(performance.scenes[0].video.source.path.empty());
+    CHECK(performance.scenes[0].classic.video.source.videoId == "hearts-intro");
+    CHECK(performance.scenes[1].classic.video.source.videoId == "hearts-intro");
+    CHECK_FALSE(performance.scenes[2].classic.video.enabled); // switched-off video isn't converted
+    CHECK(performance.scenes[3].classic.video.source.videoId.empty());
+    CHECK(performance.scenes[0].classic.video.source.path.empty());
 
     // Saved in the new format, without per-scene paths.
     const std::string saved = SerializePerformance(performance);
-    CHECK(saved.find("\"version\": 2") != std::string::npos);
+    CHECK(saved.find("\"version\": 3") != std::string::npos);
     CHECK(saved.find("\"video\": \"hearts-intro\"") != std::string::npos);
     const auto reloaded = ParsePerformance(saved);
     REQUIRE(reloaded.ok);
@@ -378,9 +408,7 @@ TEST_CASE("the video pool: adding dedupes by file, removing needs it unused")
     CHECK(AddPoolVideo(performance, "/w/clip.mov") == "clip-2");
     REQUIRE(performance.videos.size() == 2);
 
-    auto scene = MakeScene("a", 0);
-    scene.video.source.videoId = id;
-    performance.scenes = {scene};
+    performance.scenes = {MakeScene("a", 0, WithVideo("/a.milk", id))};
     CHECK(VideoUsage(performance, id) == 1);
     CHECK(performance.VideoFor(performance.scenes[0]) == &performance.videos[0]);
     CHECK_FALSE(RemovePoolVideo(performance, id));
@@ -394,11 +422,9 @@ TEST_CASE("video playlists round-trip, validate and count as using their videos"
     Performance performance;
     AddPoolVideo(performance, "/v/a.mov");
     AddPoolVideo(performance, "/v/b.mov");
-    auto scene = MakeScene("s", 0);
-    scene.video.enabled = true;
-    scene.video.source.videoId = "a";
-    scene.video.playlist = {true, {"b", "a"}, IntervalUnit::Bars, 30.0, 8, true};
-    performance.scenes = {scene};
+    auto classic = WithVideo("/p.milk", "a");
+    classic.video.playlist = {true, {"b", "a"}, IntervalUnit::Bars, 30.0, 8, true};
+    performance.scenes = {MakeScene("s", 0, classic)};
     CHECK(performance.scenes[0].IsVideoPlaylist());
     CHECK(performance.VideoFor(performance.scenes[0])->id == "b"); // starts on the playlist's first video
     CHECK(VideoUsage(performance, "b") == 1);
@@ -407,43 +433,34 @@ TEST_CASE("video playlists round-trip, validate and count as using their videos"
     const auto result = ParsePerformance(SerializePerformance(performance));
     REQUIRE(result.ok);
     CHECK(result.issues.empty());
-    const auto& playlist = result.performance.scenes[0].video.playlist;
+    const auto& playlist = result.performance.scenes[0].classic.video.playlist;
     CHECK(playlist.enabled);
     CHECK(playlist.videos == std::vector<std::string>{"b", "a"});
     CHECK(playlist.unit == IntervalUnit::Bars);
     CHECK(playlist.intervalCount == 8);
     CHECK(playlist.shuffle);
 
-    // A turned-off playlist keeps its list, and the scene shows its single video again.
-    performance.scenes[0].video.playlist.enabled = false;
-    const auto off = ParsePerformance(SerializePerformance(performance));
-    CHECK_FALSE(off.performance.scenes[0].IsVideoPlaylist());
-    CHECK(off.performance.scenes[0].video.playlist.videos.size() == 2);
-    CHECK(off.performance.VideoFor(off.performance.scenes[0])->id == "a");
+    // A turned-off playlist: the scene shows its single video.
+    classic.video.playlist.enabled = false;
+    performance.scenes = {MakeScene("s", 0, classic)};
+    CHECK_FALSE(performance.scenes[0].IsVideoPlaylist());
+    CHECK(performance.VideoFor(performance.scenes[0])->id == "a");
 
-    // Validation: unknown ids, empty list, interval range.
-    performance.scenes[0].video.playlist.enabled = true;
-    performance.scenes[0].video.playlist.videos = {"a", "nope"};
-    performance.scenes[0].video.playlist.intervalCount = 0;
-    auto issues = Validate(performance);
-    CHECK(HasIssueAt(issues, "/scenes/0/video/playlist/videos/1"));
-    CHECK(HasIssueAt(issues, "/scenes/0/video/playlist/intervalCount"));
-    performance.scenes[0].video.playlist.videos.clear();
-    CHECK(HasIssueAt(Validate(performance), "/scenes/0/video/playlist/videos"));
+    // Validation: unknown ids, interval range.
+    classic.video.playlist = {true, {"a", "nope"}, IntervalUnit::Bars, 30.0, 8, false};
+    performance.scenes = {MakeScene("s", 0, classic)};
+    CHECK(HasIssueAt(Validate(performance), "/scenes/0/graph"));
 }
 
-TEST_CASE("a dropped video joins a scene's video playlist, or becomes its video")
+TEST_CASE("a Syphon scene's video playlist is left out, with a warning")
 {
-    Performance performance;
-    performance.scenes = {MakeScene("a", 0), MakeScene("b", 1)};
-    performance.scenes[1].video.playlist.enabled = true;
-    CHECK(AssignVideo(performance, 0, "x"));
-    CHECK(performance.scenes[0].video.enabled);
-    CHECK(performance.scenes[0].video.source.videoId == "x");
-    CHECK(AssignVideo(performance, 1, "x"));
-    CHECK(AssignVideo(performance, 1, "y"));
-    CHECK(performance.scenes[1].video.playlist.videos == std::vector<std::string>{"x", "y"});
-    CHECK_FALSE(AssignVideo(performance, 2, "x"));
+    const auto result = ParsePerformance(R"({"version": 2, "scenes": [{"id": "a", "preset": {"path": "/x.milk"}, "midi": {"cc20Value": 0},
+        "video": {"enabled": true, "source": {"type": "syphon"}, "playlist": {"enabled": true, "videos": ["v"]}}}],
+        "videos": [{"id": "v", "path": "/v.mp4"}]})");
+    REQUIRE(result.ok);
+    CHECK(HasIssueAt(result, "/scenes/0/video/playlist", Issue::Severity::Warning));
+    CHECK_FALSE(result.performance.scenes[0].IsVideoPlaylist());
+    CHECK(result.performance.scenes[0].classic.video.source.type == VideoSourceType::Syphon);
 }
 
 TEST_CASE("playlist entries have their own video look")
@@ -455,53 +472,46 @@ TEST_CASE("playlist entries have their own video look")
             "video": {"enabled": true, "source": {"type": "syphon"}, "mix": 0.4, "lumaMin": 0.2, "contrast": 50, "saturation": 0}}]})");
         REQUIRE(result.ok);
         const auto& scene = result.performance.scenes[0];
-        REQUIRE(scene.playlist.looks.size() == 2);
-        CHECK(scene.LookFor(1) == scene.video.look);
+        REQUIRE(scene.classic.playlist.looks.size() == 2);
+        CHECK(scene.LookFor(1) == scene.LookFor(0));
         CHECK(scene.LookFor(1).contrast == 50.f);
     }
-    SECTION("round trip, and the scene's look is separate")
+    SECTION("round trip")
     {
         Performance performance;
-        auto scene = MakeScene("a", 0);
-        scene.playlist.enabled = true;
-        scene.playlist.Add("/a.milk", VideoLook{0.5f, 0.1f, 1.f, 1.f});
-        scene.playlist.Add("/b.milk", VideoLook{1.f, 0.f, 100.f, 0.f, true, 0.5f});
-        scene.video.look.mix = 0.7f;
-        performance.scenes = {scene};
+        ClassicScene classic;
+        classic.playlist.enabled = true;
+        classic.playlist.presets = {"/a.milk", "/b.milk"};
+        classic.playlist.looks = {VideoLook{0.5f, 0.1f, 1.f, 1.f}, VideoLook{1.f, 0.f, 100.f, 0.f, true, 0.5f}};
+        classic.video.enabled = true;
+        classic.video.source.type = VideoSourceType::Syphon;
+        performance.scenes = {MakeScene("a", 0, classic)};
         const auto loaded = ParsePerformance(SerializePerformance(performance));
         REQUIRE(loaded.ok);
         const auto& back = loaded.performance.scenes[0];
         CHECK(back.LookFor(0) == VideoLook{0.5f, 0.1f, 1.f, 1.f});
         CHECK(back.LookFor(1) == VideoLook{1.f, 0.f, 100.f, 0.f, true, 0.5f});
-        CHECK(back.video.look.mix == 0.7f);
-        CHECK(back.LookFor(-1).mix == 0.7f);
+    }
+}
 
-        // A disabled playlist keeps its entries' looks.
-        performance.scenes[0].playlist.enabled = false;
-        const auto disabled = ParsePerformance(SerializePerformance(performance));
-        CHECK(disabled.performance.scenes[0].playlist.looks[1].contrast == 100.f);
-        CHECK(disabled.performance.scenes[0].LookFor(1).mix == 0.7f); // not a playlist: the scene's look
-    }
-    SECTION("editing entries keeps the looks with their presets")
-    {
-        ScenePlaylist playlist;
-        playlist.Add("/a.milk", VideoLook{0.1f});
-        playlist.Add("/b.milk", VideoLook{0.2f});
-        playlist.Add("/c.milk", VideoLook{0.3f});
-        playlist.Swap(0, 2);
-        CHECK(playlist.presets[0] == "/c.milk");
-        CHECK(playlist.looks[0].mix == 0.3f);
-        playlist.Remove(1);
-        REQUIRE(playlist.looks.size() == 2);
-        CHECK(playlist.looks[1].mix == 0.1f);
-    }
-    SECTION("entry looks are validated")
-    {
-        Performance performance;
-        auto scene = MakeScene("a", 0);
-        scene.playlist.enabled = true;
-        scene.playlist.Add("/a.milk", VideoLook{2.f, 0.f, 1.f, 1.f});
-        performance.scenes = {scene};
-        CHECK(HasIssueAt(Validate(performance), "/scenes/0/playlist/presets/0/look/mix"));
-    }
+TEST_CASE("saving over an older format keeps one backup of it")
+{
+    const auto dir = std::filesystem::temp_directory_path() / "gv_test_backup";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    const auto file = dir / "show.json";
+    const std::string old = R"({"version": 2, "scenes": []})";
+    std::ofstream(file) << old;
+
+    const auto backup = BackupOlderFormat(file);
+    CHECK(backup == dir / "show.v2-backup.json");
+    std::stringstream copied;
+    copied << std::ifstream(backup).rdbuf();
+    CHECK(copied.str() == old);
+    CHECK(BackupOlderFormat(file).empty()); // only once
+
+    REQUIRE(SavePerformance(Performance{}, file).empty());
+    CHECK(BackupOlderFormat(file).empty()); // already the current format
+    CHECK(BackupOlderFormat(dir / "missing.json").empty());
+    std::filesystem::remove_all(dir);
 }

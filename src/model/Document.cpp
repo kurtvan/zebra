@@ -111,18 +111,68 @@ auto UniqueSceneId(const Performance& performance, const std::string& base) -> s
     }
 }
 
+auto TryEditGraph(Document& document, int scene, const std::function<void(Graph&)>& edit, std::string label, std::string coalesceKey)
+    -> std::vector<GraphError>
+{
+    const auto& current = document.Get();
+    if (scene < 0 || scene >= static_cast<int>(current.scenes.size()))
+        return {{"", "That scene doesn't exist any more."}};
+    Performance edited = current;
+    auto& graph = edited.scenes[static_cast<size_t>(scene)].graph;
+    edit(graph);
+    NormalizeSwitcherInputs(graph);
+    auto errors = ValidateGraph(graph);
+    if (errors.empty())
+        document.Edit(std::move(edited), std::move(label), std::move(coalesceKey));
+    return errors;
+}
+
+namespace {
+
+/// The preset nodes on the viewport's side, in switcher input order (one without a switcher).
+auto ScenePresets(const Graph& graph) -> std::vector<std::string>
+{
+    const Node* viewport = graph.Viewport();
+    const Node* top = viewport != nullptr ? graph.Upstream(viewport->id, 0) : nullptr;
+    if (top == nullptr)
+        return {};
+    if (top->type == NodeType::Preset)
+        return {top->id};
+    std::vector<std::string> presets;
+    if (top->type == NodeType::Switcher)
+    {
+        for (int i = 0; i < ParamsOf<SwitcherParams>(*top).inputCount; ++i)
+        {
+            if (const Node* input = graph.Upstream(top->id, i); input != nullptr && input->type == NodeType::Preset)
+                presets.push_back(input->id);
+        }
+    }
+    return presets;
+}
+
+} // namespace
+
 auto ReplacePreset(Performance& performance, int index, int item, const std::filesystem::path& presetPath) -> int
 {
     if (index < 0 || index >= static_cast<int>(performance.scenes.size()))
         return -1;
     auto& scene = performance.scenes[static_cast<size_t>(index)];
-    if (!scene.IsPlaylist())
+    auto& graph = scene.graph;
+    const auto presets = ScenePresets(graph);
+    if (presets.empty())
     {
-        scene.presetPath = presetPath;
+        // Unfinished: a new preset node into the viewport.
+        const Node* viewport = graph.Viewport();
+        const std::string viewportId = viewport != nullptr ? viewport->id : AddNode(graph, NodeType::Viewport, 400.0f, 0.0f);
+        const std::string preset = AddNode(graph, NodeType::Preset, 100.0f, 0.0f);
+        ParamsOf<PresetParams>(*graph.Find(preset)).path = presetPath;
+        Connect(graph, preset, viewportId, 0);
+        scene.Refresh();
         return 0;
     }
-    item = std::clamp(item, 0, static_cast<int>(scene.playlist.presets.size()) - 1);
-    scene.playlist.presets[static_cast<size_t>(item)] = presetPath;
+    item = presets.size() > 1 ? std::clamp(item, 0, static_cast<int>(presets.size()) - 1) : 0;
+    ParamsOf<PresetParams>(*graph.Find(presets[static_cast<size_t>(item)])).path = presetPath;
+    scene.Refresh();
     return item;
 }
 
@@ -130,13 +180,62 @@ auto AssignVideo(Performance& performance, int index, const std::string& videoId
 {
     if (index < 0 || index >= static_cast<int>(performance.scenes.size()))
         return false;
-    auto& video = performance.scenes[static_cast<size_t>(index)].video;
-    video.enabled = true;
-    video.source.type = VideoSourceType::File;
-    if (video.playlist.enabled)
-        video.playlist.videos.push_back(videoId);
-    else
-        video.source.videoId = videoId;
+    auto& scene = performance.scenes[static_cast<size_t>(index)];
+    auto& graph = scene.graph;
+    const VideoSource file{VideoSourceType::File, videoId, {}, {}, {}};
+
+    // A Video switcher: one more input. Otherwise the (first) video source plays the file.
+    for (const auto& node : graph.nodes)
+    {
+        if (node.type == NodeType::Switcher && ParamsOf<SwitcherParams>(node).kind == PortKind::Video)
+        {
+            const std::string switcher = node.id;
+            const int input = ParamsOf<SwitcherParams>(node).inputCount - 1;
+            VideoSourceParams params;
+            params.source = file;
+            if (const Node* first = graph.Upstream(switcher, 0); first != nullptr && first->type == NodeType::VideoSource)
+            {
+                params.restartOnEnter = ParamsOf<VideoSourceParams>(*first).restartOnEnter;
+                params.loop = ParamsOf<VideoSourceParams>(*first).loop;
+            }
+            const std::string source = AddNode(graph, NodeType::VideoSource, node.x - 280.0f, node.y + 140.0f * static_cast<float>(input));
+            graph.Find(source)->params = params;
+            Connect(graph, source, switcher, input);
+            scene.Refresh();
+            return true;
+        }
+    }
+    for (auto& node : graph.nodes)
+    {
+        if (node.type == NodeType::VideoSource)
+        {
+            ParamsOf<VideoSourceParams>(node).source = file;
+            scene.Refresh();
+            return true;
+        }
+    }
+
+    // No video yet: a source, and a default look chain into every preset's Feedback input.
+    const std::string source = AddNode(graph, NodeType::VideoSource, 40.0f, 0.0f);
+    ParamsOf<VideoSourceParams>(*graph.Find(source)).source = file;
+    float y = 0.0f;
+    for (const auto& preset : ScenePresets(graph))
+    {
+        std::string previous = source;
+        float x = 600.0f;
+        for (NodeType type : {NodeType::Contrast, NodeType::Saturation, NodeType::LumaGate, NodeType::Mix})
+        {
+            const std::string id = AddNode(graph, type, x, y);
+            if (type == NodeType::LumaGate)
+                ParamsOf<LumaGateParams>(*graph.Find(id)).softness = kFeedbackGateSoftness;
+            Connect(graph, previous, id, 0);
+            previous = id;
+            x += 220.0f;
+        }
+        Connect(graph, previous, preset, static_cast<int>(PresetLayer::Feedback));
+        y += 210.0f;
+    }
+    scene.Refresh();
     return true;
 }
 
@@ -147,7 +246,10 @@ auto AddScene(Performance& performance, int after, const std::filesystem::path& 
         return -1;
     Scene scene;
     scene.id = UniqueSceneId(performance);
-    scene.presetPath = presetPath;
+    ClassicScene classic;
+    classic.presetPath = presetPath;
+    scene.graph = GraphFromClassic(classic);
+    scene.Refresh();
     scene.cc20Value = *cc;
     const int index = (after >= 0 && after < static_cast<int>(performance.scenes.size())) ? after + 1 : static_cast<int>(performance.scenes.size());
     performance.scenes.insert(performance.scenes.begin() + index, std::move(scene));

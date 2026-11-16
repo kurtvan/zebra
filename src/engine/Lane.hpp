@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/RenderPlan.hpp"
 #include "engine/ScenePool.hpp"
 
 #include <projectM-4/projectM.h>
@@ -24,19 +25,6 @@ namespace gv::engine {
 class VideoOverlay;
 
 using PcmChunk = std::shared_ptr<const std::vector<float>>; //!< Interleaved stereo float samples.
-
-/// A scene's video blend settings, applied to its instance when prepared.
-struct VideoSettings
-{
-    bool enabled{false};
-    float mix{1.0f};
-    float lumaMin{0.0f};
-    float contrast{1.0f};
-    float saturation{1.0f};
-    bool overlay{false};  //!< Also draw the video over the rendered frame, masked by lumaMin.
-    float softness{0.0f}; //!< Overlay mask edge, 0 = hard.
-    bool lumaInvert{false}; //!< The gate keeps pixels darker than lumaMin instead (blend and overlay).
-};
 
 /// The current frame of the live scene's video, if it has one.
 struct VideoFrame

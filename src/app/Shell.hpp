@@ -92,7 +92,7 @@ private:
     void DrawScenes(ShellState& state, AppActions& actions);
     void DrawSceneProperties(ShellState& state, AppActions& actions);
     void DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info);
-    void DrawVideoPlaylist(ShellState& state, AppActions& actions, int index);
+    void DrawVideoSummary(const ShellState& state, int index);
     void DrawSetup(ShellState& state, AppActions& actions);
     void DrawBrowser(ShellState& state, AppActions& actions);
     void DrawPresetGrid(ShellState& state, AppActions& actions);
@@ -107,7 +107,6 @@ private:
     void DrawStatusBar(const ShellState& state);
     void HandleDrops(ShellState& state, AppActions& actions, int hoveredScene);
     auto SelectedEntry(const model::Scene& scene) const -> int;
-    auto NewEntryLook(const model::Scene& scene) const -> model::VideoLook;
 
     bool m_layoutBuilt{false};
     int m_showBrowserTab{0}; //!< Frames until the browser tab is brought to front.

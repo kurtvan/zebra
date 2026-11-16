@@ -2,6 +2,13 @@
 
 namespace gv::model {
 
+void Scene::Refresh()
+{
+    const auto view = ClassicFromGraph(graph);
+    classicShape = view.has_value();
+    classic = view.value_or(ClassicScene{});
+}
+
 auto Performance::SceneForCc20(int value) const -> std::optional<size_t>
 {
     for (size_t i = 0; i < scenes.size(); ++i)

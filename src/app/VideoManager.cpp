@@ -35,9 +35,9 @@ auto ToIo(model::VideoFit fit) -> io::VideoFit
 /// The sources a scene shows: its pool videos that exist (several for a video playlist), or its Syphon server.
 auto KeysFor(const model::Performance& performance, const model::Scene& scene) -> std::vector<std::string>
 {
-    if (!scene.video.enabled)
+    if (!scene.classic.video.enabled)
         return {};
-    const auto& source = scene.video.source;
+    const auto& source = scene.classic.video.source;
     if (source.type == model::VideoSourceType::Syphon)
         return {"syphon:" + source.appName + "\n" + source.serverName};
     std::vector<std::string> keys;
@@ -113,13 +113,13 @@ void VideoManager::Load(const model::Performance& performance)
                 videos.item = static_cast<size_t>(now - videos.keys.begin()); // the next one is planned again
         }
         m_scenes.push_back(videos);
-        if (scene.video.source.type != model::VideoSourceType::Syphon || videos.keys.empty())
+        if (scene.classic.video.source.type != model::VideoSourceType::Syphon || videos.keys.empty())
             continue;
         const std::string& key = videos.keys.front();
         if (sources.count(key) > 0 || keep(key))
             continue;
         SourceEntry entry;
-        entry.source = io::CreateSyphonVideoSource(scene.video.source.appName, scene.video.source.serverName);
+        entry.source = io::CreateSyphonVideoSource(scene.classic.video.source.appName, scene.classic.video.source.serverName);
         sources.emplace(key, std::move(entry));
     }
     m_sources = std::move(sources);
@@ -173,7 +173,7 @@ void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene
     for (int scene : {handoverScene, pendingScene, liveScene})
     {
         if (const auto* key = keyOf(scene))
-            m_sources[*key].source->SetLoop(m_performance.scenes[static_cast<size_t>(scene)].video.loop);
+            m_sources[*key].source->SetLoop(m_performance.scenes[static_cast<size_t>(scene)].classic.video.loop);
     }
     const int anchor = liveScene >= 0 ? liveScene : 0;
     for (int scene = anchor - kWarmBehind; scene <= anchor + kWarmAhead; ++scene)
@@ -205,7 +205,7 @@ void VideoManager::CycleVideos(int liveScene, const std::set<std::string>& onScr
     if (videos.next < 0)
         PlanNext(videos, scene, onScreen);
 
-    const auto& playlist = scene.video.playlist;
+    const auto& playlist = scene.classic.video.playlist;
     if (videos.next < 0 || !m_timer.Tick({playlist.unit, playlist.intervalSeconds, playlist.intervalCount}, now, clock))
         return;
     // Each video plays from its start point. One that couldn't wait there (it was on screen) jumps now.
@@ -224,7 +224,7 @@ void VideoManager::CycleVideos(int liveScene, const std::set<std::string>& onScr
 
 void VideoManager::PlanNext(SceneVideos& videos, const model::Scene& scene, const std::set<std::string>& onScreen)
 {
-    videos.next = engine::NextEntry(static_cast<int>(videos.item), static_cast<int>(videos.keys.size()), scene.video.playlist.shuffle, m_random);
+    videos.next = engine::NextEntry(static_cast<int>(videos.item), static_cast<int>(videos.keys.size()), scene.classic.video.playlist.shuffle, m_random);
     videos.nextReady = false;
     if (videos.next < 0)
         return;
@@ -257,7 +257,7 @@ void VideoManager::OnTrigger(int scene, int liveScene)
     // A scene starts on its first video.
     auto& videos = m_scenes[static_cast<size_t>(scene)];
     videos = SceneVideos{videos.keys};
-    if (!m_performance.scenes[static_cast<size_t>(scene)].video.restartOnEnter)
+    if (!m_performance.scenes[static_cast<size_t>(scene)].classic.video.restartOnEnter)
         return;
     if (auto* entry = EntryFor(scene))
     {
