@@ -47,11 +47,11 @@ The user is still a non-technical visual artist: no text, no code, and no way to
 
 Every node looks and behaves like an Ableton Live device:
 
-- a title bar with the node's name and a fold button;
+- a title bar with the node's name and an expand/collapse button;
 - its controls laid out in its body;
 - its inputs and outputs on its edges.
 
-Folding a node shrinks it to its title bar, so large graphs stay readable. The values still apply while it's folded.
+Collapsing a node (setting it to not expanded) shrinks it to its title bar, so large graphs stay readable. Its values still apply while it's collapsed.
 
 ### Video source
 

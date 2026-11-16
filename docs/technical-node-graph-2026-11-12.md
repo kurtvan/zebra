@@ -25,7 +25,7 @@ struct Node {
     std::string id;           // stable within the scene
     NodeType type;
     float x{0}, y{0};         // canvas position
-    bool folded{false};       // shown as its title bar only
+    bool expanded{true};      // false: shown as its title bar only
     NodeParams params;        // std::variant of one struct per type
 };
 struct Wire {
@@ -152,7 +152,7 @@ struct RenderPlan {
 
 ### Controls on the node
 
-- **Layout:** each node is laid out like an Ableton Live device: a title bar (name, fold button), a body of ImGui controls, and pins on the edges. The controls are today's video widgets, moved out of Shell.cpp into one draw function per node type in `src/app/nodes/`.
+- **Layout:** each node is laid out like an Ableton Live device: a title bar (name, expand/collapse button), a body of ImGui controls, and pins on the edges. The controls are today's video widgets, moved out of Shell.cpp into one draw function per node type in `src/app/nodes/`.
 - **Sizes:** each node type has a fixed width and its controls are sized for the canvas at 100% zoom, so the graph keeps a stable layout. Text is kept readable down to about 75% zoom; below that, nodes draw only their title bars.
 - **Edits:** controls edit `NodeParams` through `TryEditGraph`, with coalesce keys for slider drags, so a drag is one undo step, as now.
 - **Preset node:**
@@ -202,7 +202,7 @@ Each one is a PR to main. N1 and N2 keep the app visually unchanged. N6 is indep
 | N1 | Graph model, format v3, v2 migration, validation and `TryEditGraph`, plan compiler | M | none | Old shows load as graphs. Plans compiled from graphs equal plans from the v2 settings for the real show. The engine runs from plans with no visible change. |
 | N2 | Effect passes on the lane; generic layer patch (0002 reworked, 0004/0005 dropped); fan-out; on top from branches | M–L | N1 | Smoke snapshots of the real show match today's within tolerance. GPU time is measured and within budget. |
 | N3 | Before-composite layer (0006) and texture override (0007), attachable live | M, risky | N2 | Both layers work in a smoke run on presets with and without a composite shader, and with texture samplers. Attaching an override to a live preset doesn't reload it. |
-| N4 | Node canvas: device-style nodes with controls in their bodies, wiring, blocked invalid edits with messages, folding, drag and drop, undo, live rewiring | L | N1, N2 (N3 for the two new inputs) | Every current scene feature can be edited on the canvas, and the old video section is gone. Invalid wiring is refused with a message. Rewiring the live scene doesn't stutter: held-frame counts in the smoke log stay at zero. |
+| N4 | Node canvas: device-style nodes with controls in their bodies, wiring, blocked invalid edits with messages, expanding and collapsing, drag and drop, undo, live rewiring | L | N1, N2 (N3 for the two new inputs) | Every current scene feature can be edited on the canvas, and the old video section is gone. Invalid wiring is refused with a message. Rewiring the live scene doesn't stutter: held-frame counts in the smoke log stay at zero. |
 | N5 | Switcher node replacing preset and video playlists | M–L | N1, N4 | Converted playlists behave as before: interval, bar lines, waiting for readiness, shuffle, double-click. Switchers fed by chains with different looks switch cleanly. |
 | N6 | Viewport node and show canvas | S–M | N1 | Canvas sizes apply, are saved, and letterbox correctly. Match screen is unchanged. 3840×1080 and 4K are measured. |
 
@@ -220,7 +220,7 @@ Each one is a PR to main. N1 and N2 keep the app visually unchanged. N6 is indep
 | Texture override on a live preset needs deeper changes in projectM's texture binding than expected | Spike first in N3. The fallback is to re-prepare the preset in the background and swap it in, which resets its feedback history once |
 | GPU cost of fan-out and several passes at 4K | Run shared-prefix passes once; measure in N2 and N6; warn in the UI when over budget |
 | Node library can't host real widgets (combos, popups) in node bodies, or is incompatible with ImGui 1.92.9b | Both are checked in the N4 spike. Both candidates are small enough to patch or vendor |
-| Device-style nodes make big graphs crowded | Folding to title bars, fixed node widths, and title-only drawing when zoomed out |
+| Device-style nodes make big graphs crowded | Collapsing to title bars, fixed node widths, and title-only drawing when zoomed out |
 | Graph edits racing with switcher changes on the live scene | Both run on the main thread and produce plans with revisions; the lane applies only the newest |
 
 ## 11. Open technical questions
