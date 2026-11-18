@@ -365,22 +365,20 @@ A scene with an overlay already compiles to two branches, feedback and on top, f
 - **Checked against projectM:** the exclusions are checked against `TextureManager` in 4.1.8 (its built-in names) as part of this milestone.
 - **Caching:** results are cached in the library index next to the missing-texture check, which already parses the same text.
 
-### N3.3 Patch 0007: texture override (C5)
+### N3.3 Patch 0007: texture access (C5, simplified during N3)
 
 ```c
-PROJECTM_EXPORT void projectm_set_texture_override(projectm_handle, const char* name, uint32_t texture, int width, int height);
-PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
+PROJECTM_EXPORT bool projectm_get_preset_texture(projectm_handle, const char* name, uint32_t* texture, int* width, int* height);
 ```
 
-- **Inside projectM:** the override inserts a non-owning `Texture(name, id, GL_TEXTURE_2D, width, height, true)` into the instance's `TextureManager::m_textures` cache. A flag added in the patch stops `~Texture` from deleting a GL id it doesn't own. A later `GetTexture(name)` from the preset's shaders then finds it.
-- **The lane, before loading a preset with textures:**
-  - for **every** texture the preset uses, it creates a lane-owned texture sized like the original image file (loaded with stb, which is already a dependency);
-  - it uploads the original image into it;
-  - it registers that texture as the override.
-- **Live attach and detach:** an attached texture input copies the branch result into that texture each tick, with a scaled `glBlitFramebuffer`. Detaching re-uploads the original image. The preset never reloads or rebinds, because the GL id never changes.
-- **Size:** keeping the original image's size keeps projectM's `texsize_<name>` uniforms correct.
-- **Cost:** the extra textures exist only for presets that use textures, on instances that are hosted.
-- **Fallback**, if the cache insert doesn't behave (for example, the preset resolves textures before the override): re-prepare the preset in the background with overrides set, and swap it in, as a cut. That resets its feedback history once. This is decided in the first two days of N3.
+- **What reading projectM showed:** a preset's shaders look each texture up once, at load (`MilkdropShader::LoadTexturesAndCompile`), keep the `Texture` object, and bind its GL id every frame. So the lane can draw straight into projectM's own texture; nothing has to be inserted into `TextureManager`, and no ownership flag is needed.
+- **The patch** only looks up an already-loaded image by lower-case name (as `TextureManager` stores them) and returns its id and size. It never loads anything and never returns the missing-texture placeholder or the built-in noise and idle textures.
+- **Attach**, on the first tick a Texture branch draws: the lane copies the original image into a lane-owned backup texture, then each tick blits the branch result into the preset's texture, scaled and flipped (image rows are stored top first, video bottom up).
+- **Detach**, when a new plan no longer has that branch: the backup is blitted back and deleted. The preset never reloads or rebinds.
+- **Size:** the preset's texture keeps the image file's size, so `texsize_<name>` stays correct.
+- **When the video stops** (a disconnected source), the texture keeps the last frame until the input is detached.
+- **Not handled:** projectM loads images with premultiplied alpha; video is written as it is, which is the same for opaque video.
+- **The fallback** in the original plan (re-preparing with overrides) isn't needed.
 
 ### N3.4 Plan and lane wiring
 

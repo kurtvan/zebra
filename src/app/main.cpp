@@ -7,6 +7,7 @@
 #include "app/macos/Menu.hpp"
 #include "app/macos/Window.hpp"
 #include "library/Library.hpp"
+#include "library/PresetParsing.hpp"
 #include "model/Document.hpp"
 #include "thumbnails/ThumbnailService.hpp"
 #include "app_info.hpp"
@@ -29,6 +30,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -95,6 +97,10 @@ struct Options
     std::filesystem::path smokeSnapshots; //!< If set, saves the output just before each cut as a BMP here.
     std::filesystem::path smokeEditorSnapshot; //!< If set, saves the editor window once as a BMP...
     double smokeEditorSnapshotAt{3.0};         //!< ...this many seconds in.
+    /// Moves every scene's feedback video into another preset input when the show opens: "before-composite",
+    /// "on-top", "texture" (each preset's first texture) or "texture:<name>". With --smoke-edits in texture modes, the
+    /// live scene's texture input is also detached and re-attached during each cut (live attach and detach).
+    std::string smokeLayer;
 };
 
 auto ParseOptions(int argc, char* argv[]) -> Options
@@ -128,6 +134,8 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.smokeEdits = true;
         else if (arg == "--smoke-no-editor")
             options.smokeNoEditor = true;
+        else if (arg == "--smoke-layer" && hasValue)
+            options.smokeLayer = argv[++i];
         else if (arg == "--smoke-cut-every" && hasValue)
             options.smokeCutSeconds = std::atof(argv[++i]);
         else if (arg.size() > 5 && arg.substr(arg.size() - 5) == ".json")
@@ -225,6 +233,8 @@ public:
             GV_LOG_ERROR(kLogCategory, "could not open performance %s", file.c_str());
             return;
         }
+        if (m_options.smoke && !m_options.smokeLayer.empty())
+            ApplySmokeLayer(result.performance);
         LoadDocument(gv::model::Document(std::move(result.performance), file));
         m_issues = result.issues;
         m_settings.lastPerformance = file;
@@ -976,6 +986,8 @@ private:
         {
             SmokeEdits(elapsed);
         }
+        if (m_options.smokeEdits && m_options.smokeLayer.rfind("texture", 0) == 0)
+            SmokeToggleTexture(elapsed);
         if (m_options.smokeCrash && elapsed > 2.0)
         {
             auto edited = m_document.Get();
@@ -1038,6 +1050,93 @@ private:
                         clock.running ? "running" : "stopped", clock.positionKnown ? "known" : "unknown", clock.sourceName.c_str());
             m_smokeOk = stats.presentedFrames > liveTicks / 2;
             m_smokeDone = true;
+        }
+    }
+
+    /// --smoke-layer: rewires each scene's feedback video into the chosen preset input.
+    void ApplySmokeLayer(gv::model::Performance& performance)
+    {
+        using gv::model::PresetLayer;
+        const std::string& layer = m_options.smokeLayer;
+        const bool texture = layer == "texture" || layer.rfind("texture:", 0) == 0;
+        if (!texture && layer != "before-composite" && layer != "on-top")
+        {
+            GV_LOG_ERROR(kLogCategory, "smoke: unknown --smoke-layer \"%s\" (before-composite, on-top, texture or texture:<name>)", layer.c_str());
+            return;
+        }
+        for (auto& scene : performance.scenes)
+        {
+            auto& graph = scene.graph;
+            for (auto& wire : graph.wires)
+            {
+                const auto* node = graph.Find(wire.toNode);
+                if (node == nullptr || node->type != gv::model::NodeType::Preset || wire.toInput != static_cast<int>(PresetLayer::Feedback))
+                    continue;
+                if (!texture)
+                {
+                    const auto input = layer == "on-top" ? PresetLayer::OnTop : PresetLayer::BeforeComposite;
+                    if (graph.WireInto(wire.toNode, static_cast<int>(input)) != nullptr)
+                        continue; // that input is taken (the overlay)
+                    wire.toInput = static_cast<int>(input);
+                    GV_LOG_INFO(kLogCategory, "smoke layer: scene %s: video into %s", scene.id.c_str(), layer.c_str());
+                    continue;
+                }
+                std::string name = layer.size() > 8 ? layer.substr(8) : std::string();
+                if (name.empty())
+                {
+                    const auto textures = gv::library::PresetTextures(gv::model::ParamsOf<gv::model::PresetParams>(*node).path);
+                    if (textures.empty())
+                        continue;
+                    name = textures.front();
+                }
+                wire.toInput = static_cast<int>(PresetLayer::Texture);
+                wire.textureName = name;
+                GV_LOG_INFO(kLogCategory, "smoke layer: scene %s: video into texture \"%s\"", scene.id.c_str(), name.c_str());
+            }
+        }
+    }
+
+    /// --smoke-layer texture: a third of the way into each cut, the live scene's texture input is detached
+    /// (its video goes back to feedback); two thirds in, it's attached again.
+    void SmokeToggleTexture(double elapsed)
+    {
+        using gv::model::PresetLayer;
+        if (m_options.smokeCutSeconds <= 0)
+            return;
+        const double phase = std::fmod(elapsed, m_options.smokeCutSeconds) / m_options.smokeCutSeconds;
+        const int step = static_cast<int>(elapsed / m_options.smokeCutSeconds) * 3 + (phase < 1.0 / 3 ? 0 : phase < 2.0 / 3 ? 1 : 2);
+        if (step == m_smokeToggleStep || step % 3 == 0)
+            return;
+        m_smokeToggleStep = step;
+        const int live = m_engine.LiveScene();
+        if (live < 0)
+            return;
+        auto edited = m_document.Get();
+        auto& scene = edited.scenes[static_cast<size_t>(live)];
+        const bool detach = step % 3 == 1;
+        for (auto& wire : scene.graph.wires)
+        {
+            const auto* to = scene.graph.Find(wire.toNode);
+            if (to == nullptr || to->type != gv::model::NodeType::Preset)
+                continue; // switcher inputs use the same numbers
+            if (detach && wire.toInput == static_cast<int>(PresetLayer::Texture))
+            {
+                m_smokeDetached[scene.id] = wire.textureName;
+                wire.toInput = static_cast<int>(PresetLayer::Feedback);
+                wire.textureName.clear();
+                Edit(std::move(edited), "Smoke Layer", {});
+                GV_LOG_INFO(kLogCategory, "smoke layer: scene %d: texture input detached", live);
+                return;
+            }
+            if (!detach && wire.toInput == static_cast<int>(PresetLayer::Feedback) && m_smokeDetached.count(scene.id) > 0)
+            {
+                wire.toInput = static_cast<int>(PresetLayer::Texture);
+                wire.textureName = m_smokeDetached[scene.id];
+                m_smokeDetached.erase(scene.id);
+                Edit(std::move(edited), "Smoke Layer", {});
+                GV_LOG_INFO(kLogCategory, "smoke layer: scene %d: texture input attached again", live);
+                return;
+            }
         }
     }
 
@@ -1263,6 +1362,8 @@ private:
     Clock::time_point m_smokeStart{};
     Clock::time_point m_smokeDeadline{};
     int m_smokeLastCut{-1};
+    int m_smokeToggleStep{-1};
+    std::map<std::string, std::string> m_smokeDetached; //!< Scene id -> the texture its video was detached from.
     int m_smokeCuts{0};
     bool m_smokeDone{false};
     bool m_editorSnapshotTaken{false};

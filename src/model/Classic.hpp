@@ -93,6 +93,13 @@ auto GraphFromClassic(const ClassicScene& scene) -> Graph;
 /// canvas exists). The inverse of GraphFromClassic for everything it keeps.
 auto ClassicFromGraph(const Graph& graph) -> std::optional<ClassicScene>;
 
+/// What the engine and the video manager need from any graph, for scenes ClassicFromGraph can't read (video
+/// into a texture or before the composite, or other chains): the presets in playlist order and the playlist
+/// timing (a Frame switcher feeding the viewport), and the video source or Video switcher the presets' inputs
+/// come from. Looks are left at their defaults; lanes draw from the compiled plan. Removed in N5 with the rest
+/// of the classic view.
+auto RuntimeViewFromGraph(const Graph& graph) -> ClassicScene;
+
 /// `scene` as GraphFromClassic keeps it, so that ClassicFromGraph(GraphFromClassic(s)) == NormalizeClassic(s):
 /// disabled video and Syphon video playlists dropped, a playlist scene's own look set to its first entry's.
 auto NormalizeClassic(ClassicScene scene) -> ClassicScene;

@@ -6,7 +6,8 @@ void Scene::Refresh()
 {
     const auto view = ClassicFromGraph(graph);
     classicShape = view.has_value();
-    classic = view.value_or(ClassicScene{});
+    // Scenes the classic view can't describe still need their presets and video found (until N5).
+    classic = view ? *view : RuntimeViewFromGraph(graph);
 }
 
 auto Performance::SceneForCc20(int value) const -> std::optional<size_t>

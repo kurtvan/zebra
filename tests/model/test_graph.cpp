@@ -327,3 +327,42 @@ TEST_CASE("graphs that aren't classic-shaped are reported as such")
     AddNode(empty, NodeType::Viewport, 0, 0);
     CHECK(ClassicFromGraph(empty) == ClassicScene{});
 }
+
+TEST_CASE("scenes the classic view can't read still find their presets, playlist and video")
+{
+    ClassicScene classic;
+    classic.playlist = {true, {"/a.milk", "/b.milk"}, {VideoLook{}, VideoLook{}}, IntervalUnit::Seconds, 10, 4, true};
+    classic.video.enabled = true;
+    classic.video.playlist = {true, {"x", "y"}, IntervalUnit::Seconds, 12, 4, false};
+    Graph graph = GraphFromClassic(classic);
+    REQUIRE(ClassicFromGraph(graph).has_value());
+
+    // Every chain moves from the feedback input into a texture input: no longer a classic scene.
+    for (auto& wire : graph.wires)
+    {
+        const Node* to = graph.Find(wire.toNode);
+        if (to != nullptr && to->type == NodeType::Preset && wire.toInput == static_cast<int>(PresetLayer::Feedback))
+        {
+            wire.toInput = static_cast<int>(PresetLayer::Texture);
+            wire.textureName = "worms";
+        }
+    }
+    CHECK(ValidateGraph(graph).empty());
+    CHECK_FALSE(ClassicFromGraph(graph).has_value());
+
+    const ClassicScene view = RuntimeViewFromGraph(graph);
+    CHECK(view.presetPath == "/a.milk");
+    CHECK(view.playlist.enabled);
+    CHECK(view.playlist.presets == std::vector<std::filesystem::path>{"/a.milk", "/b.milk"});
+    CHECK(view.playlist.intervalSeconds == 10);
+    CHECK(view.playlist.shuffle);
+    CHECK(view.video.enabled);
+    CHECK(view.video.playlist.enabled);
+    CHECK(view.video.playlist.videos == std::vector<std::string>{"x", "y"});
+    CHECK(view.video.playlist.intervalSeconds == 12);
+    CHECK(view.video.source.videoId == "x");
+
+    // A preset alone, with nothing wired into it.
+    CHECK(RuntimeViewFromGraph(Basic()).presetPath == "/a.milk");
+    CHECK_FALSE(RuntimeViewFromGraph(Basic()).video.enabled);
+}

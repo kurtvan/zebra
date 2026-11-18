@@ -18,7 +18,7 @@ using nlohmann::json;
 namespace {
 
 constexpr const char* kLogCategory = "library";
-constexpr int kIndexFormat = 2; //!< Bump when parsing changes, so saved entries are re-parsed (2: author heuristic).
+constexpr int kIndexFormat = 3; //!< Bump when parsing changes, so saved entries are re-parsed (2: author heuristic, 3: texture names as projectM resolves them).
 
 auto ModifiedTime(const std::filesystem::path& path) -> int64_t
 {

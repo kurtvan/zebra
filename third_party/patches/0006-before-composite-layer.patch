@@ -1,0 +1,181 @@
+From 6f5de469c5cc83d4e7880c51d116eccf4dc1d593 Mon Sep 17 00:00:00 2001
+From: kurtvan <kurtv7348@gmail.com>
+Date: Wed, 18 Nov 2026 17:07:54 -0500
+Subject: [PATCH] Draw the before-composite layer
+
+PROJECTM_LAYER_BEFORE_COMPOSITE is now drawn: after the warp, shapes,
+waves and border, into the flipped image the final composite samples
+(mainTexture). That image isn't fed back into the next frame, so the
+caller's texture shows through the composite shader, or as-is for
+presets without one, without the preset's warp smearing it.
+
+The flipped image is upside down relative to the output, so LayerBlend
+gains a flipY option. LayerBlend now also unbinds the sampler object
+projectM leaves on unit 0 while it draws, and restores it after.
+---
+ src/api/include/projectM-4/render_opengl.h        |  2 +-
+ src/libprojectM/MilkdropPreset/MilkdropPreset.cpp |  9 +++++++++
+ src/libprojectM/Renderer/CopyTexture.cpp          |  5 +++++
+ src/libprojectM/Renderer/CopyTexture.hpp          |  5 +++++
+ src/libprojectM/Renderer/LayerBlend.cpp           | 14 +++++++++++++-
+ src/libprojectM/Renderer/LayerBlend.hpp           |  6 ++++--
+ 6 files changed, 37 insertions(+), 4 deletions(-)
+
+diff --git a/src/api/include/projectM-4/render_opengl.h b/src/api/include/projectM-4/render_opengl.h
+index 4a109e756..dd45a45df 100644
+--- a/src/api/include/projectM-4/render_opengl.h
++++ b/src/api/include/projectM-4/render_opengl.h
+@@ -57,7 +57,7 @@ PROJECTM_EXPORT void projectm_opengl_render_frame_fbo(projectm_handle instance,
+ typedef enum
+ {
+     PROJECTM_LAYER_FEEDBACK = 0,         //!< Into the previous frame, before the warp: the warp distorts it.
+-    PROJECTM_LAYER_BEFORE_COMPOSITE = 1, //!< After warp, waves and shapes, before the composite shader (not drawn yet).
++    PROJECTM_LAYER_BEFORE_COMPOSITE = 1, //!< After warp, waves and shapes, before the composite shader; not fed back.
+ } projectm_layer;
+ 
+ /**
+diff --git a/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp b/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
+index 1770763f1..eb0a1e72a 100755
+--- a/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
++++ b/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
+@@ -156,6 +156,15 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
+     m_flipTexture.Draw(m_framebuffer.GetColorAttachmentTexture(m_currentFrameBuffer, 0), nullptr, true, false);
+     m_state.mainTexture = m_flipTexture.Texture();
+ 
++    // The caller's before-composite layer goes into the image the composite samples, which isn't fed back.
++    // It's upside down relative to the output, so the layer is drawn flipped.
++    if (m_layerBlend != nullptr && m_layers.beforeComposite != 0)
++    {
++        m_flipTexture.BindFramebuffer();
++        m_layerBlend->Draw(m_layers.beforeComposite, true);
++        Renderer::Framebuffer::Unbind();
++    }
++
+     // We no longer need the previous frame image, use it to render the final composite.
+     m_framebuffer.BindRead(m_currentFrameBuffer);
+     m_framebuffer.BindDraw(m_previousFrameBuffer);
+diff --git a/src/libprojectM/Renderer/CopyTexture.cpp b/src/libprojectM/Renderer/CopyTexture.cpp
+index e0401eac6..f945d366a 100644
+--- a/src/libprojectM/Renderer/CopyTexture.cpp
++++ b/src/libprojectM/Renderer/CopyTexture.cpp
+@@ -192,6 +192,11 @@ void CopyTexture::Draw(const std::shared_ptr<class Texture>& originalTexture, Fr
+     Framebuffer::Unbind();
+ }
+ 
++void CopyTexture::BindFramebuffer()
++{
++    m_framebuffer.Bind(0);
++}
++
+ auto CopyTexture::Texture() -> std::shared_ptr<class Texture>
+ {
+     return m_framebuffer.GetColorAttachmentTexture(0, 0);
+diff --git a/src/libprojectM/Renderer/CopyTexture.hpp b/src/libprojectM/Renderer/CopyTexture.hpp
+index e8911d3ca..6ffc12c75 100644
+--- a/src/libprojectM/Renderer/CopyTexture.hpp
++++ b/src/libprojectM/Renderer/CopyTexture.hpp
+@@ -60,6 +60,11 @@ public:
+      */
+     auto Texture() -> std::shared_ptr<class Texture>;
+ 
++    /**
++     * @brief Binds the framebuffer holding the flipped texture, to draw more into it.
++     */
++    void BindFramebuffer();
++
+ private:
+     /**
+      * Updates the mesh
+diff --git a/src/libprojectM/Renderer/LayerBlend.cpp b/src/libprojectM/Renderer/LayerBlend.cpp
+index 288ffe5cd..6f719c593 100644
+--- a/src/libprojectM/Renderer/LayerBlend.cpp
++++ b/src/libprojectM/Renderer/LayerBlend.cpp
+@@ -9,10 +9,15 @@ const char* kVertexShader = R"GLSL(
+ #version 330 core
+ const vec2 kPosition[4] = vec2[](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
+ const vec2 kUv[4] = vec2[](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(1.0, 1.0));
++uniform bool uFlipY;
+ out vec2 vUv;
+ void main()
+ {
+     vUv = kUv[gl_VertexID];
++    if (uFlipY)
++    {
++        vUv.y = 1.0 - vUv.y;
++    }
+     gl_Position = vec4(kPosition[gl_VertexID], 0.0, 1.0);
+ }
+ )GLSL";
+@@ -75,6 +80,7 @@ LayerBlend::LayerBlend()
+     }
+ 
+     m_textureLocation = glGetUniformLocation(m_program, "uTexture");
++    m_flipYLocation = glGetUniformLocation(m_program, "uFlipY");
+     glGenVertexArrays(1, &m_vao);
+ }
+ 
+@@ -90,7 +96,7 @@ LayerBlend::~LayerBlend()
+     }
+ }
+ 
+-void LayerBlend::Draw(GLuint texture)
++void LayerBlend::Draw(GLuint texture, bool flipY)
+ {
+     if (m_program == 0 || texture == 0)
+     {
+@@ -118,16 +124,22 @@ void LayerBlend::Draw(GLuint texture)
+ 
+     glUseProgram(m_program);
+     glUniform1i(m_textureLocation, 0);
++    glUniform1i(m_flipYLocation, flipY ? 1 : 0);
+ 
+     glActiveTexture(GL_TEXTURE0);
+     GLint previousTexture = 0;
+     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+     glBindTexture(GL_TEXTURE_2D, texture);
++    // projectM leaves its own sampler objects bound; sample with the texture's own (linear, clamped) state.
++    GLint previousSampler = 0;
++    glGetIntegerv(GL_SAMPLER_BINDING, &previousSampler);
++    glBindSampler(0, 0);
+ 
+     glBindVertexArray(m_vao);
+     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+ 
+     // Restore.
++    glBindSampler(0, static_cast<GLuint>(previousSampler));
+     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+     glActiveTexture(static_cast<GLenum>(activeTexture));
+     glBindVertexArray(static_cast<GLuint>(vao));
+diff --git a/src/libprojectM/Renderer/LayerBlend.hpp b/src/libprojectM/Renderer/LayerBlend.hpp
+index 157115a70..63bee1fdd 100644
+--- a/src/libprojectM/Renderer/LayerBlend.hpp
++++ b/src/libprojectM/Renderer/LayerBlend.hpp
+@@ -14,7 +14,7 @@ namespace Renderer {
+ struct LayerTextures
+ {
+     GLuint feedback{0};        //!< Into the previous frame, before the warp. 0: none.
+-    GLuint beforeComposite{0}; //!< After warp, waves and shapes, before the composite shader. 0: none. Stored only.
++    GLuint beforeComposite{0}; //!< After warp, waves and shapes, before the composite shader. 0: none.
+ };
+ 
+ /**
+@@ -34,13 +34,15 @@ public:
+     /**
+      * @brief Blends `texture` (GL_TEXTURE_2D, bottom-up, straight alpha) over the bound framebuffer.
+      * Restores the GL state it changes.
++     * @param flipY Draw it upside down, for targets that are themselves upside down (projectM's flipped image).
+      */
+-    void Draw(GLuint texture);
++    void Draw(GLuint texture, bool flipY = false);
+ 
+ private:
+     GLuint m_program{0};
+     GLuint m_vao{0};
+     GLint m_textureLocation{-1};
++    GLint m_flipYLocation{-1};
+ };
+ 
+ } // namespace Renderer
+-- 
+2.50.1 (Apple Git-155)
+
