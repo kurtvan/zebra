@@ -4,7 +4,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <fstream>
+#include <tuple>
+#include <variant>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -82,26 +85,6 @@ auto ParseLook(const json& object, const std::string& path, std::vector<Issue>& 
     return look;
 }
 
-auto LookJson(const VideoLook& look) -> json
-{
-    return {{"mix", look.mix},         {"lumaMin", look.lumaMin}, {"contrast", look.contrast},
-            {"saturation", look.saturation}, {"overlay", look.overlay}, {"softness", look.softness}};
-}
-
-void ValidateLook(const VideoLook& look, const std::string& path, std::vector<Issue>& issues)
-{
-    if (look.mix < 0.f || look.mix > 1.f)
-        issues.push_back(Error(path + "/mix", "must be between 0 and 1"));
-    if (look.lumaMin < 0.f || look.lumaMin > 1.f)
-        issues.push_back(Error(path + "/lumaMin", "must be between 0 and 1"));
-    if (look.contrast < 0.f || look.contrast > kMaxContrast)
-        issues.push_back(Error(path + "/contrast", "must be between 0 and 100"));
-    if (look.saturation < 0.f || look.saturation > 2.f)
-        issues.push_back(Error(path + "/saturation", "must be between 0 and 2"));
-    if (look.softness < 0.f || look.softness > 1.f)
-        issues.push_back(Error(path + "/softness", "must be between 0 and 1"));
-}
-
 /// The timing shared by preset and video playlists: interval unit, length and shuffle.
 template <class Playlist>
 void ParseTiming(const json& object, Playlist& playlist, const std::string& path, std::vector<Issue>& issues)
@@ -130,34 +113,256 @@ void WriteTiming(json& object, const Playlist& playlist)
     object["shuffle"] = playlist.shuffle;
 }
 
-template <class Playlist>
-void ValidateTiming(const Playlist& playlist, const std::string& path, std::vector<Issue>& issues)
+auto VideoSourceJson(const VideoSource& source) -> json
 {
-    if (playlist.unit == IntervalUnit::Seconds && (playlist.intervalSeconds < kMinPlaylistInterval || playlist.intervalSeconds > kMaxPlaylistInterval))
-        issues.push_back(Error(path + "/intervalSeconds", "must be between 1 and 3600 seconds"));
-    if (playlist.unit != IntervalUnit::Seconds && (playlist.intervalCount < 1 || playlist.intervalCount > kMaxPlaylistCount))
-        issues.push_back(Error(path + "/intervalCount", "must be between 1 and 256"));
+    if (source.type == VideoSourceType::File)
+        return {{"type", "file"}, {"video", source.videoId}};
+    return {{"type", "syphon"}, {"appName", source.appName}, {"serverName", source.serverName}};
 }
 
-auto ParseScene(const json& object, const std::string& path, std::vector<Issue>& issues) -> Scene
+constexpr std::pair<NodeType, const char*> kNodeTypeNames[] = {
+    {NodeType::VideoSource, "videoSource"}, {NodeType::Contrast, "contrast"}, {NodeType::Saturation, "saturation"},
+    {NodeType::LumaGate, "lumaGate"},       {NodeType::Mix, "mix"},           {NodeType::Preset, "preset"},
+    {NodeType::Switcher, "switcher"},       {NodeType::Viewport, "viewport"},
+};
+
+constexpr std::pair<PresetLayer, const char*> kLayerNames[] = {
+    {PresetLayer::Feedback, "feedback"},
+    {PresetLayer::BeforeComposite, "beforeComposite"},
+    {PresetLayer::OnTop, "onTop"},
+    {PresetLayer::Texture, "texture"},
+};
+
+auto NodeJson(const Node& node) -> json
+{
+    json object = {{"id", node.id}, {"x", node.x}, {"y", node.y}, {"expanded", node.expanded}};
+    for (const auto& [type, name] : kNodeTypeNames)
+    {
+        if (type == node.type)
+            object["type"] = name;
+    }
+    std::visit(
+        [&](const auto& params) {
+            using T = std::decay_t<decltype(params)>;
+            if constexpr (std::is_same_v<T, VideoSourceParams>)
+            {
+                object["source"] = VideoSourceJson(params.source);
+                object["restartOnEnter"] = params.restartOnEnter;
+                object["loop"] = params.loop;
+            }
+            else if constexpr (std::is_same_v<T, ContrastParams>)
+                object["contrast"] = params.contrast;
+            else if constexpr (std::is_same_v<T, SaturationParams>)
+                object["saturation"] = params.saturation;
+            else if constexpr (std::is_same_v<T, LumaGateParams>)
+            {
+                object["threshold"] = params.threshold;
+                object["softness"] = params.softness;
+                object["invert"] = params.invert;
+            }
+            else if constexpr (std::is_same_v<T, MixParams>)
+                object["opacity"] = params.opacity;
+            else if constexpr (std::is_same_v<T, PresetParams>)
+                object["path"] = params.path.string();
+            else if constexpr (std::is_same_v<T, SwitcherParams>)
+            {
+                object["kind"] = params.kind == PortKind::Video ? "video" : "frame";
+                WriteTiming(object, params);
+            }
+        },
+        node.params);
+    return object;
+}
+
+auto WireJson(const Wire& wire, const Graph& graph) -> json
+{
+    json object = {{"from", wire.fromNode}, {"to", wire.toNode}};
+    const Node* to = graph.Find(wire.toNode);
+    if (to != nullptr && to->type == NodeType::Preset)
+    {
+        for (const auto& [layer, name] : kLayerNames)
+        {
+            if (static_cast<int>(layer) == wire.toInput)
+                object["input"] = name;
+        }
+        if (!object.contains("input"))
+            object["input"] = wire.toInput;
+    }
+    else
+    {
+        object["input"] = wire.toInput;
+    }
+    if (!wire.textureName.empty())
+        object["texture"] = wire.textureName;
+    return object;
+}
+
+auto GraphJson(const Graph& graph) -> json
+{
+    json nodes = json::array();
+    for (const auto& node : graph.nodes)
+        nodes.push_back(NodeJson(node));
+    // Wires sorted, so saves are stable.
+    std::vector<Wire> wires = graph.wires;
+    std::sort(wires.begin(), wires.end(), [](const Wire& a, const Wire& b) {
+        return std::tie(a.toNode, a.toInput, a.textureName, a.fromNode) < std::tie(b.toNode, b.toInput, b.textureName, b.fromNode);
+    });
+    json wiresJson = json::array();
+    for (const auto& wire : wires)
+        wiresJson.push_back(WireJson(wire, graph));
+    return {{"nodes", nodes}, {"wires", wiresJson}};
+}
+
+auto ParseNode(const json& object, const std::string& path, std::vector<Issue>& issues) -> std::optional<Node>
+{
+    Node node;
+    std::string type;
+    ReadField(object, "id", node.id, path, issues);
+    ReadField(object, "type", type, path, issues);
+    ReadField(object, "x", node.x, path, issues);
+    ReadField(object, "y", node.y, path, issues);
+    ReadField(object, "expanded", node.expanded, path, issues);
+    bool known = false;
+    for (const auto& [value, name] : kNodeTypeNames)
+    {
+        if (type == name)
+        {
+            node.type = value;
+            known = true;
+        }
+    }
+    if (!known)
+    {
+        issues.push_back(Warning(path + "/type", "unknown node type \"" + type + "\": the node was left out"));
+        return std::nullopt;
+    }
+    node.params = DefaultParams(node.type);
+    std::visit(
+        [&](auto& params) {
+            using T = std::decay_t<decltype(params)>;
+            if constexpr (std::is_same_v<T, VideoSourceParams>)
+            {
+                if (auto source = object.find("source"); source != object.end() && source->is_object())
+                    params.source = ParseVideoSource(*source, path + "/source", issues);
+                ReadField(object, "restartOnEnter", params.restartOnEnter, path, issues);
+                ReadField(object, "loop", params.loop, path, issues);
+            }
+            else if constexpr (std::is_same_v<T, ContrastParams>)
+                ReadField(object, "contrast", params.contrast, path, issues);
+            else if constexpr (std::is_same_v<T, SaturationParams>)
+                ReadField(object, "saturation", params.saturation, path, issues);
+            else if constexpr (std::is_same_v<T, LumaGateParams>)
+            {
+                ReadField(object, "threshold", params.threshold, path, issues);
+                ReadField(object, "softness", params.softness, path, issues);
+                ReadField(object, "invert", params.invert, path, issues);
+            }
+            else if constexpr (std::is_same_v<T, MixParams>)
+                ReadField(object, "opacity", params.opacity, path, issues);
+            else if constexpr (std::is_same_v<T, PresetParams>)
+            {
+                std::string presetPath;
+                ReadField(object, "path", presetPath, path, issues);
+                params.path = presetPath;
+            }
+            else if constexpr (std::is_same_v<T, SwitcherParams>)
+            {
+                std::string kind = "frame";
+                ReadField(object, "kind", kind, path, issues);
+                if (kind == "video")
+                    params.kind = PortKind::Video;
+                else if (kind != "frame")
+                    issues.push_back(Error(path + "/kind", "unknown switcher kind \"" + kind + "\" (expected \"frame\" or \"video\")"));
+                ParseTiming(object, params, path, issues);
+            }
+        },
+        node.params);
+    return node;
+}
+
+auto ParseWire(const json& object, const Graph& graph, const std::string& path, std::vector<Issue>& issues) -> std::optional<Wire>
+{
+    Wire wire;
+    ReadField(object, "from", wire.fromNode, path, issues);
+    ReadField(object, "to", wire.toNode, path, issues);
+    ReadField(object, "texture", wire.textureName, path, issues);
+    if (auto input = object.find("input"); input != object.end() && input->is_string())
+    {
+        const Node* to = graph.Find(wire.toNode);
+        bool known = false;
+        for (const auto& [layer, name] : kLayerNames)
+        {
+            if (*input == name)
+            {
+                wire.toInput = static_cast<int>(layer);
+                known = true;
+            }
+        }
+        if (!known || to == nullptr || to->type != NodeType::Preset)
+        {
+            issues.push_back(Warning(path + "/input", "unknown input \"" + input->get<std::string>() + "\": the wire was left out"));
+            return std::nullopt;
+        }
+    }
+    else
+    {
+        ReadField(object, "input", wire.toInput, path, issues);
+    }
+    return wire;
+}
+
+auto ParseGraph(const json& object, const std::string& path, std::vector<Issue>& issues) -> Graph
+{
+    Graph graph;
+    if (auto nodes = object.find("nodes"); nodes != object.end() && nodes->is_array())
+    {
+        for (size_t i = 0; i < nodes->size(); ++i)
+        {
+            const std::string nodePath = path + "/nodes/" + std::to_string(i);
+            if (!(*nodes)[i].is_object())
+                issues.push_back(Warning(nodePath, "node must be an object: it was left out"));
+            else if (auto node = ParseNode((*nodes)[i], nodePath, issues))
+                graph.nodes.push_back(std::move(*node));
+        }
+    }
+    if (auto wires = object.find("wires"); wires != object.end() && wires->is_array())
+    {
+        for (size_t i = 0; i < wires->size(); ++i)
+        {
+            const std::string wirePath = path + "/wires/" + std::to_string(i);
+            if (!(*wires)[i].is_object())
+                issues.push_back(Warning(wirePath, "wire must be an object: it was left out"));
+            else if (auto wire = ParseWire((*wires)[i], graph, wirePath, issues))
+                graph.wires.push_back(std::move(*wire));
+        }
+    }
+    return graph;
+}
+
+/// Format 1-2 scenes: everything but the graph, which is converted from the classic settings after the
+/// file's videos are moved into the pool (MigrateFileSources).
+auto ParseScene(const json& object, const std::string& path, std::vector<Issue>& issues, ClassicScene& classic) -> Scene
 {
     Scene scene;
     std::vector<std::optional<VideoLook>> entryLooks;
     ReadField(object, "id", scene.id, path, issues);
     ReadField(object, "name", scene.name, path, issues);
 
+    if (auto graph = object.find("graph"); graph != object.end() && graph->is_object())
+        scene.graph = ParseGraph(*graph, path + "/graph", issues);
+
     if (auto preset = object.find("preset"); preset != object.end() && preset->is_object())
     {
         std::string presetPath;
         ReadField(*preset, "path", presetPath, path + "/preset", issues);
-        scene.presetPath = presetPath;
+        classic.presetPath = presetPath;
     }
 
     if (auto playlist = object.find("playlist"); playlist != object.end() && playlist->is_object())
     {
         const std::string playlistPath = path + "/playlist";
-        ReadField(*playlist, "enabled", scene.playlist.enabled, playlistPath, issues);
-        ParseTiming(*playlist, scene.playlist, playlistPath, issues);
+        ReadField(*playlist, "enabled", classic.playlist.enabled, playlistPath, issues);
+        ParseTiming(*playlist, classic.playlist, playlistPath, issues);
         if (auto presets = playlist->find("presets"); presets != playlist->end() && presets->is_array())
         {
             for (size_t i = 0; i < presets->size(); ++i)
@@ -166,7 +371,7 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
                 const std::string entryPath = playlistPath + "/presets/" + std::to_string(i);
                 if ((*presets)[i].is_object())
                     ReadField((*presets)[i], "path", presetPath, entryPath, issues);
-                scene.playlist.presets.emplace_back(presetPath);
+                classic.playlist.presets.emplace_back(presetPath);
                 // Entries without their own look (older files) take the scene's, filled in below.
                 std::optional<VideoLook> look;
                 if ((*presets)[i].is_object())
@@ -182,21 +387,21 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
     if (auto video = object.find("video"); video != object.end() && video->is_object())
     {
         const std::string videoPath = path + "/video";
-        ReadField(*video, "enabled", scene.video.enabled, videoPath, issues);
-        scene.video.look = ParseLook(*video, videoPath, issues);
-        ReadField(*video, "restartOnEnter", scene.video.restartOnEnter, videoPath, issues);
-        ReadField(*video, "loop", scene.video.loop, videoPath, issues);
-        ReadField(*video, "invertLuma", scene.video.invertLuma, videoPath, issues);
+        ReadField(*video, "enabled", classic.video.enabled, videoPath, issues);
+        classic.video.look = ParseLook(*video, videoPath, issues);
+        ReadField(*video, "restartOnEnter", classic.video.restartOnEnter, videoPath, issues);
+        ReadField(*video, "loop", classic.video.loop, videoPath, issues);
+        ReadField(*video, "invertLuma", classic.video.invertLuma, videoPath, issues);
         if (auto source = video->find("source"); source != video->end() && source->is_object())
         {
-            scene.video.source = ParseVideoSource(*source, videoPath + "/source", issues);
+            classic.video.source = ParseVideoSource(*source, videoPath + "/source", issues);
         }
         if (auto playlist = video->find("playlist"); playlist != video->end() && playlist->is_object())
         {
             const std::string playlistPath = videoPath + "/playlist";
-            ReadField(*playlist, "enabled", scene.video.playlist.enabled, playlistPath, issues);
-            ParseTiming(*playlist, scene.video.playlist, playlistPath, issues);
-            ReadField(*playlist, "videos", scene.video.playlist.videos, playlistPath, issues);
+            ReadField(*playlist, "enabled", classic.video.playlist.enabled, playlistPath, issues);
+            ParseTiming(*playlist, classic.video.playlist, playlistPath, issues);
+            ReadField(*playlist, "videos", classic.video.playlist.videos, playlistPath, issues);
         }
     }
 
@@ -236,14 +441,19 @@ auto ParseScene(const json& object, const std::string& path, std::vector<Issue>&
         scene.cc20Value = -1; // Validate() reports it.
     }
     for (const auto& look : entryLooks)
-        scene.playlist.looks.push_back(look.value_or(scene.video.look));
+        classic.playlist.looks.push_back(look.value_or(classic.video.look));
     return scene;
 }
 
-/// Format 1 stored a file path per scene. Each distinct file becomes one pool video (start 0, speed 1).
-void MigrateFileSources(Performance& performance)
+auto NodeLabel(const GraphError& error) -> std::string
 {
-    for (auto& scene : performance.scenes)
+    return error.nodeId.empty() ? std::string() : "node \"" + error.nodeId + "\": ";
+}
+
+/// Format 1 stored a file path per scene. Each distinct file becomes one pool video (start 0, speed 1).
+void MigrateFileSources(Performance& performance, std::vector<ClassicScene>& classics)
+{
+    for (auto& scene : classics)
     {
         auto& source = scene.video.source;
         if (source.type == VideoSourceType::File && source.videoId.empty() && !source.path.empty())
@@ -342,6 +552,8 @@ auto ParsePerformance(const std::string& text) -> LoadResult
         result.issues.push_back(Error("/scenes", "missing or not an array"));
         return result;
     }
+    std::vector<ClassicScene> classics;
+    std::vector<std::string> paths;
     for (size_t i = 0; i < scenes->size(); ++i)
     {
         const std::string path = "/scenes/" + std::to_string(i);
@@ -350,9 +562,37 @@ auto ParsePerformance(const std::string& text) -> LoadResult
             result.issues.push_back(Error(path, "scene must be an object"));
             continue;
         }
-        performance.scenes.push_back(ParseScene((*scenes)[i], path, result.issues));
+        classics.emplace_back();
+        paths.push_back(path);
+        performance.scenes.push_back(ParseScene((*scenes)[i], path, result.issues, classics.back()));
     }
-    MigrateFileSources(performance);
+    if (version < 3)
+    {
+        MigrateFileSources(performance, classics);
+        for (size_t i = 0; i < performance.scenes.size(); ++i)
+        {
+            const auto& video = classics[i].video;
+            if (video.enabled && video.source.type == VideoSourceType::Syphon && video.playlist.enabled && !video.playlist.videos.empty())
+                result.issues.push_back(Warning(paths[i] + "/video/playlist", "a video playlist only works with video files, so it was left out of this Syphon scene"));
+            performance.scenes[i].graph = GraphFromClassic(classics[i]);
+        }
+    }
+    for (size_t i = 0; i < performance.scenes.size(); ++i)
+    {
+        auto& graph = performance.scenes[i].graph;
+        NormalizeSwitcherInputs(graph);
+        const auto errors = ValidateGraph(graph);
+        if (!errors.empty() && !graph.wires.empty())
+        {
+            // A damaged or hand-edited graph loads unfinished: its nodes, with nothing wired.
+            for (const auto& error : errors)
+                result.issues.push_back(Warning(paths[i] + "/graph", NodeLabel(error) + error.message));
+            result.issues.push_back(Warning(paths[i] + "/graph", "the scene's wires were removed so it can load; rewire it on the node canvas"));
+            graph.wires.clear();
+            NormalizeSwitcherInputs(graph);
+        }
+        performance.scenes[i].Refresh();
+    }
 
     auto validation = Validate(performance);
     result.issues.insert(result.issues.end(), validation.begin(), validation.end());
@@ -392,36 +632,7 @@ auto SerializePerformance(const Performance& performance) -> std::string
         {
             object["name"] = scene.name;
         }
-        object["preset"] = {{"path", scene.presetPath.string()}};
-        if (scene.playlist.enabled || !scene.playlist.presets.empty())
-        {
-            json presets = json::array();
-            for (size_t i = 0; i < scene.playlist.presets.size(); ++i)
-                presets.push_back({{"path", scene.playlist.presets[i].string()}, {"look", LookJson(i < scene.playlist.looks.size() ? scene.playlist.looks[i] : scene.video.look)}});
-            object["playlist"] = {{"enabled", scene.playlist.enabled}, {"presets", presets}};
-            WriteTiming(object["playlist"], scene.playlist);
-        }
-
-        json source;
-        if (scene.video.source.type == VideoSourceType::File)
-        {
-            source = {{"type", "file"}, {"video", scene.video.source.videoId}};
-        }
-        else
-        {
-            source = {{"type", "syphon"}, {"appName", scene.video.source.appName}, {"serverName", scene.video.source.serverName}};
-        }
-        object["video"] = LookJson(scene.video.look);
-        object["video"]["enabled"] = scene.video.enabled;
-        object["video"]["source"] = source;
-        object["video"]["restartOnEnter"] = scene.video.restartOnEnter;
-        object["video"]["loop"] = scene.video.loop;
-        object["video"]["invertLuma"] = scene.video.invertLuma;
-        if (scene.video.playlist.enabled || !scene.video.playlist.videos.empty())
-        {
-            object["video"]["playlist"] = {{"enabled", scene.video.playlist.enabled}, {"videos", scene.video.playlist.videos}};
-            WriteTiming(object["video"]["playlist"], scene.video.playlist);
-        }
+        object["graph"] = GraphJson(scene.graph);
         object["midi"] = {{"cc20Value", scene.cc20Value}};
         if (scene.beatHit != BeatHit{})
         {
@@ -443,6 +654,31 @@ auto SerializePerformance(const Performance& performance) -> std::string
         root["videos"].push_back(std::move(object));
     }
     return root.dump(2) + "\n";
+}
+
+auto BackupOlderFormat(const std::filesystem::path& file) -> std::filesystem::path
+{
+    std::ifstream in(file, std::ios::binary);
+    if (!in)
+        return {};
+    int version = 0;
+    try
+    {
+        const json root = json::parse(in);
+        if (root.is_object() && root.contains("version") && root["version"].is_number_integer())
+            version = root["version"].get<int>();
+    }
+    catch (const json::exception&)
+    {
+        return {};
+    }
+    if (version < 1 || version >= kCurrentFormatVersion)
+        return {};
+    const auto backup = file.parent_path() / (file.stem().string() + ".v" + std::to_string(version) + "-backup.json");
+    std::error_code ec;
+    if (std::filesystem::exists(backup, ec) || !std::filesystem::copy_file(file, backup, ec))
+        return {};
+    return backup;
 }
 
 auto SavePerformance(const Performance& performance, const std::filesystem::path& file) -> std::string
@@ -493,22 +729,6 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
             issues.push_back(Error(path + "/id", "\"" + scene.id + "\" is used by another scene"));
         }
 
-        if (scene.playlist.enabled)
-        {
-            if (scene.playlist.presets.empty())
-                issues.push_back(Error(path + "/playlist/presets", "a playlist needs at least one preset"));
-            for (size_t i = 0; i < scene.playlist.presets.size(); ++i)
-            {
-                if (scene.playlist.presets[i].empty())
-                    issues.push_back(Error(path + "/playlist/presets/" + std::to_string(i) + "/path", "is empty"));
-            }
-            ValidateTiming(scene.playlist, path + "/playlist", issues);
-        }
-        else if (scene.presetPath.empty())
-        {
-            issues.push_back(Error(path + "/preset/path", "is empty"));
-        }
-
         if (scene.cc20Value < 0 || scene.cc20Value > 127)
         {
             issues.push_back(Error(path + "/midi/cc20Value", "must be between 0 and 127"));
@@ -521,27 +741,18 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
         if (scene.beatHit.strength < 0.f || scene.beatHit.strength > 1.f)
             issues.push_back(Error(path + "/beatHit/strength", "must be between 0 and 1"));
 
-        ValidateLook(scene.video.look, path + "/video", issues);
-        for (size_t i = 0; i < scene.playlist.looks.size(); ++i)
-            ValidateLook(scene.playlist.looks[i], path + "/playlist/presets/" + std::to_string(i) + "/look", issues);
-        const auto& videoPlaylist = scene.video.playlist;
-        if (scene.video.source.type == VideoSourceType::File && videoPlaylist.enabled)
+        for (const auto& error : ValidateGraph(scene.graph))
+            issues.push_back(Error(path + "/graph", NodeLabel(error) + error.message));
+        for (const auto& node : scene.graph.nodes)
         {
-            const std::string playlistPath = path + "/video/playlist";
-            if (videoPlaylist.videos.empty() && scene.video.enabled)
-                issues.push_back(Error(playlistPath + "/videos", "a video playlist needs at least one video"));
-            for (size_t v = 0; v < videoPlaylist.videos.size(); ++v)
-            {
-                if (performance.FindVideo(videoPlaylist.videos[v]) == nullptr)
-                    issues.push_back(Error(playlistPath + "/videos/" + std::to_string(v), "video \"" + videoPlaylist.videos[v] + "\" isn't in the video pool"));
-            }
-            ValidateTiming(videoPlaylist, playlistPath, issues);
-        }
-        else if (scene.video.enabled && scene.video.source.type == VideoSourceType::File && performance.FindVideo(scene.video.source.videoId) == nullptr)
-        {
-            issues.push_back(Error(path + "/video/source/video",
-                                   scene.video.source.videoId.empty() ? "no video chosen but video is enabled"
-                                                                      : "video \"" + scene.video.source.videoId + "\" isn't in the video pool"));
+            if (node.type == NodeType::Preset && ParamsOf<PresetParams>(node).path.empty())
+                issues.push_back(Error(path + "/graph", "node \"" + node.id + "\": no preset file chosen"));
+            if (node.type != NodeType::VideoSource)
+                continue;
+            const auto& source = ParamsOf<VideoSourceParams>(node).source;
+            if (source.type == VideoSourceType::File && performance.FindVideo(source.videoId) == nullptr)
+                issues.push_back(Error(path + "/graph", "node \"" + node.id + "\": " +
+                                                            (source.videoId.empty() ? std::string("no video chosen") : "video \"" + source.videoId + "\" isn't in the video pool")));
         }
     }
     std::set<std::string> videoIds;
@@ -579,23 +790,25 @@ auto CheckFiles(Performance& performance) -> std::vector<Issue>
         auto& scene = performance.scenes[i];
         const std::string path = "/scenes/" + std::to_string(i);
         std::error_code ec;
+        scene.Refresh();
+        const auto& classic = scene.classic;
 
         scene.presetMissing = !scene.FirstPreset().empty() && !std::filesystem::is_regular_file(scene.FirstPreset(), ec);
         if (scene.presetMissing && !scene.IsPlaylist())
         {
-            issues.push_back(Warning(path + "/preset/path", "file not found: " + scene.presetPath.string()));
+            issues.push_back(Warning(path + "/graph", "preset file not found: " + classic.presetPath.string()));
         }
-        scene.playlistMissing.assign(scene.playlist.presets.size(), false);
-        for (size_t p = 0; p < scene.playlist.presets.size(); ++p)
+        scene.playlistMissing.assign(classic.playlist.presets.size(), false);
+        for (size_t p = 0; p < classic.playlist.presets.size(); ++p)
         {
-            const auto& preset = scene.playlist.presets[p];
+            const auto& preset = classic.playlist.presets[p];
             scene.playlistMissing[p] = !preset.empty() && !std::filesystem::is_regular_file(preset, ec);
-            if (scene.playlistMissing[p] && scene.playlist.enabled)
-                issues.push_back(Warning(path + "/playlist/presets/" + std::to_string(p) + "/path", "file not found: " + preset.string()));
+            if (scene.playlistMissing[p] && classic.playlist.enabled)
+                issues.push_back(Warning(path + "/graph", "preset file not found: " + preset.string()));
         }
 
         const PoolVideo* video = performance.VideoFor(scene);
-        scene.videoMissing = scene.video.enabled && video != nullptr && !std::filesystem::is_regular_file(video->path, ec);
+        scene.videoMissing = classic.video.enabled && video != nullptr && !std::filesystem::is_regular_file(video->path, ec);
     }
     return issues;
 }

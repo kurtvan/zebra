@@ -15,6 +15,10 @@ target_compile_features(gv_common PUBLIC cxx_std_20)
 target_link_libraries(gv_common PRIVATE gv_warnings "-framework Foundation")
 
 add_library(gv_model STATIC
+    model/Graph.cpp
+    model/Graph.hpp
+    model/Classic.cpp
+    model/Classic.hpp
     model/Performance.cpp
     model/Performance.hpp
     model/PerformanceJson.cpp
@@ -66,7 +70,9 @@ add_library(gv_engine STATIC
     engine/BeatHit.cpp
     engine/BeatHit.hpp
     engine/VideoOverlay.cpp
-    engine/VideoOverlay.hpp)
+    engine/VideoOverlay.hpp
+    engine/RenderPlan.cpp
+    engine/RenderPlan.hpp)
 target_link_libraries(gv_engine PUBLIC gv_common gv_model SDL2::SDL2 OpenGL::GL libprojectM::projectM PRIVATE gv_warnings)
 target_compile_definitions(gv_engine PRIVATE GL_SILENCE_DEPRECATION)
 

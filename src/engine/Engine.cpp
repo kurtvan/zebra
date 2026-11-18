@@ -203,20 +203,18 @@ void Engine::UpdatePerformance(const model::Performance& performance)
 
         // An edited playlist on the live scene: restart its cycle (the next entry is planned again).
         if (old == m_pool.LiveScene() &&
-            (before.IsPlaylist() != after.IsPlaylist() || before.playlist.presets != after.playlist.presets ||
-             before.playlist.intervalSeconds != after.playlist.intervalSeconds || before.playlist.shuffle != after.playlist.shuffle ||
-             before.playlist.unit != after.playlist.unit || before.playlist.intervalCount != after.playlist.intervalCount))
+            (before.IsPlaylist() != after.IsPlaylist() || before.classic.playlist.presets != after.classic.playlist.presets ||
+             before.classic.playlist.intervalSeconds != after.classic.playlist.intervalSeconds ||
+             before.classic.playlist.shuffle != after.classic.playlist.shuffle || before.classic.playlist.unit != after.classic.playlist.unit ||
+             before.classic.playlist.intervalCount != after.classic.playlist.intervalCount))
         {
             Execute(m_pool.ClearItem());
             m_playlist = {};
         }
 
         // Video blend settings apply to the existing instances (including the live one) right away, each
-        // with its playlist entry's look.
-        if (!presetChanged[static_cast<size_t>(it->second)] &&
-            (before.video.enabled != after.video.enabled || before.video.look != after.video.look || before.playlist.looks != after.playlist.looks ||
-             before.video.invertLuma != after.video.invertLuma ||
-             before.IsPlaylist() != after.IsPlaylist()))
+        // with its playlist entry's look, compiled from the edited graph.
+        if (!presetChanged[static_cast<size_t>(it->second)] && before.graph != after.graph)
         {
             for (const auto& hosted : m_pool.InstancesOf(old))
                 m_lanes[static_cast<size_t>(hosted.lane)]->UpdateVideo(hosted.instance, VideoSettingsFor(after, hosted.item));
@@ -253,8 +251,7 @@ void Engine::UpdatePerformance(const model::Performance& performance)
 
 auto Engine::VideoSettingsFor(const model::Scene& scene, int item) -> VideoSettings
 {
-    const auto& look = scene.LookFor(item);
-    return {scene.video.enabled, look.mix, look.lumaMin, look.contrast, look.saturation, look.overlay, look.softness, scene.video.invertLuma};
+    return VideoSettingsFromPlan(CompilePlan(scene.graph, SelectionForItem(scene.graph, item)));
 }
 
 void Engine::TriggerItem(int index, int item)
@@ -262,7 +259,7 @@ void Engine::TriggerItem(int index, int item)
     if (index < 0 || index >= static_cast<int>(m_performance.scenes.size()))
         return;
     const auto& scene = m_performance.scenes[static_cast<size_t>(index)];
-    if (!scene.IsPlaylist() || item < 0 || item >= static_cast<int>(scene.playlist.presets.size()) ||
+    if (!scene.IsPlaylist() || item < 0 || item >= static_cast<int>(scene.classic.playlist.presets.size()) ||
         (item < static_cast<int>(scene.playlistMissing.size()) && scene.playlistMissing[static_cast<size_t>(item)]))
     {
         Trigger(index);
@@ -274,7 +271,7 @@ void Engine::TriggerItem(int index, int item)
         Trigger(index); // logs why
         return;
     }
-    GV_LOG_INFO(kLogCategory, "scene %d (%s): going to preset %d of %zu", index, scene.DisplayName().c_str(), item + 1, scene.playlist.presets.size());
+    GV_LOG_INFO(kLogCategory, "scene %d (%s): going to preset %d of %zu", index, scene.DisplayName().c_str(), item + 1, scene.classic.playlist.presets.size());
     Execute(m_pool.TriggerItem(index, item));
 }
 
@@ -468,7 +465,7 @@ auto Engine::Scene(int index) const -> SceneInfo
         info.heavy = info.frameMs > kFrameBudgetMs;
         if (index == m_pool.LiveScene() && m_playlist.scene == index)
         {
-            const auto& playlist = m_performance.scenes[static_cast<size_t>(index)].playlist;
+            const auto& playlist = m_performance.scenes[static_cast<size_t>(index)].classic.playlist;
             info.playlistItem = m_playlist.item;
             if (playlist.unit == model::IntervalUnit::Seconds)
             {
@@ -638,11 +635,11 @@ auto Engine::CurrentPreset(int scene) const -> std::filesystem::path
 
 auto Engine::PickNextItem(const model::Scene& scene, int current) -> int
 {
-    const int count = static_cast<int>(scene.playlist.presets.size());
+    const int count = static_cast<int>(scene.classic.playlist.presets.size());
     auto usable = [&](int item) {
         return item != current && !(item < static_cast<int>(scene.playlistMissing.size()) && scene.playlistMissing[static_cast<size_t>(item)]);
     };
-    if (scene.playlist.shuffle)
+    if (scene.classic.playlist.shuffle)
     {
         std::vector<int> candidates;
         for (int item = 0; item < count; ++item)
@@ -670,7 +667,7 @@ void Engine::UpdatePlaylist()
     const model::Scene* scene = live >= 0 && live < static_cast<int>(m_performance.scenes.size()) ? &m_performance.scenes[static_cast<size_t>(live)] : nullptr;
     if (m_pool.JumpPending())
         return; // a jump to an entry is about to go live; the cycle starts over from it
-    if (scene == nullptr || !scene->IsPlaylist() || scene->playlist.presets.size() < 2)
+    if (scene == nullptr || !scene->IsPlaylist() || scene->classic.playlist.presets.size() < 2)
     {
         if (m_pool.NextItemInstance() != 0)
             Execute(m_pool.ClearItem());
@@ -678,7 +675,7 @@ void Engine::UpdatePlaylist()
         return;
     }
 
-    const auto& playlist = scene->playlist;
+    const auto& playlist = scene->classic.playlist;
     const auto now = Clock::now();
     const auto interval = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(playlist.intervalSeconds));
     const bool countsBeats = playlist.unit != model::IntervalUnit::Seconds;

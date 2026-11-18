@@ -45,6 +45,30 @@ constexpr const char* kLogCategory = "app";
 constexpr int kLanes = 3;
 constexpr size_t kFrameHistory = 240;
 constexpr size_t kMaxMessages = 200;
+/// Smoke edits: sets every Saturation node feeding the `item`-th preset of a preset switcher (both of its
+/// classic look chains, so the scene stays classic-shaped).
+void SetEntrySaturation(gv::model::Graph& graph, int item, float saturation)
+{
+    const auto selection = gv::engine::SelectionForItem(graph, item);
+    if (selection.empty())
+        return;
+    const auto* preset = graph.Upstream(selection.begin()->first, selection.begin()->second);
+    if (preset == nullptr)
+        return;
+    for (const auto& wire : graph.wires)
+    {
+        if (wire.toNode != preset->id)
+            continue;
+        for (auto* node = graph.Find(wire.fromNode); node != nullptr && gv::model::IsEffect(node->type);)
+        {
+            if (node->type == gv::model::NodeType::Saturation)
+                gv::model::ParamsOf<gv::model::SaturationParams>(*node).saturation = saturation;
+            const auto* up = graph.Upstream(node->id, 0);
+            node = up != nullptr ? graph.Find(up->id) : nullptr;
+        }
+    }
+}
+
 constexpr int kMaxRenderWidth = 1920; //!< Keeps Retina screens at a 1080p-class render (the M1 budgets).
 constexpr size_t kMaxRecent = 10;
 constexpr int kRecoveryIntervalFrames = 60 * 30; //!< Write a recovery copy of unsaved changes every ~30 s.
@@ -490,11 +514,14 @@ public:
             AddMessage("Not saved: fix the problems listed above first.");
             return;
         }
+        const auto backup = gv::model::BackupOlderFormat(file);
         if (auto error = gv::model::SavePerformance(m_document.Get(), file); !error.empty())
         {
             AddMessage("Could not save: " + error);
             return;
         }
+        if (!backup.empty())
+            AddMessage("Saved in the new format. The old file was kept as " + backup.filename().string() + " for older versions of the app.");
         m_document.MarkSaved(file);
         m_settings.lastPerformance = file;
         AddRecent(file);
@@ -613,7 +640,7 @@ public:
                     Redo();
                     break;
                 case MenuCommand::AddScene: {
-                    const auto preset = m_selectedScene >= 0 ? edited.scenes[static_cast<size_t>(m_selectedScene)].presetPath : std::filesystem::path();
+                    const auto preset = m_selectedScene >= 0 ? edited.scenes[static_cast<size_t>(m_selectedScene)].FirstPreset() : std::filesystem::path();
                     if (const int index = gv::model::AddScene(edited, m_selectedScene, preset); index >= 0)
                     {
                         Edit(std::move(edited), "Add Scene", {});
@@ -983,7 +1010,8 @@ private:
             case 1:
                 if (live >= 0)
                 {
-                    edited.scenes[static_cast<size_t>(live)].presetPath = edited.scenes[static_cast<size_t>((live + 2) % count)].presetPath;
+                    const auto other = edited.scenes[static_cast<size_t>((live + 2) % count)].FirstPreset();
+                    gv::model::ReplacePreset(edited, live, 0, other);
                     Edit(std::move(edited), "Change Preset", {});
                     GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's preset (scene %d)", live);
                 }
@@ -991,8 +1019,14 @@ private:
             case 2:
                 if (live >= 0)
                 {
-                    edited.scenes[static_cast<size_t>(live)].video.enabled = true;
-                    edited.scenes[static_cast<size_t>(live)].video.look.mix = 0.3f;
+                    auto& graph = edited.scenes[static_cast<size_t>(live)].graph;
+                    if (gv::model::VideoIdsOf(graph).empty() && !edited.videos.empty())
+                        gv::model::AssignVideo(edited, live, edited.videos.front().id);
+                    for (auto& node : graph.nodes)
+                    {
+                        if (node.type == gv::model::NodeType::Mix)
+                            gv::model::ParamsOf<gv::model::MixParams>(node).opacity = 0.3f;
+                    }
                     Edit(std::move(edited), "Change Mix", {});
                     GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's mix");
                 }
@@ -1015,7 +1049,7 @@ private:
             {
                 // Playlist jumps: into a playlist scene at its third entry, then within it to the second
                 // (with that entry's look changed while live).
-                const auto playlist = std::find_if(edited.scenes.begin(), edited.scenes.end(), [](const auto& s) { return s.IsPlaylist() && s.playlist.presets.size() >= 3; });
+                const auto playlist = std::find_if(edited.scenes.begin(), edited.scenes.end(), [](const auto& s) { return s.IsPlaylist() && s.classic.playlist.presets.size() >= 3; });
                 if (playlist == edited.scenes.end())
                     break;
                 const int scene = static_cast<int>(playlist - edited.scenes.begin());
@@ -1028,7 +1062,7 @@ private:
                 else
                 {
                     GV_LOG_INFO(kLogCategory, "smoke edit: scene %d live=%d on preset %d", scene, m_engine.LiveScene(), m_engine.Scene(scene).playlistItem + 1);
-                    playlist->MutableLookFor(1).saturation = 0.f;
+                    SetEntrySaturation(playlist->graph, 1, 0.f);
                     Edit(std::move(edited), "Change Saturation", {});
                     TriggerItem(scene, 1);
                     GV_LOG_INFO(kLogCategory, "smoke edit: jumped within scene %d to preset 2 (black and white)", scene);
