@@ -491,7 +491,8 @@ PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
 
 - `Engine::PlaylistState`, `Engine::UpdatePlaylist`, `PickNextItem`;
 - `VideoManager` playlist cycling;
-- the legacy structs, except in the v2 parser.
+- the classic view: `Scene::classic`, `Scene::classicShape`, `ClassicFromGraph`, `NormalizeClassic`, and the `Performance` helpers that read it (`IsPlaylist`, `IsVideoPlaylist`, `LookFor`, `FirstPreset` and the rest). Every reader works on the graph instead;
+- the legacy structs, except in the v2 parser. `Classic.hpp/.cpp` keeps only what reading older files needs (the v2 structs and `GraphFromClassic`) and is renamed to match.
 
 ### N5 done when
 
