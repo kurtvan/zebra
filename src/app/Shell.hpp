@@ -75,6 +75,7 @@ struct ShellState
     GLuint preview{0};
     const std::deque<float>* frameIntervalsMs{nullptr};
     long long slowFrames{0};
+    double liveGpuMs{-1.0}; //!< The live lane's GPU time over the last second; -1 if not known.
 };
 
 /// The editor: preview, scene list, scene properties, setup, preset browser (M5), status and messages.
@@ -94,6 +95,7 @@ private:
     void DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info);
     void DrawVideoSummary(const ShellState& state, int index);
     void DrawSetup(ShellState& state, AppActions& actions);
+    void DrawCanvas(const ShellState& state, AppActions& actions);
     void DrawBrowser(ShellState& state, AppActions& actions);
     void DrawPresetGrid(ShellState& state, AppActions& actions);
     void AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene);
@@ -113,6 +115,8 @@ private:
     std::vector<std::string> m_audioDevices;
     bool m_listsLoaded{false};
     int m_scrollToScene{-1};
+    int m_canvasWidthField{-1};  //!< Canvas size being typed (-1: not editing).
+    int m_canvasHeightField{-1};
     bool m_videosHovered{false}; //!< Last frame: Finder drops add to the pool instead of a scene.
     std::string m_entryScene; //!< Scene id of the selected playlist entry (whose look the Video sliders edit).
     int m_entry{0};

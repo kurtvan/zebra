@@ -513,6 +513,19 @@ auto ParsePerformance(const std::string& text) -> LoadResult
     Performance& performance = result.performance;
     performance.version = kCurrentFormatVersion;
     ReadField(root, "name", performance.name, "", result.issues);
+    if (auto canvas = root.find("canvas"); canvas != root.end() && !canvas->is_null())
+    {
+        if (canvas->is_object())
+        {
+            performance.canvas.matchScreen = false;
+            ReadField(*canvas, "width", performance.canvas.width, "/canvas", result.issues);
+            ReadField(*canvas, "height", performance.canvas.height, "/canvas", result.issues);
+        }
+        else
+        {
+            result.issues.push_back(Error("/canvas", "must be an object"));
+        }
+    }
 
     if (auto videos = root.find("videos"); videos != root.end() && videos->is_array())
     {
@@ -623,6 +636,8 @@ auto SerializePerformance(const Performance& performance) -> std::string
     json root;
     root["version"] = kCurrentFormatVersion;
     root["name"] = performance.name;
+    if (!performance.canvas.matchScreen)
+        root["canvas"] = {{"width", performance.canvas.width}, {"height", performance.canvas.height}};
     root["scenes"] = json::array();
     for (const auto& scene : performance.scenes)
     {
@@ -711,6 +726,15 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
     if (performance.scenes.size() > static_cast<size_t>(kMaxScenes))
     {
         issues.push_back(Error("/scenes", "has " + std::to_string(performance.scenes.size()) + " scenes; the maximum is " + std::to_string(kMaxScenes)));
+    }
+    if (!performance.canvas.matchScreen)
+    {
+        for (const auto& [key, size] : {std::pair{"width", performance.canvas.width}, std::pair{"height", performance.canvas.height}})
+        {
+            if (size < kMinCanvasSize || size > kMaxCanvasSize || size % 2 != 0)
+                issues.push_back(Error(std::string("/canvas/") + key, "must be an even number from " + std::to_string(kMinCanvasSize) + " to " +
+                                                                          std::to_string(kMaxCanvasSize) + " (found " + std::to_string(size) + ")"));
+        }
     }
 
     std::set<std::string> ids;

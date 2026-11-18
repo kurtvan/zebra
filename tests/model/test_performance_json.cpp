@@ -161,6 +161,50 @@ TEST_CASE("an empty performance is valid")
 {
     const auto result = ParsePerformance(R"({"version": 1, "scenes": []})");
     CHECK(result.ok);
+    CHECK(result.performance.canvas.matchScreen);
+}
+
+TEST_CASE("the canvas round-trips, and Match screen isn't written")
+{
+    Performance performance;
+    CHECK(SerializePerformance(performance).find("canvas") == std::string::npos);
+    CHECK(ParsePerformance(SerializePerformance(performance)).performance.canvas == Canvas{});
+
+    performance.canvas = {false, 3840, 1080};
+    const auto text = SerializePerformance(performance);
+    CHECK(text.find("\"canvas\"") != std::string::npos);
+    const auto result = ParsePerformance(text);
+    REQUIRE(result.ok);
+    CHECK(result.performance.canvas == Canvas{false, 3840, 1080});
+
+    // Files without a canvas (every older one) match the screen.
+    CHECK(ParsePerformance(R"({"version": 2, "scenes": []})").performance.canvas.matchScreen);
+}
+
+TEST_CASE("canvas sizes must be even and within range")
+{
+    auto check = [](int width, int height) {
+        Performance performance;
+        performance.canvas = {false, width, height};
+        return Validate(performance);
+    };
+    CHECK(check(1920, 1080).empty());
+    CHECK(check(kMinCanvasSize, kMaxCanvasSize).empty());
+    CHECK(CountIssuesAt(check(318, 1080), "/canvas/width") == 1);
+    CHECK(CountIssuesAt(check(7682, 1080), "/canvas/width") == 1);
+    CHECK(CountIssuesAt(check(1921, 1080), "/canvas/width") == 1);
+    const auto both = check(0, 1081);
+    CHECK(CountIssuesAt(both, "/canvas/width") == 1);
+    CHECK(CountIssuesAt(both, "/canvas/height") == 1);
+
+    // Match screen ignores the stored size.
+    Performance performance;
+    performance.canvas = {true, 1, 1};
+    CHECK(Validate(performance).empty());
+
+    CHECK(HasIssueAt(ParsePerformance(R"({"version": 3, "canvas": {"width": 1921, "height": 1080}, "scenes": []})"), "/canvas/width"));
+    CHECK(HasIssueAt(ParsePerformance(R"({"version": 3, "canvas": {"width": "wide", "height": 1080}, "scenes": []})"), "/canvas/width"));
+    CHECK(HasIssueAt(ParsePerformance(R"({"version": 3, "canvas": 1080, "scenes": []})"), "/canvas"));
 }
 
 TEST_CASE("validation rules")

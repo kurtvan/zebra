@@ -1,6 +1,7 @@
 #include "app/Shell.hpp"
 
 #include "app/macos/FileDialog.hpp"
+#include "common/FitRect.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -36,6 +37,27 @@ const ImVec4 kRed{0.96f, 0.42f, 0.42f, 1.f};
 const ImVec4 kDim{0.58f, 0.60f, 0.64f, 1.f};
 
 const std::vector<std::string> kVideoExtensions = {"mp4", "mov", "m4v"};
+
+constexpr double kGpuBudgetMs = 1000.0 / 60.0; //!< Over this, the live scene can't keep up with 60 fps.
+
+struct CanvasPreset
+{
+    int width;
+    int height;
+    const char* label;
+};
+constexpr CanvasPreset kCanvasPresets[] = {
+    {1920, 1080, "1920 x 1080 (HD)"},
+    {1280, 720, "1280 x 720"},
+    {3840, 2160, "3840 x 2160 (4K)"},
+    {3840, 1080, "3840 x 1080 (two HD screens side by side)"},
+};
+
+/// A canvas size the model accepts: clamped to the allowed range and rounded down to an even number.
+auto CanvasSize(int size) -> int
+{
+    return std::clamp(size, model::kMinCanvasSize, model::kMaxCanvasSize) & ~1;
+}
 
 auto Lower(std::string text) -> std::string
 {
@@ -297,14 +319,16 @@ void Shell::DrawPreview(const ShellState& state, AppActions& actions)
     const auto* engine = state.engine;
     if (state.preview != 0 && engine != nullptr)
     {
+        // Letterboxed like the fullscreen output; the panel's black background is the bars.
         const ImVec2 available = ImGui::GetContentRegionAvail();
-        const float aspect = static_cast<float>(engine->RenderWidth()) / static_cast<float>(engine->RenderHeight());
-        ImVec2 size(available.x, available.x / aspect);
-        if (size.y > available.y)
-            size = ImVec2(available.y * aspect, available.y);
-        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + (available.x - size.x) * 0.5f, ImGui::GetCursorPosY() + (available.y - size.y) * 0.5f));
-        // GL textures are bottom-up; flip V.
-        ImGui::Image(static_cast<ImTextureID>(state.preview), size, ImVec2(0, 1), ImVec2(1, 0));
+        const Rect fit = FitRect(engine->RenderWidth(), engine->RenderHeight(), static_cast<int>(available.x), static_cast<int>(available.y));
+        if (fit.width > 0 && fit.height > 0)
+        {
+            ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + static_cast<float>(fit.x), ImGui::GetCursorPosY() + static_cast<float>(fit.y)));
+            // GL textures are bottom-up; flip V.
+            ImGui::Image(static_cast<ImTextureID>(state.preview), ImVec2(static_cast<float>(fit.width), static_cast<float>(fit.height)), ImVec2(0, 1),
+                         ImVec2(1, 0));
+        }
     }
 
     // Dropping a preset anywhere on the preview puts it in the live scene.
@@ -894,6 +918,80 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     ImGui::End();
 }
 
+void Shell::DrawCanvas(const ShellState& state, AppActions& actions)
+{
+    const auto& performance = state.document->Get();
+    const model::Canvas& canvas = performance.canvas;
+    auto setCanvas = [&](model::Canvas changed) {
+        if (changed == canvas)
+            return;
+        auto edited = performance;
+        edited.canvas = changed;
+        actions.Edit(std::move(edited), "Change Canvas Size");
+    };
+
+    bool match = canvas.matchScreen;
+    if (ImGui::Checkbox("Match screen", &match))
+        setCanvas({match, canvas.width, canvas.height});
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Render at the size of the screen this window is on (up to %d wide).\nOff: the show renders at its own size, saved with it.",
+                          1920);
+    if (canvas.matchScreen)
+    {
+        ImGui::TextColored(kDim, "Rendering at %dx%d. Move this window to the screen\nyou perform on and press Cmd+F for fullscreen.",
+                           state.engine->RenderWidth(), state.engine->RenderHeight());
+    }
+    else
+    {
+        const char* current = "Custom";
+        for (const auto& preset : kCanvasPresets)
+        {
+            if (preset.width == canvas.width && preset.height == canvas.height)
+                current = preset.label;
+        }
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##canvas-preset", current))
+        {
+            for (const auto& preset : kCanvasPresets)
+            {
+                if (ImGui::Selectable(preset.label, preset.width == canvas.width && preset.height == canvas.height))
+                    setCanvas({false, preset.width, preset.height});
+            }
+            ImGui::EndCombo();
+        }
+
+        // Typed sizes apply when the field is left, so the lanes don't resize on every keystroke.
+        auto sizeField = [&](const char* id, int value, int& field) -> std::optional<int> {
+            int shown = field >= 0 ? field : value;
+            ImGui::SetNextItemWidth(80);
+            if (ImGui::InputInt(id, &shown, 0, 0))
+                field = shown;
+            if (!ImGui::IsItemDeactivated())
+                return std::nullopt;
+            const int typed = field;
+            field = -1;
+            return typed >= 0 ? std::optional<int>(CanvasSize(typed)) : std::nullopt;
+        };
+        if (auto width = sizeField("##canvas-width", canvas.width, m_canvasWidthField))
+            setCanvas({false, *width, canvas.height});
+        ImGui::SameLine();
+        ImGui::TextUnformatted("x");
+        ImGui::SameLine();
+        if (auto height = sizeField("##canvas-height", canvas.height, m_canvasHeightField))
+            setCanvas({false, canvas.width, *height});
+        ImGui::SameLine();
+        ImGui::TextColored(kDim, "pixels");
+        ImGui::TextColored(kDim, "Every scene renders at this size. On a screen of\nanother shape, black bars fill the rest.");
+    }
+    if (state.liveGpuMs >= 0.0)
+    {
+        if (state.liveGpuMs > kGpuBudgetMs)
+            ImGui::TextColored(kAmber, "Live scene: %.1f ms GPU per frame, over the %.1f ms\nthat 60 fps allows.", state.liveGpuMs, kGpuBudgetMs);
+        else
+            ImGui::TextColored(kDim, "Live scene: %.1f ms GPU per frame (60 fps allows %.1f).", state.liveGpuMs, kGpuBudgetMs);
+    }
+}
+
 void Shell::DrawSetup(ShellState& state, AppActions& actions)
 {
     ImGui::Begin(kSetup);
@@ -913,8 +1011,7 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     ImGui::TextColored(kDim, "%s", state.document->Path().empty() ? "Not saved yet" : state.document->Path().c_str());
 
     ImGui::SeparatorText("Output");
-    ImGui::TextColored(kDim, "Rendering at %dx%d. Move this window to the screen\nyou perform on and press Cmd+F for fullscreen.",
-                       state.engine->RenderWidth(), state.engine->RenderHeight());
+    DrawCanvas(state, actions);
 
     ImGui::SeparatorText("Audio input");
     const char* currentAudio = settings.audioDevice.empty() ? "System default" : settings.audioDevice.c_str();
@@ -1851,6 +1948,15 @@ void Shell::DrawStatusBar(const ShellState& state)
                 ImGui::SameLine(0, 28);
             }
             ImGui::TextColored(kDim, "%dx%d", state.engine->RenderWidth(), state.engine->RenderHeight());
+            if (state.liveGpuMs >= 0.0)
+            {
+                ImGui::SameLine(0, 12);
+                const bool over = state.liveGpuMs > kGpuBudgetMs;
+                ImGui::TextColored(over ? kAmber : kDim, "GPU %.1f ms", state.liveGpuMs);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The live scene's GPU time per frame, over the last second.%s",
+                                      over ? "\nOver 16.7 ms it can't keep up with 60 fps: try a smaller canvas or a lighter preset." : "");
+            }
             if (state.document->IsDirty())
             {
                 ImGui::SameLine(0, 28);

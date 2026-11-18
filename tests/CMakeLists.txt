@@ -1,6 +1,7 @@
 add_executable(gv_tests
     common/test_log.cpp
     common/test_ring_buffer.cpp
+    common/test_fit_rect.cpp
     model/test_performance_json.cpp
     model/test_document.cpp
     model/test_graph.cpp

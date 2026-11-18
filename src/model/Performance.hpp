@@ -13,6 +13,18 @@ namespace gv::model {
 
 constexpr int kCurrentFormatVersion = 3; //!< 3: scenes are node graphs. 2: video files live in a shared pool (Performance::videos).
 constexpr int kMaxScenes = 128; //!< One MIDI CC (CC 20) on one channel.
+constexpr int kMinCanvasSize = 320;  //!< Canvas width and height, in pixels (even numbers only).
+constexpr int kMaxCanvasSize = 7680;
+
+/// The show's output size: the screen's, or a fixed size every scene renders at.
+struct Canvas
+{
+    bool matchScreen{true}; //!< The screen the window is on, capped at a 1080p-class width (the app's kMaxRenderWidth).
+    int width{1920};        //!< Fixed sizes: kMinCanvasSize..kMaxCanvasSize, even. Kept while matchScreen is on.
+    int height{1080};
+
+    auto operator==(const Canvas&) const -> bool = default;
+};
 
 /// Which MIDI clock beats get a beat hit.
 enum class BeatHitEvery
@@ -154,6 +166,7 @@ struct Performance
 {
     int version{kCurrentFormatVersion};
     std::string name;
+    Canvas canvas;
     std::vector<Scene> scenes;
     std::vector<PoolVideo> videos;
 
