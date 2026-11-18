@@ -282,7 +282,7 @@ void main() {
 ```
 
 - **Exact match with today:** today's shaders run contrast and saturation unclamped, then clamp once, then gate. Clamping after each colour pass wouldn't match: saturation can pull values that contrast pushed out of range back inside [0, 1]. So, as shown above, colour passes leave values unclamped, and the gate and the chain's end clamp. For converted chains (contrast, saturation, gate, mix) this is today's math, step for step. N2.6 proves it.
-- **Output:** one draw per branch into that branch's lane-owned RGBA8 texture (D3) at render size, stored with straight alpha. Branch textures are kept per (instance, branch index) and reallocated only when the render size changes.
+- **Output:** one draw per branch into that branch's lane-owned RGBA8 texture (D3) at render size, stored with straight alpha. Branch textures are kept per lane and branch index (a lane renders one instance at a time, so instances can share them), and reallocated only when the render size changes.
 - **Video alpha:** sources may carry alpha, but today's shaders ignore it, so the chain starts from alpha = 1 as shown.
 - **No passes** (a source wired straight into a layer) still runs the shader, with count 0, so every layer gets the same straight-alpha input.
 

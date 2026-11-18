@@ -107,39 +107,6 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
     return plan;
 }
 
-auto VideoSettingsFromPlan(const RenderPlan& plan) -> VideoSettings
-{
-    VideoSettings settings;
-    for (const auto& branch : plan.branches)
-    {
-        const bool feedback = branch.layer == model::PresetLayer::Feedback;
-        if (!feedback && branch.layer != model::PresetLayer::OnTop)
-            continue;
-        for (const auto& pass : branch.passes)
-        {
-            switch (pass.type)
-            {
-            case EffectPass::Type::Contrast: settings.contrast = pass.a; break;
-            case EffectPass::Type::Saturation: settings.saturation = pass.a; break;
-            case EffectPass::Type::LumaGate:
-                settings.lumaMin = pass.a;
-                settings.lumaInvert = pass.flag;
-                if (!feedback)
-                    settings.softness = pass.b;
-                break;
-            case EffectPass::Type::Mix: settings.mix = pass.a; break;
-            }
-        }
-        if (feedback)
-            settings.enabled = true;
-        else
-            settings.overlay = true;
-    }
-    if (!settings.enabled)
-        return {};
-    return settings;
-}
-
 auto SelectionForItem(const Graph& graph, int item) -> SwitcherSelection
 {
     const Node* viewport = graph.Viewport();

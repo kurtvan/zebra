@@ -20,11 +20,15 @@ auto Fixture(const char* name) -> std::string
     return text.str();
 }
 
-/// Today's (format 2) lane settings for playlist entry `item`, computed straight from a format 2 scene's JSON,
-/// the way Engine::VideoSettingsFor did before graphs.
-auto FormatTwoSettings(const nlohmann::json& scene, int item) -> VideoSettings
+/// What format 2 drew for playlist entry `item`, as branches, computed straight from a format 2 scene's JSON
+/// the way the lanes did before graphs: a feedback blend (contrast, saturation, then a luma gate with the
+/// patch's fixed 0.05 edge on each side, then mix) and, with the overlay on, the same look on top with the
+/// overlay's own softness.
+auto FormatTwoBranches(const nlohmann::json& scene, int item) -> std::vector<VideoBranch>
 {
     const auto video = scene.value("video", nlohmann::json::object());
+    if (!video.value("enabled", false))
+        return {};
     nlohmann::json look = video;
     const auto playlist = scene.value("playlist", nlohmann::json::object());
     if (playlist.value("enabled", false) && !playlist.value("presets", nlohmann::json::array()).empty())
@@ -33,18 +37,17 @@ auto FormatTwoSettings(const nlohmann::json& scene, int item) -> VideoSettings
         if (entry.contains("look"))
             look = entry["look"];
     }
-    VideoSettings settings;
-    settings.enabled = video.value("enabled", false);
-    if (!settings.enabled)
-        return settings;
-    settings.mix = look.value("mix", 1.0f);
-    settings.lumaMin = look.value("lumaMin", 0.0f);
-    settings.contrast = look.value("contrast", 1.0f);
-    settings.saturation = look.value("saturation", 1.0f);
-    settings.overlay = look.value("overlay", false);
-    settings.softness = settings.overlay ? look.value("softness", 0.0f) : 0.0f; // only drawn with the overlay
-    settings.lumaInvert = video.value("invertLuma", false);
-    return settings;
+    const bool invert = video.value("invertLuma", false);
+    auto passes = [&](float softness) -> std::vector<EffectPass> {
+        return {{EffectPass::Type::Contrast, look.value("contrast", 1.0f), 0.0f, false},
+                {EffectPass::Type::Saturation, look.value("saturation", 1.0f), 0.0f, false},
+                {EffectPass::Type::LumaGate, look.value("lumaMin", 0.0f), softness, invert},
+                {EffectPass::Type::Mix, look.value("mix", 1.0f), 0.0f, false}};
+    };
+    std::vector<VideoBranch> branches{{passes(0.1f), PresetLayer::Feedback, {}}};
+    if (look.value("overlay", false))
+        branches.push_back({passes(look.value("softness", 0.0f)), PresetLayer::OnTop, {}});
+    return branches;
 }
 
 } // namespace
@@ -88,7 +91,7 @@ TEST_CASE("the real show converts to valid graphs that draw exactly what format 
             INFO("entry " << item);
             const auto plan = CompilePlan(scene.graph, SelectionForItem(scene.graph, item));
             CHECK(plan.presetPath == presets[static_cast<size_t>(item)]);
-            CHECK(VideoSettingsFromPlan(plan) == FormatTwoSettings(source, item));
+            CHECK(plan.branches == FormatTwoBranches(source, item));
             checked++;
         }
 
@@ -164,5 +167,4 @@ TEST_CASE("unfinished graphs compile to nothing")
     const auto plan = CompilePlan(graph);
     CHECK(plan.presetNode == preset);
     CHECK(plan.branches.empty());
-    CHECK_FALSE(VideoSettingsFromPlan(plan).enabled);
 }
