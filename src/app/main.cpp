@@ -10,6 +10,7 @@
 #include "model/Document.hpp"
 #include "thumbnails/ThumbnailService.hpp"
 #include "app_info.hpp"
+#include "common/FitRect.hpp"
 #include "common/SpscRingBuffer.hpp"
 #include "common/log.hpp"
 #include "common/paths.hpp"
@@ -32,6 +33,7 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <random>
 #include <set>
@@ -44,6 +46,8 @@ namespace {
 constexpr const char* kLogCategory = "app";
 constexpr int kLanes = 3;
 constexpr size_t kFrameHistory = 240;
+constexpr size_t kGpuWindowFrames = 60; //!< One second at 60 fps.
+constexpr int kGpuSettleFrames = 30;
 constexpr size_t kMaxMessages = 200;
 /// Smoke edits: sets every Saturation node feeding the `item`-th preset of a preset switcher (both of its
 /// classic look chains, so the scene stays classic-shaped).
@@ -392,9 +396,15 @@ public:
         m_engine.TriggerItem(scene, item);
     }
 
-    /// Renders at the native resolution of the screen the window is on, capped at kMaxRenderWidth wide.
+    /// Renders at the show's canvas size, or with Match screen at the native resolution of the screen the window
+    /// is on, capped at kMaxRenderWidth wide. Cheap when nothing changed.
     void UpdateRenderSize()
     {
+        if (const auto& canvas = m_document.Get().canvas; !canvas.matchScreen)
+        {
+            m_engine.SetRenderSize(canvas.width, canvas.height);
+            return;
+        }
         const int display = SDL_GetWindowDisplayIndex(m_editorWindow);
         SDL_DisplayMode mode{};
         if (display < 0 || SDL_GetDesktopDisplayMode(display, &mode) != 0)
@@ -485,6 +495,7 @@ public:
         m_selectedScene = m_document.Get().scenes.empty() ? -1 : 0;
         m_issues.clear();
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext); // video sources convert frames on this context
+        UpdateRenderSize(); // before preparing, so the lanes don't prepare at the old size
         m_video.Load(m_document.Get());
         m_engine.LoadPerformance(m_document.Get());
         m_syncedRevision = m_document.Revision();
@@ -497,6 +508,7 @@ public:
             return;
         m_syncedRevision = m_document.Revision();
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        UpdateRenderSize(); // the canvas may have been edited (or undone)
         m_video.Load(m_document.Get());
         m_engine.UpdatePerformance(m_document.Get());
         m_issues = gv::model::Validate(m_document.Get());
@@ -776,6 +788,7 @@ public:
         }
 
         RecordFrameInterval();
+        RecordLiveGpu();
         UpdateChrome();
         UpdateLibrary(frame);
         if (m_settingsDirty && frame % 60 == 0)
@@ -822,6 +835,7 @@ private:
         state.preview = presented;
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;
+        state.liveGpuMs = LiveGpuMs();
         shell.Draw(state, *this);
         m_document.ReleaseRetired();
 
@@ -874,14 +888,11 @@ private:
         {
             if (m_readFbo == 0)
                 glGenFramebuffers(1, &m_readFbo);
-            const float scale = std::min(static_cast<float>(width) / textureWidth, static_cast<float>(height) / textureHeight);
-            const int w = static_cast<int>(textureWidth * scale);
-            const int h = static_cast<int>(textureHeight * scale);
-            const int x = (width - w) / 2;
-            const int y = (height - h) / 2;
+            const gv::Rect fit = gv::FitRect(textureWidth, textureHeight, width, height);
             glBindFramebuffer(GL_READ_FRAMEBUFFER, m_readFbo);
             glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, presented, 0);
-            glBlitFramebuffer(0, 0, textureWidth, textureHeight, x, y, x + w, y + h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            glBlitFramebuffer(0, 0, textureWidth, textureHeight, fit.x, fit.y, fit.x + fit.width, fit.y + fit.height, GL_COLOR_BUFFER_BIT,
+                              GL_LINEAR);
             glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
         }
         SDL_GL_SwapWindow(m_editorWindow);
@@ -900,6 +911,41 @@ private:
                 m_slowFrames++;
         }
         m_lastFrame = now;
+    }
+
+    /// Samples the live lane's GPU time: a one-second average for the editor, and per-scene averages for smoke runs.
+    /// Skips the first half second after the live scene changes, while the new lane's timer average catches up.
+    void RecordLiveGpu()
+    {
+        const int live = m_engine.LiveScene();
+        const int lane = live >= 0 ? m_engine.Scene(live).lane : -1;
+        if (live != m_gpuScene)
+        {
+            m_gpuScene = live;
+            m_gpuSettle = kGpuSettleFrames;
+            m_gpuWindow.clear();
+        }
+        const auto stats = m_engine.GetStats();
+        if (lane < 0 || lane >= static_cast<int>(stats.laneGpuMs.size()) || m_gpuSettle-- > 0)
+            return;
+        const double ms = stats.laneGpuMs[static_cast<size_t>(lane)];
+        m_gpuWindow.push_back(ms);
+        if (m_gpuWindow.size() > kGpuWindowFrames)
+            m_gpuWindow.pop_front();
+        auto& total = m_gpuByScene[live];
+        total.first += ms;
+        total.second++;
+    }
+
+    /// The live lane's GPU ms over the last second, or -1 if not known.
+    auto LiveGpuMs() const -> double
+    {
+        if (m_gpuWindow.empty())
+            return -1.0;
+        double sum = 0.0;
+        for (double ms : m_gpuWindow)
+            sum += ms;
+        return sum / static_cast<double>(m_gpuWindow.size());
     }
 
     void PaceSmoke()
@@ -970,6 +1016,8 @@ private:
                         elapsed, m_smokeCuts, liveTicks, stats.presentedFrames, stats.heldTicks,
                         liveTicks > 0 ? 100.0 * stats.heldTicks / liveTicks : 0.0, stats.heldWaitingTicks, stats.heldNearCutTicks, stats.heldTicks - stats.heldWaitingTicks - stats.heldNearCutTicks,
                         m_slowFrames, stats.warmDone, stats.warmTotal);
+            GV_LOG_INFO(kLogCategory, "smoke: render size %dx%d (%s)", m_engine.RenderWidth(), m_engine.RenderHeight(),
+                        performance.canvas.matchScreen ? "match screen" : "show canvas");
             for (int i = 0; i < static_cast<int>(performance.scenes.size()); ++i)
             {
                 const auto info = m_engine.Scene(i);
@@ -978,8 +1026,11 @@ private:
                 char dropped[32] = "never live long enough";
                 if (info.droppedFraction >= 0.0)
                     std::snprintf(dropped, sizeof(dropped), "%.1f%% of its live frames", info.droppedFraction * 100.0);
-                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, held %lld (%s), video %s", i,
-                            performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held,
+                char gpu[32] = "-";
+                if (auto it = m_gpuByScene.find(i); it != m_gpuByScene.end() && it->second.second > 0)
+                    std::snprintf(gpu, sizeof(gpu), "%.1f ms", it->second.first / static_cast<double>(it->second.second));
+                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, live GPU %s, held %lld (%s), video %s", i,
+                            performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", gpu, held,
                             dropped, video ? gv::io::ToString(*video) : "-");
             }
             const auto clock = m_midi->Clock();
@@ -1202,6 +1253,10 @@ private:
     std::deque<std::string> m_messages;
 
     std::deque<float> m_frameIntervals;
+    std::deque<double> m_gpuWindow;                       //!< The live lane's GPU ms, last second.
+    std::map<int, std::pair<double, long long>> m_gpuByScene; //!< Live GPU ms sum and samples per scene (smoke summary).
+    int m_gpuScene{-1};
+    int m_gpuSettle{0};
     long long m_slowFrames{0};
     Clock::time_point m_lastFrame{};
 

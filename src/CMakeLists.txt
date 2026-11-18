@@ -7,7 +7,8 @@ add_library(gv_common STATIC
     common/paths.hpp
     common/memory.cpp
     common/memory.hpp
-    common/SpscRingBuffer.hpp)
+    common/SpscRingBuffer.hpp
+    common/FitRect.hpp)
 target_include_directories(gv_common PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
