@@ -450,8 +450,7 @@ int RunFeedbackCheck(const Options& options, const std::vector<std::filesystem::
             projectm_set_window_size(instance, 320, 180);
             projectm_set_preset_locked(instance, true);
             projectm_load_preset_file(instance, preset.c_str(), false);
-            projectm_set_feedback_texture(instance, mix > 0 ? texture : 0);
-            projectm_set_feedback_mix(instance, mix);
+            projectm_set_layer_texture(instance, PROJECTM_LAYER_FEEDBACK, mix > 0 ? texture : 0);
             for (int i = 0; i < 10; ++i)
                 RenderTimed(instance, target, 320, 180, i);
             std::vector<unsigned char> pixels(320 * 180 * 4);

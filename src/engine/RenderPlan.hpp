@@ -49,24 +49,13 @@ struct RenderPlan
     auto operator==(const RenderPlan&) const -> bool = default;
 };
 
-/// A plan's video as today's lanes take it: one feedback branch (Contrast, Saturation, Luma gate, Mix) and an
-/// optional on-top branch with the same look. Replaced by the lane running plans directly in N2.
-struct VideoSettings
+/// What a lane needs to draw a plan's video: its branches. The preset and source are chosen elsewhere.
+struct LanePlan
 {
-    bool enabled{false};
-    float mix{1.0f};
-    float lumaMin{0.0f};
-    float contrast{1.0f};
-    float saturation{1.0f};
-    bool overlay{false};  //!< Also draw the video over the rendered frame, masked by lumaMin.
-    float softness{0.0f}; //!< Overlay mask edge, 0 = hard.
-    bool lumaInvert{false}; //!< The gate keeps pixels darker than lumaMin instead (blend and overlay).
+    std::vector<VideoBranch> branches;
 
-    auto operator==(const VideoSettings&) const -> bool = default;
+    auto operator==(const LanePlan&) const -> bool = default;
 };
-
-/// The VideoSettings that draw `plan` (exactly, for plans of classic-shaped graphs).
-auto VideoSettingsFromPlan(const RenderPlan& plan) -> VideoSettings;
 
 /// Switcher node id -> the input that passes. A switcher missing here passes its first wired input.
 using SwitcherSelection = std::map<std::string, int>;

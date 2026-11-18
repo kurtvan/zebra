@@ -1,82 +1,83 @@
-From 7f0b00b82bb6bec12ebbb9881a540ae90ac26d84 Mon Sep 17 00:00:00 2001
+From 63e3decdc5835c58fece2ecb6a29d5c2e6380313 Mon Sep 17 00:00:00 2001
 From: kurtvan <kurtv7348@gmail.com>
 Date: Sun, 25 Oct 2026 21:10:48 -0400
-Subject: [PATCH] Blend an external texture into the feedback buffer
+Subject: [PATCH] Draw caller textures into the frame at fixed layers
 
-Adds projectm_set_feedback_texture/_mix/_luma_gate. Each frame, before the
-warp pass, the active preset alpha-blends the caller's GL_TEXTURE_2D into
-its previous-frame buffer (luma-gated), so the preset's warp distorts the
-external image (e.g. live video) instead of it being overlaid.
+Adds projectm_set_layer_texture(instance, layer, texture). The caller
+prepares a texture completely (colour adjustments, masks, opacity as
+straight alpha) and projectM only alpha-blends it in, keeping the
+destination's alpha:
 
-Settings live on the ProjectM instance and are handed to whichever preset
-is active, so they persist across preset loads. The blend program and VAO
-are owned by the instance (FeedbackBlend), created on first use, with
-uniform locations cached and blend/program/VAO/texture state restored.
+- PROJECTM_LAYER_FEEDBACK: into the previous-frame buffer before the
+  warp, so the preset's warp distorts the image (e.g. live video) like
+  its own.
+- PROJECTM_LAYER_BEFORE_COMPOSITE: stored, not drawn yet.
+
+Textures live on the ProjectM instance and are handed to whichever
+preset is active, so they persist across preset loads. The blend program
+and VAO are owned by the instance (LayerBlend), created on first use,
+and restore the blend/program/VAO/texture state they change.
 ---
- src/api/include/projectM-4/render_opengl.h    |  26 +++
+ src/api/include/projectM-4/render_opengl.h    |  22 +++
  .../MilkdropPreset/MilkdropPreset.cpp         |  13 ++
  .../MilkdropPreset/MilkdropPreset.hpp         |   5 +
  src/libprojectM/Preset.hpp                    |  10 ++
  src/libprojectM/ProjectM.cpp                  |  23 +++
- src/libprojectM/ProjectM.hpp                  |  11 ++
- src/libprojectM/ProjectMCWrapper.cpp          |  15 ++
+ src/libprojectM/ProjectM.hpp                  |   9 ++
+ src/libprojectM/ProjectMCWrapper.cpp          |   5 +
  src/libprojectM/Renderer/CMakeLists.txt       |   2 +
- src/libprojectM/Renderer/FeedbackBlend.cpp    | 153 ++++++++++++++++++
- src/libprojectM/Renderer/FeedbackBlend.hpp    |  49 ++++++
- 10 files changed, 307 insertions(+)
- create mode 100644 src/libprojectM/Renderer/FeedbackBlend.cpp
- create mode 100644 src/libprojectM/Renderer/FeedbackBlend.hpp
+ src/libprojectM/Renderer/LayerBlend.cpp       | 144 ++++++++++++++++++
+ src/libprojectM/Renderer/LayerBlend.hpp       |  47 ++++++
+ 10 files changed, 280 insertions(+)
+ create mode 100644 src/libprojectM/Renderer/LayerBlend.cpp
+ create mode 100644 src/libprojectM/Renderer/LayerBlend.hpp
 
 diff --git a/src/api/include/projectM-4/render_opengl.h b/src/api/include/projectM-4/render_opengl.h
-index a6ec9ede4..f2c2db5a5 100644
+index a6ec9ede4..4a109e756 100644
 --- a/src/api/include/projectM-4/render_opengl.h
 +++ b/src/api/include/projectM-4/render_opengl.h
-@@ -51,6 +51,32 @@ PROJECTM_EXPORT void projectm_opengl_render_frame(projectm_handle instance);
+@@ -51,6 +51,28 @@ PROJECTM_EXPORT void projectm_opengl_render_frame(projectm_handle instance);
   */
  PROJECTM_EXPORT void projectm_opengl_render_frame_fbo(projectm_handle instance, uint32_t framebuffer_object_id);
  
 +/**
-+ * @brief Sets an external texture that is blended into the preset's feedback buffer before warping.
-+ *
-+ * The preset's warp then distorts the external image (e.g. live video) like its own. The setting persists
-+ * across preset loads. Added by the Govtech Visualizer patch set.
-+ *
-+ * @param instance The projectM instance handle.
-+ * @param texture A GL_TEXTURE_2D in bottom-up (OpenGL) orientation, owned by the caller and valid in this
-+ *                instance's GL context (share group), or 0 to disable.
++ * @brief Points in a preset's frame where a caller's texture is drawn. Added by the Govtech Visualizer patch set.
 + */
-+PROJECTM_EXPORT void projectm_set_feedback_texture(projectm_handle instance, uint32_t texture);
++typedef enum
++{
++    PROJECTM_LAYER_FEEDBACK = 0,         //!< Into the previous frame, before the warp: the warp distorts it.
++    PROJECTM_LAYER_BEFORE_COMPOSITE = 1, //!< After warp, waves and shapes, before the composite shader (not drawn yet).
++} projectm_layer;
 +
 +/**
-+ * @brief Sets how strongly the feedback texture is blended in.
++ * @brief Sets the texture drawn at one layer of every frame, alpha-blended over what's there.
++ *
++ * The caller prepares the texture completely (colour adjustments, masks, opacity in straight alpha); projectM
++ * only blends it in. The setting persists across preset loads.
++ *
 + * @param instance The projectM instance handle.
-+ * @param mix Blend amount, 0..1 (default 1).
++ * @param layer Where it's drawn.
++ * @param texture A GL_TEXTURE_2D in bottom-up (OpenGL) orientation with straight alpha, owned by the caller and
++ *                valid in this instance's GL context (share group), or 0 to clear the layer.
 + */
-+PROJECTM_EXPORT void projectm_set_feedback_mix(projectm_handle instance, float mix);
-+
-+/**
-+ * @brief Sets the luma gate: feedback texture pixels darker than this are transparent.
-+ * @param instance The projectM instance handle.
-+ * @param luma_min Threshold, 0..1 (default 0: everything blends).
-+ */
-+PROJECTM_EXPORT void projectm_set_feedback_luma_gate(projectm_handle instance, float luma_min);
++PROJECTM_EXPORT void projectm_set_layer_texture(projectm_handle instance, projectm_layer layer, uint32_t texture);
 +
  #ifdef __cplusplus
  } // extern "C"
  #endif
 diff --git a/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp b/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
-index e311cf0bb..a2d5184c5 100755
+index e311cf0bb..1770763f1 100755
 --- a/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
 +++ b/src/libprojectM/MilkdropPreset/MilkdropPreset.cpp
 @@ -102,6 +102,13 @@ void MilkdropPreset::RenderFrame(const libprojectM::Audio::FrameAudioData& audio
          m_motionVectors.Draw(m_perFrameContext, m_motionVectorUVMap->Texture());
      }
  
-+    // Blend the external feedback texture into the previous frame while it's still bound, so the warp
++    // Blend the caller's feedback layer into the previous frame while it's still bound, so the warp
 +    // below distorts it like the preset's own image.
-+    if (m_feedbackBlend != nullptr && m_feedback.texture != 0)
++    if (m_layerBlend != nullptr && m_layers.feedback != 0)
 +    {
-+        m_feedbackBlend->Draw(m_feedback);
++        m_layerBlend->Draw(m_layers.feedback);
 +    }
 +
      // y-flip the previous frame and assign the flipped texture as "main"
@@ -86,24 +87,24 @@ index e311cf0bb..a2d5184c5 100755
      m_isFirstFrame = false;
  }
  
-+void MilkdropPreset::SetFeedback(const Renderer::FeedbackSettings& settings, Renderer::FeedbackBlend* blend)
++void MilkdropPreset::SetLayers(const Renderer::LayerTextures& layers, Renderer::LayerBlend* blend)
 +{
-+    m_feedback = settings;
-+    m_feedbackBlend = blend;
++    m_layers = layers;
++    m_layerBlend = blend;
 +}
 +
  auto MilkdropPreset::OutputTexture() const -> std::shared_ptr<Renderer::Texture>
  {
      // the composited image is always stored in the "current" framebuffer after a frame is rendered.
 diff --git a/src/libprojectM/MilkdropPreset/MilkdropPreset.hpp b/src/libprojectM/MilkdropPreset/MilkdropPreset.hpp
-index cd55339a9..c98b79847 100644
+index cd55339a9..c5086de0c 100644
 --- a/src/libprojectM/MilkdropPreset/MilkdropPreset.hpp
 +++ b/src/libprojectM/MilkdropPreset/MilkdropPreset.hpp
 @@ -86,6 +86,8 @@ public:
  
      void DrawInitialImage(const std::shared_ptr<Renderer::Texture>& image, const Renderer::RenderContext& renderContext) override;
  
-+    void SetFeedback(const Renderer::FeedbackSettings& settings, Renderer::FeedbackBlend* blend) override;
++    void SetLayers(const Renderer::LayerTextures& layers, Renderer::LayerBlend* blend) override;
 +
  private:
      void PerFrameUpdate();
@@ -113,61 +114,61 @@ index cd55339a9..c98b79847 100644
  
      bool m_isFirstFrame{true}; //!< Controls drawing the motion vectors starting with the second frame.
 +
-+    Renderer::FeedbackSettings m_feedback;             //!< External texture blended into the feedback buffer.
-+    Renderer::FeedbackBlend* m_feedbackBlend{nullptr}; //!< Owned by the projectM instance.
++    Renderer::LayerTextures m_layers;            //!< The caller's textures drawn at fixed points of the frame.
++    Renderer::LayerBlend* m_layerBlend{nullptr}; //!< Owned by the projectM instance.
  };
  
  } // namespace MilkdropPreset
 diff --git a/src/libprojectM/Preset.hpp b/src/libprojectM/Preset.hpp
-index ba06a14d9..f9571fd34 100644
+index ba06a14d9..48e9916b1 100644
 --- a/src/libprojectM/Preset.hpp
 +++ b/src/libprojectM/Preset.hpp
 @@ -2,6 +2,7 @@
  
  #include <Audio/FrameAudioData.hpp>
  
-+#include <Renderer/FeedbackBlend.hpp>
++#include <Renderer/LayerBlend.hpp>
  #include <Renderer/RenderContext.hpp>
  #include <Renderer/Texture.hpp>
  
-@@ -44,6 +45,15 @@ public:
-      * @param image The texture to be copied as the initial preset image.
-      * @param renderContext The current render context data.
-      */
-+    /**
-+     * @brief Sets the external texture blended into the feedback buffer on the next frames.
-+     * @param settings What to blend; settings.texture == 0 disables blending.
-+     * @param blend The instance's blend renderer, or nullptr.
-+     */
-+    virtual void SetFeedback(const Renderer::FeedbackSettings& settings, Renderer::FeedbackBlend* blend)
-+    {
-+    }
-+
+@@ -47,6 +48,15 @@ public:
      virtual void DrawInitialImage(const std::shared_ptr<Renderer::Texture>& image,
                                    const Renderer::RenderContext& renderContext) = 0;
  
++    /**
++     * @brief Sets the caller's layer textures drawn into the next frames.
++     * @param layers The textures; 0 means none for that layer.
++     * @param blend The instance's blend renderer, or nullptr.
++     */
++    virtual void SetLayers(const Renderer::LayerTextures& /*layers*/, Renderer::LayerBlend* /*blend*/)
++    {
++    }
++
+     inline void SetFilename(const std::string& filename)
+     {
+         m_filename = filename;
 diff --git a/src/libprojectM/ProjectM.cpp b/src/libprojectM/ProjectM.cpp
-index d8b9be4c6..c204875ba 100644
+index d8b9be4c6..739c37817 100644
 --- a/src/libprojectM/ProjectM.cpp
 +++ b/src/libprojectM/ProjectM.cpp
-@@ -21,6 +21,8 @@
+@@ -27,6 +27,8 @@
  
- #include "ProjectM.hpp"
+ #include <Audio/PCM.hpp>
  
-+#include <algorithm>
++#include <projectM-4/render_opengl.h>
 +
- #include "Preset.hpp"
- #include "PresetFactoryManager.hpp"
- #include "TimeKeeper.hpp"
+ #include <Renderer/CopyTexture.hpp>
+ #include <Renderer/PresetTransition.hpp>
+ #include <Renderer/TextureManager.hpp>
 @@ -163,6 +165,12 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
      }
  
  
-+    if (m_feedback.texture != 0 && !m_feedbackBlend)
++    if ((m_layers.feedback != 0 || m_layers.beforeComposite != 0) && !m_layerBlend)
 +    {
-+        m_feedbackBlend = std::make_unique<Renderer::FeedbackBlend>();
++        m_layerBlend = std::make_unique<Renderer::LayerBlend>();
 +    }
-+    m_activePreset->SetFeedback(m_feedback, m_feedbackBlend.get());
++    m_activePreset->SetLayers(m_layers, m_layerBlend.get());
 +
      // ToDo: Call the to-be-implemented render method in Renderer
      m_activePreset->RenderFrame(audioData, renderContext);
@@ -176,106 +177,94 @@ index d8b9be4c6..c204875ba 100644
      m_previousFrameVolume = audioData.vol;
  }
  
-+void ProjectM::SetFeedbackTexture(uint32_t texture)
++void ProjectM::SetLayerTexture(int layer, uint32_t texture)
 +{
-+    m_feedback.texture = static_cast<GLuint>(texture);
-+}
-+
-+void ProjectM::SetFeedbackMix(float mix)
-+{
-+    m_feedback.mix = std::max(0.0f, std::min(1.0f, mix));
-+}
-+
-+void ProjectM::SetFeedbackLumaGate(float lumaMin)
-+{
-+    m_feedback.lumaMin = std::max(0.0f, std::min(1.0f, lumaMin));
++    switch (layer)
++    {
++        case PROJECTM_LAYER_FEEDBACK:
++            m_layers.feedback = static_cast<GLuint>(texture);
++            break;
++        case PROJECTM_LAYER_BEFORE_COMPOSITE:
++            m_layers.beforeComposite = static_cast<GLuint>(texture);
++            break;
++        default:
++            break;
++    }
 +}
 +
  void ProjectM::Initialize()
  {
      /** Initialise start time */
 diff --git a/src/libprojectM/ProjectM.hpp b/src/libprojectM/ProjectM.hpp
-index 7f44b478a..7606bd7bd 100644
+index 7f44b478a..1e3721aa6 100644
 --- a/src/libprojectM/ProjectM.hpp
 +++ b/src/libprojectM/ProjectM.hpp
 @@ -20,6 +20,7 @@
   */
  #pragma once
  
-+#include "Renderer/FeedbackBlend.hpp"
++#include "Renderer/LayerBlend.hpp"
  #include <projectM-4/projectM_export.h>
  
  #include <Renderer/RenderContext.hpp>
-@@ -107,6 +108,14 @@ public:
+@@ -107,6 +108,12 @@ public:
       */
      void RenderFrame(uint32_t targetFramebufferObject = 0);
  
 +    /**
-+     * @brief Sets the external texture blended into the active preset's feedback buffer.
-+     * Persists across preset loads. A texture of 0 disables blending.
++     * @brief Sets the caller's texture for one layer (projectm_layer). Persists across preset loads.
++     * A texture of 0 clears the layer.
 +     */
-+    void SetFeedbackTexture(uint32_t texture);
-+    void SetFeedbackMix(float mix);
-+    void SetFeedbackLumaGate(float lumaMin);
++    void SetLayerTexture(int layer, uint32_t texture);
 +
      void SetBeatSensitivity(float sensitivity);
  
      auto GetBeatSensitivity() const -> float;
-@@ -217,6 +226,8 @@ private:
+@@ -217,6 +224,8 @@ private:
      std::unique_ptr<Renderer::TextureManager> m_textureManager;                   //!< The texture manager.
      std::unique_ptr<Renderer::TransitionShaderManager> m_transitionShaderManager; //!< The transition shader manager.
      std::unique_ptr<Renderer::CopyTexture> m_textureCopier;                       //!< Class that copies textures 1:1 to another texture or framebuffer.
-+    Renderer::FeedbackSettings m_feedback;                                        //!< External texture blended into the feedback buffer.
-+    std::unique_ptr<Renderer::FeedbackBlend> m_feedbackBlend;                     //!< Created on first use, on this instance's GL context.
++    Renderer::LayerTextures m_layers;                                             //!< The caller's layer textures.
++    std::unique_ptr<Renderer::LayerBlend> m_layerBlend;                           //!< Created on first use, on this instance's GL context.
      std::unique_ptr<Preset> m_activePreset;                                       //!< Currently loaded preset.
      std::unique_ptr<Preset> m_transitioningPreset;                                //!< Destination preset when smooth preset switching.
      std::unique_ptr<Renderer::PresetTransition> m_transition;                     //!< Transition effect used for blending.
 diff --git a/src/libprojectM/ProjectMCWrapper.cpp b/src/libprojectM/ProjectMCWrapper.cpp
-index d60c8210d..c23cd6e5d 100644
+index d60c8210d..67c0cda2f 100644
 --- a/src/libprojectM/ProjectMCWrapper.cpp
 +++ b/src/libprojectM/ProjectMCWrapper.cpp
-@@ -177,6 +177,21 @@ void projectm_opengl_render_frame_fbo(projectm_handle instance, uint32_t framebu
+@@ -177,6 +177,11 @@ void projectm_opengl_render_frame_fbo(projectm_handle instance, uint32_t framebu
      projectMInstance->RenderFrame(framebuffer_object_id);
  }
  
-+void projectm_set_feedback_texture(projectm_handle instance, uint32_t texture)
++void projectm_set_layer_texture(projectm_handle instance, projectm_layer layer, uint32_t texture)
 +{
-+    handle_to_instance(instance)->SetFeedbackTexture(texture);
-+}
-+
-+void projectm_set_feedback_mix(projectm_handle instance, float mix)
-+{
-+    handle_to_instance(instance)->SetFeedbackMix(mix);
-+}
-+
-+void projectm_set_feedback_luma_gate(projectm_handle instance, float luma_min)
-+{
-+    handle_to_instance(instance)->SetFeedbackLumaGate(luma_min);
++    handle_to_instance(instance)->SetLayerTexture(static_cast<int>(layer), texture);
 +}
 +
  void projectm_set_beat_sensitivity(projectm_handle instance, float sensitivity)
  {
      auto projectMInstance = handle_to_instance(instance);
 diff --git a/src/libprojectM/Renderer/CMakeLists.txt b/src/libprojectM/Renderer/CMakeLists.txt
-index 672c02660..f4807b862 100644
+index 672c02660..f82347ffa 100644
 --- a/src/libprojectM/Renderer/CMakeLists.txt
 +++ b/src/libprojectM/Renderer/CMakeLists.txt
 @@ -33,6 +33,8 @@ add_library(Renderer OBJECT
          BuiltInTransitionsResources.hpp.in
          CopyTexture.cpp
          CopyTexture.hpp
-+        FeedbackBlend.cpp
-+        FeedbackBlend.hpp
++        LayerBlend.cpp
++        LayerBlend.hpp
          FileScanner.cpp
          FileScanner.hpp
          Framebuffer.cpp
-diff --git a/src/libprojectM/Renderer/FeedbackBlend.cpp b/src/libprojectM/Renderer/FeedbackBlend.cpp
+diff --git a/src/libprojectM/Renderer/LayerBlend.cpp b/src/libprojectM/Renderer/LayerBlend.cpp
 new file mode 100644
-index 000000000..483fc0f11
+index 000000000..288ffe5cd
 --- /dev/null
-+++ b/src/libprojectM/Renderer/FeedbackBlend.cpp
-@@ -0,0 +1,153 @@
-+#include "FeedbackBlend.hpp"
++++ b/src/libprojectM/Renderer/LayerBlend.cpp
+@@ -0,0 +1,144 @@
++#include "LayerBlend.hpp"
 +
 +namespace libprojectM {
 +namespace Renderer {
@@ -297,16 +286,11 @@ index 000000000..483fc0f11
 +const char* kFragmentShader = R"GLSL(
 +#version 330 core
 +uniform sampler2D uTexture;
-+uniform float uMix;
-+uniform float uLumaMin;
 +in vec2 vUv;
 +out vec4 fragColor;
 +void main()
 +{
-+    vec4 color = texture(uTexture, vUv);
-+    float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-+    float gate = smoothstep(uLumaMin - 0.05, uLumaMin + 0.05, luma);
-+    fragColor = vec4(color.rgb, uMix * gate);
++    fragColor = texture(uTexture, vUv);
 +}
 +)GLSL";
 +
@@ -327,7 +311,7 @@ index 000000000..483fc0f11
 +
 +} // namespace
 +
-+FeedbackBlend::FeedbackBlend()
++LayerBlend::LayerBlend()
 +{
 +    GLuint vertex = Compile(GL_VERTEX_SHADER, kVertexShader);
 +    GLuint fragment = Compile(GL_FRAGMENT_SHADER, kFragmentShader);
@@ -357,12 +341,10 @@ index 000000000..483fc0f11
 +    }
 +
 +    m_textureLocation = glGetUniformLocation(m_program, "uTexture");
-+    m_mixLocation = glGetUniformLocation(m_program, "uMix");
-+    m_lumaMinLocation = glGetUniformLocation(m_program, "uLumaMin");
 +    glGenVertexArrays(1, &m_vao);
 +}
 +
-+FeedbackBlend::~FeedbackBlend()
++LayerBlend::~LayerBlend()
 +{
 +    if (m_vao != 0)
 +    {
@@ -374,9 +356,9 @@ index 000000000..483fc0f11
 +    }
 +}
 +
-+void FeedbackBlend::Draw(const FeedbackSettings& settings)
++void LayerBlend::Draw(GLuint texture)
 +{
-+    if (m_program == 0 || settings.texture == 0 || settings.mix <= 0.0f)
++    if (m_program == 0 || texture == 0)
 +    {
 +        return;
 +    }
@@ -402,13 +384,11 @@ index 000000000..483fc0f11
 +
 +    glUseProgram(m_program);
 +    glUniform1i(m_textureLocation, 0);
-+    glUniform1f(m_mixLocation, settings.mix);
-+    glUniform1f(m_lumaMinLocation, settings.lumaMin);
 +
 +    glActiveTexture(GL_TEXTURE0);
 +    GLint previousTexture = 0;
 +    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
-+    glBindTexture(GL_TEXTURE_2D, settings.texture);
++    glBindTexture(GL_TEXTURE_2D, texture);
 +
 +    glBindVertexArray(m_vao);
 +    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -428,12 +408,12 @@ index 000000000..483fc0f11
 +
 +} // namespace Renderer
 +} // namespace libprojectM
-diff --git a/src/libprojectM/Renderer/FeedbackBlend.hpp b/src/libprojectM/Renderer/FeedbackBlend.hpp
+diff --git a/src/libprojectM/Renderer/LayerBlend.hpp b/src/libprojectM/Renderer/LayerBlend.hpp
 new file mode 100644
-index 000000000..134d51406
+index 000000000..157115a70
 --- /dev/null
-+++ b/src/libprojectM/Renderer/FeedbackBlend.hpp
-@@ -0,0 +1,49 @@
++++ b/src/libprojectM/Renderer/LayerBlend.hpp
+@@ -0,0 +1,47 @@
 +#pragma once
 +
 +#include "projectM-opengl.h"
@@ -442,43 +422,41 @@ index 000000000..134d51406
 +namespace Renderer {
 +
 +/**
-+ * @brief External texture to blend into a preset's feedback (previous frame) buffer before warping.
++ * @brief Caller-owned textures drawn into a preset's frame at fixed points ("layers").
 + *
-+ * Added by the Govtech Visualizer patch set: the preset's warp then distorts the external image (e.g. live
-+ * video) instead of it being drawn on top.
++ * Added by the Govtech Visualizer patch set. The caller prepares each texture completely (colour and straight
++ * alpha); projectM only alpha-blends it in.
 + */
-+struct FeedbackSettings
++struct LayerTextures
 +{
-+    GLuint texture{0};   //!< GL_TEXTURE_2D in bottom-up (GL) orientation, owned by the caller. 0 disables blending.
-+    float mix{1.0f};     //!< Blend amount, 0..1.
-+    float lumaMin{0.0f}; //!< Pixels darker than this (0..1) are transparent.
++    GLuint feedback{0};        //!< Into the previous frame, before the warp. 0: none.
++    GLuint beforeComposite{0}; //!< After warp, waves and shapes, before the composite shader. 0: none. Stored only.
 +};
 +
 +/**
-+ * @brief Draws a FeedbackSettings texture into the currently bound framebuffer with alpha blending.
++ * @brief Alpha-blends a texture into the currently bound framebuffer, keeping the destination's alpha.
 + *
-+ * Owns its GL program and VAO; one instance per projectM instance (created on its GL context).
++ * Owns its GL program and VAO; one per projectM instance (created on its GL context).
 + */
-+class FeedbackBlend
++class LayerBlend
 +{
 +public:
-+    FeedbackBlend();
-+    ~FeedbackBlend();
++    LayerBlend();
++    ~LayerBlend();
 +
-+    FeedbackBlend(const FeedbackBlend&) = delete;
-+    auto operator=(const FeedbackBlend&) -> FeedbackBlend& = delete;
++    LayerBlend(const LayerBlend&) = delete;
++    auto operator=(const LayerBlend&) -> LayerBlend& = delete;
 +
 +    /**
-+     * @brief Blends settings.texture into the bound framebuffer. Restores the GL state it changes.
++     * @brief Blends `texture` (GL_TEXTURE_2D, bottom-up, straight alpha) over the bound framebuffer.
++     * Restores the GL state it changes.
 +     */
-+    void Draw(const FeedbackSettings& settings);
++    void Draw(GLuint texture);
 +
 +private:
 +    GLuint m_program{0};
 +    GLuint m_vao{0};
 +    GLint m_textureLocation{-1};
-+    GLint m_mixLocation{-1};
-+    GLint m_lumaMinLocation{-1};
 +};
 +
 +} // namespace Renderer

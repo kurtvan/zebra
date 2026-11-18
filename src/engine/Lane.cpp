@@ -1,7 +1,7 @@
 #include "engine/Lane.hpp"
 
 #include "common/log.hpp"
-#include "engine/VideoOverlay.hpp"
+#include "engine/VideoChain.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -62,6 +62,17 @@ void AddPcm(projectm_handle instance, const std::vector<float>& samples)
     }
 }
 
+/// Whether the lane draws this branch yet (Before composite and Texture inputs arrive in N3).
+auto Drawn(const VideoBranch& branch) -> bool
+{
+    return branch.layer == model::PresetLayer::Feedback || branch.layer == model::PresetLayer::OnTop;
+}
+
+auto DrawsVideo(const LanePlan& plan) -> bool
+{
+    return std::any_of(plan.branches.begin(), plan.branches.end(), Drawn);
+}
+
 } // namespace
 
 Lane::Lane(int id, SDL_Window* window, SDL_GLContext context, EventSink sink)
@@ -93,14 +104,14 @@ void Lane::Configure(int width, int height, std::vector<std::string> texturePath
     Push(std::move(job), true);
 }
 
-void Lane::Prepare(InstanceId instance, int scene, std::string presetPath, VideoSettings video, bool priority)
+void Lane::Prepare(InstanceId instance, int scene, std::string presetPath, LanePlan plan, bool priority)
 {
     Job job;
     job.type = Job::Type::Prepare;
     job.instance = instance;
     job.scene = scene;
     job.presetPath = std::move(presetPath);
-    job.video = video;
+    job.plan = std::move(plan);
     Push(std::move(job), priority);
 }
 
@@ -138,12 +149,12 @@ void Lane::Release(InstanceId instance)
     Push(std::move(job), true);
 }
 
-void Lane::UpdateVideo(InstanceId instance, VideoSettings video)
+void Lane::SetPlan(InstanceId instance, LanePlan plan)
 {
     Job job;
-    job.type = Job::Type::UpdateVideo;
+    job.type = Job::Type::SetPlan;
     job.instance = instance;
-    job.video = video;
+    job.plan = std::move(plan);
     Push(std::move(job), true);
 }
 
@@ -243,6 +254,7 @@ void Lane::Run()
     {
         GV_LOG_ERROR(kLogCategory, "lane %d: could not make its GL context current: %s", m_id, SDL_GetError());
     }
+    m_chain = std::make_unique<VideoChain>();
 
     while (true)
     {
@@ -286,18 +298,9 @@ void Lane::Run()
             case Job::Type::Configure:
                 DoConfigure(job);
                 break;
-            case Job::Type::UpdateVideo:
+            case Job::Type::SetPlan:
                 if (auto hosted = m_instances.find(job.instance); hosted != m_instances.end())
-                {
-                    hosted->second.video = job.video;
-                    if (job.video.enabled && job.video.overlay && !m_overlay)
-                        m_overlay = std::make_unique<VideoOverlay>();
-                    projectm_set_feedback_mix(hosted->second.handle, job.video.mix);
-                    projectm_set_feedback_luma_gate(hosted->second.handle, job.video.lumaMin);
-                    projectm_set_feedback_contrast(hosted->second.handle, job.video.contrast);
-                    projectm_set_feedback_saturation(hosted->second.handle, job.video.saturation);
-                    projectm_set_feedback_luma_invert(hosted->second.handle, job.video.lumaInvert);
-                }
+                    hosted->second.plan = job.plan;
                 break;
             case Job::Type::Shutdown:
                 for (auto& [id, hosted] : m_instances)
@@ -305,7 +308,7 @@ void Lane::Run()
                 m_instances.clear();
                 if (m_placeholderVideo != 0)
                     glDeleteTextures(1, &m_placeholderVideo);
-                m_overlay.reset();
+                m_chain.reset();
                 {
                     std::lock_guard<std::mutex> lock(m_publishMutex);
                     if (m_published.fence != nullptr && !m_publishedTaken)
@@ -376,14 +379,11 @@ void Lane::DoPrepare(const Job& job, bool keep)
     projectm_load_preset_file(instance, job.presetPath.c_str(), false);
     projectm_set_preset_switch_failed_event_callback(instance, nullptr, nullptr);
 
-    if (job.video.enabled)
+    // Warm up with a placeholder video so the chain and blend shaders are compiled now, not on the first
+    // live frame.
+    std::vector<GLuint> onTop;
+    if (DrawsVideo(job.plan))
     {
-        projectm_set_feedback_mix(instance, job.video.mix);
-        projectm_set_feedback_luma_gate(instance, job.video.lumaMin);
-        projectm_set_feedback_contrast(instance, job.video.contrast);
-        projectm_set_feedback_saturation(instance, job.video.saturation);
-        projectm_set_feedback_luma_invert(instance, job.video.lumaInvert);
-        // Warm up with a placeholder so the blend shader is compiled now, not on the first live frame.
         if (m_placeholderVideo == 0)
         {
             const unsigned char black[4] = {0, 0, 0, 255};
@@ -395,10 +395,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glBindTexture(GL_TEXTURE_2D, 0);
         }
-        projectm_set_feedback_texture(instance, m_placeholderVideo);
-        // The overlay's shader is compiled now too, not on the first live frame.
-        if (job.video.overlay && !m_overlay)
-            m_overlay = std::make_unique<VideoOverlay>();
+        onTop = RunBranches(instance, job.plan, m_placeholderVideo);
     }
 
     if (failure.failed)
@@ -413,15 +410,22 @@ void Lane::DoPrepare(const Job& job, bool keep)
 
     // Two warm-up draws absorb the driver's deferred first-draw compile (M1 results); the second is
     // close to the steady frame time and flags heavy presets.
-    glBindFramebuffer(GL_FRAMEBUFFER, m_scratchFbo);
-    projectm_opengl_render_frame_fbo(instance, m_scratchFbo);
-    glFinish();
+    auto warmFrame = [&] {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_scratchFbo);
+        glViewport(0, 0, m_width, m_height);
+        projectm_opengl_render_frame_fbo(instance, m_scratchFbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_scratchFbo);
+        glViewport(0, 0, m_width, m_height);
+        for (GLuint texture : onTop)
+            m_chain->Composite(texture);
+        glFinish();
+    };
+    warmFrame();
     const auto second = Clock::now();
-    projectm_opengl_render_frame_fbo(instance, m_scratchFbo);
-    glFinish();
+    warmFrame();
     event.frameMs = MillisecondsSince(second);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    projectm_set_feedback_texture(instance, 0);
+    projectm_set_layer_texture(instance, PROJECTM_LAYER_FEEDBACK, 0);
 
     event.ok = true;
     event.prepareMs = MillisecondsSince(start);
@@ -443,7 +447,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
         projectm_destroy(instance);
         return;
     }
-    m_instances[job.instance] = {instance, job.video};
+    m_instances[job.instance] = {instance, job.plan};
     m_sink(std::move(event));
 }
 
@@ -468,7 +472,7 @@ void Lane::DoConfigure(const Job& job)
     }
     m_width = job.width;
     m_height = job.height;
-    DestroyTargets();
+    DestroyTargets(); // branch targets too: they're recreated at the new size on first use
     CreateTargets();
     for (auto& [id, hosted] : m_instances)
     {
@@ -528,29 +532,28 @@ void Lane::DoTick(PendingTick tick)
         }
     }
     const bool timeThisFrame = !m_queryPending[slot];
-    // Video: wait (on the GPU) until the producer finished writing this frame, then blend it.
-    const VideoSettings& settings = it->second.video;
-    const GLuint video = settings.enabled ? tick.video.texture : 0;
+    // Video: wait (on the GPU) until the producer finished writing this frame, then draw it through the plan.
+    const LanePlan& plan = it->second.plan;
+    const GLuint video = DrawsVideo(plan) ? tick.video.texture : 0;
     if (video != 0 && tick.video.fence != nullptr && glIsSync(tick.video.fence))
     {
         glWaitSync(tick.video.fence, 0, GL_TIMEOUT_IGNORED);
     }
-    projectm_set_feedback_texture(it->second.handle, video);
 
     if (timeThisFrame)
         glBeginQuery(GL_TIME_ELAPSED, m_timerQuery[slot]);
 
+    const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video);
     glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
     glViewport(0, 0, m_width, m_height);
     projectm_opengl_render_frame_fbo(it->second.handle, m_slotFbo[slot]);
-    // Overlay: the video again, on top of the finished frame (it's not fed back; the blend above is).
-    if (video != 0 && settings.overlay)
+    // On top: over the finished frame (not fed back; the feedback layer is).
+    if (!onTop.empty())
     {
-        if (!m_overlay)
-            m_overlay = std::make_unique<VideoOverlay>();
         glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
         glViewport(0, 0, m_width, m_height);
-        m_overlay->Draw(video, settings);
+        for (GLuint texture : onTop)
+            m_chain->Composite(texture);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -569,6 +572,43 @@ void Lane::DoTick(PendingTick tick)
     m_published = {m_slotTexture[slot], fence, tick.tick, live};
     m_publishedTaken = false;
     m_liveRenderMs = m_liveRenderMs * 0.9 + ms * 0.1;
+}
+
+auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video) -> std::vector<GLuint>
+{
+    GLuint feedback = 0;
+    std::vector<GLuint> onTop;
+    if (video != 0)
+    {
+        for (size_t i = 0; i < plan.branches.size(); ++i)
+        {
+            const VideoBranch& branch = plan.branches[i];
+            if (!Drawn(branch))
+                continue;
+            const auto [texture, fbo] = BranchTarget(i);
+            m_chain->Run(video, branch.passes, fbo, m_width, m_height);
+            if (branch.layer == model::PresetLayer::Feedback)
+                feedback = texture;
+            else
+                onTop.push_back(texture);
+        }
+    }
+    projectm_set_layer_texture(instance, PROJECTM_LAYER_FEEDBACK, feedback);
+    return onTop;
+}
+
+auto Lane::BranchTarget(size_t index) -> std::pair<GLuint, GLuint>
+{
+    while (m_branchTargets.size() <= index)
+    {
+        GLuint texture = 0;
+        GLuint fbo = 0;
+        glGenTextures(1, &texture);
+        glGenFramebuffers(1, &fbo);
+        CreateTarget(texture, fbo, m_width, m_height);
+        m_branchTargets.emplace_back(texture, fbo);
+    }
+    return m_branchTargets[index];
 }
 
 void Lane::CreateTargets()
@@ -599,6 +639,12 @@ void Lane::DestroyTargets()
         m_scratchFbo = 0;
         m_scratchTexture = 0;
     }
+    for (auto& [texture, fbo] : m_branchTargets)
+    {
+        glDeleteFramebuffers(1, &fbo);
+        glDeleteTextures(1, &texture);
+    }
+    m_branchTargets.clear();
 }
 
 } // namespace gv::engine

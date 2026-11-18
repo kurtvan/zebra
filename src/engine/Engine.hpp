@@ -178,7 +178,7 @@ private:
     void FinishHandover();
     void UpdatePlaylist();
     auto PickNextItem(const model::Scene& scene, int current) -> int;
-    static auto VideoSettingsFor(const model::Scene& scene, int item) -> VideoSettings;
+    static auto PlanFor(const model::Scene& scene, int item) -> LanePlan; //!< For playlist entry `item`.
     auto CurrentPreset(int scene) const -> std::filesystem::path;
     void CreatePresentTargets();
 

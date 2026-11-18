@@ -70,8 +70,8 @@ add_library(gv_engine STATIC
     engine/CycleTimer.hpp
     engine/BeatHit.cpp
     engine/BeatHit.hpp
-    engine/VideoOverlay.cpp
-    engine/VideoOverlay.hpp
+    engine/VideoChain.cpp
+    engine/VideoChain.hpp
     engine/RenderPlan.cpp
     engine/RenderPlan.hpp)
 target_link_libraries(gv_engine PUBLIC gv_common gv_model SDL2::SDL2 OpenGL::GL libprojectM::projectM PRIVATE gv_warnings)

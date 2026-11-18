@@ -212,14 +212,22 @@ void Engine::UpdatePerformance(const model::Performance& performance)
             m_playlist = {};
         }
 
-        // Video blend settings apply to the existing instances (including the live one) right away, each
-        // with its playlist entry's look, compiled from the edited graph.
+        // Video changes apply to the existing instances (including the live one) right away: each gets the
+        // plan of its playlist entry, compiled from the edited graph, when it differs from the one it has.
         if (!presetChanged[static_cast<size_t>(it->second)] && before.graph != after.graph)
         {
             for (const auto& hosted : m_pool.InstancesOf(old))
-                m_lanes[static_cast<size_t>(hosted.lane)]->UpdateVideo(hosted.instance, VideoSettingsFor(after, hosted.item));
+            {
+                LanePlan plan = PlanFor(after, hosted.item);
+                if (plan != PlanFor(before, hosted.item))
+                    m_lanes[static_cast<size_t>(hosted.lane)]->SetPlan(hosted.instance, std::move(plan));
+            }
             if (m_handover.instance != 0 && m_handover.scene == old && !after.IsPlaylist())
-                m_lanes[static_cast<size_t>(m_handover.lane)]->UpdateVideo(m_handover.instance, VideoSettingsFor(after, 0));
+            {
+                LanePlan plan = PlanFor(after, 0);
+                if (plan != PlanFor(before, 0))
+                    m_lanes[static_cast<size_t>(m_handover.lane)]->SetPlan(m_handover.instance, std::move(plan));
+            }
         }
     }
 
@@ -249,9 +257,9 @@ void Engine::UpdatePerformance(const model::Performance& performance)
     }
 }
 
-auto Engine::VideoSettingsFor(const model::Scene& scene, int item) -> VideoSettings
+auto Engine::PlanFor(const model::Scene& scene, int item) -> LanePlan
 {
-    return VideoSettingsFromPlan(CompilePlan(scene.graph, SelectionForItem(scene.graph, item)));
+    return {CompilePlan(scene.graph, SelectionForItem(scene.graph, item)).branches};
 }
 
 void Engine::TriggerItem(int index, int item)
@@ -544,10 +552,9 @@ void Engine::Execute(std::vector<PoolCommand> commands)
             case PoolCommand::Type::Prepare:
             {
                 const auto& scene = m_performance.scenes[static_cast<size_t>(command.scene)];
-                const VideoSettings video = VideoSettingsFor(scene, command.item);
                 const auto presets = scene.Presets();
                 const auto& preset = presets[static_cast<size_t>(std::clamp(command.item, 0, static_cast<int>(presets.size()) - 1))];
-                lane.Prepare(command.instance, command.scene, preset.string(), video, command.priority);
+                lane.Prepare(command.instance, command.scene, preset.string(), PlanFor(scene, command.item), command.priority);
             }
                 break;
             case PoolCommand::Type::Release:
