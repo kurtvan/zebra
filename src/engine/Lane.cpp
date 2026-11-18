@@ -62,15 +62,43 @@ void AddPcm(projectm_handle instance, const std::vector<float>& samples)
     }
 }
 
-/// Whether the lane draws this branch yet (Before composite and Texture inputs arrive in N3).
-auto Drawn(const VideoBranch& branch) -> bool
-{
-    return branch.layer == model::PresetLayer::Feedback || branch.layer == model::PresetLayer::OnTop;
-}
-
 auto DrawsVideo(const LanePlan& plan) -> bool
 {
-    return std::any_of(plan.branches.begin(), plan.branches.end(), Drawn);
+    return !plan.branches.empty();
+}
+
+auto DrawsTexture(const LanePlan& plan, const std::string& name) -> bool
+{
+    return std::any_of(plan.branches.begin(), plan.branches.end(), [&](const VideoBranch& branch) {
+        return branch.layer == model::PresetLayer::Texture && branch.textureName == name;
+    });
+}
+
+
+auto AttachedFbo(GLuint texture) -> GLuint
+{
+    GLuint fbo = 0;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (!complete)
+    {
+        glDeleteFramebuffers(1, &fbo);
+        return 0;
+    }
+    return fbo;
+}
+
+/// Copies all of `from` into all of `to` (1:1 when the sizes match).
+void Blit(GLuint from, int fromWidth, int fromHeight, GLuint to, int toWidth, int toHeight, bool flip)
+{
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, from);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, to);
+    glBlitFramebuffer(0, 0, fromWidth, fromHeight, 0, flip ? toHeight : 0, toWidth, flip ? 0 : toHeight, GL_COLOR_BUFFER_BIT,
+                      fromWidth == toWidth && fromHeight == toHeight ? GL_NEAREST : GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 } // namespace
@@ -300,11 +328,18 @@ void Lane::Run()
                 break;
             case Job::Type::SetPlan:
                 if (auto hosted = m_instances.find(job.instance); hosted != m_instances.end())
+                {
                     hosted->second.plan = job.plan;
+                    RestoreTextures(job.instance, job.plan, hosted->second.textures);
+                }
                 break;
             case Job::Type::Shutdown:
                 for (auto& [id, hosted] : m_instances)
+                {
+                    for (auto& [name, override] : hosted.textures)
+                        DeleteOverride(override);
                     projectm_destroy(hosted.handle);
+                }
                 m_instances.clear();
                 if (m_placeholderVideo != 0)
                     glDeleteTextures(1, &m_placeholderVideo);
@@ -395,7 +430,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glBindTexture(GL_TEXTURE_2D, 0);
         }
-        onTop = RunBranches(instance, job.plan, m_placeholderVideo);
+        onTop = RunBranches(instance, job.plan, m_placeholderVideo, nullptr);
     }
 
     if (failure.failed)
@@ -426,6 +461,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     event.frameMs = MillisecondsSince(second);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     projectm_set_layer_texture(instance, PROJECTM_LAYER_FEEDBACK, 0);
+    projectm_set_layer_texture(instance, PROJECTM_LAYER_BEFORE_COMPOSITE, 0);
 
     event.ok = true;
     event.prepareMs = MillisecondsSince(start);
@@ -447,7 +483,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
         projectm_destroy(instance);
         return;
     }
-    m_instances[job.instance] = {instance, job.plan};
+    m_instances[job.instance] = {instance, job.plan, {}};
     m_sink(std::move(event));
 }
 
@@ -456,6 +492,8 @@ void Lane::DoRelease(InstanceId id)
     auto it = m_instances.find(id);
     if (it != m_instances.end())
     {
+        for (auto& [name, override] : it->second.textures)
+            DeleteOverride(override);
         projectm_destroy(it->second.handle);
         m_instances.erase(it);
     }
@@ -543,7 +581,7 @@ void Lane::DoTick(PendingTick tick)
     if (timeThisFrame)
         glBeginQuery(GL_TIME_ELAPSED, m_timerQuery[slot]);
 
-    const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video);
+    const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video, &it->second.textures);
     glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
     glViewport(0, 0, m_width, m_height);
     projectm_opengl_render_frame_fbo(it->second.handle, m_slotFbo[slot]);
@@ -574,27 +612,105 @@ void Lane::DoTick(PendingTick tick)
     m_liveRenderMs = m_liveRenderMs * 0.9 + ms * 0.1;
 }
 
-auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video) -> std::vector<GLuint>
+void Lane::DeleteOverride(TextureOverride& override)
+{
+    if (override.fbo != 0)
+        glDeleteFramebuffers(1, &override.fbo);
+    if (override.backupFbo != 0)
+        glDeleteFramebuffers(1, &override.backupFbo);
+    if (override.backup != 0)
+        glDeleteTextures(1, &override.backup);
+    override = {};
+}
+
+auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides) -> std::vector<GLuint>
 {
     GLuint feedback = 0;
+    GLuint beforeComposite = 0;
     std::vector<GLuint> onTop;
     if (video != 0)
     {
         for (size_t i = 0; i < plan.branches.size(); ++i)
         {
             const VideoBranch& branch = plan.branches[i];
-            if (!Drawn(branch))
-                continue;
+            if (branch.layer == model::PresetLayer::Texture && overrides == nullptr)
+                continue; // warm-ups: blits need no compiling
             const auto [texture, fbo] = BranchTarget(i);
             m_chain->Run(video, branch.passes, fbo, m_width, m_height);
-            if (branch.layer == model::PresetLayer::Feedback)
-                feedback = texture;
-            else
-                onTop.push_back(texture);
+            switch (branch.layer)
+            {
+                case model::PresetLayer::Feedback: feedback = texture; break;
+                case model::PresetLayer::BeforeComposite: beforeComposite = texture; break;
+                case model::PresetLayer::OnTop: onTop.push_back(texture); break;
+                case model::PresetLayer::Texture:
+                    // Image rows are stored top first, video bottom up: flip so the video reads as the image would.
+                    if (TextureOverride* target = Override(m_renderedLive, instance, branch.textureName, *overrides))
+                        Blit(fbo, m_width, m_height, target->fbo, target->width, target->height, true);
+                    break;
+            }
         }
     }
     projectm_set_layer_texture(instance, PROJECTM_LAYER_FEEDBACK, feedback);
+    projectm_set_layer_texture(instance, PROJECTM_LAYER_BEFORE_COMPOSITE, beforeComposite);
     return onTop;
+}
+
+auto Lane::Override(InstanceId id, projectm_handle instance, const std::string& name, TextureOverrides& overrides) -> TextureOverride*
+{
+    if (auto it = overrides.find(name); it != overrides.end())
+        return it->second.texture != 0 ? &it->second : nullptr;
+
+    TextureOverride& override = overrides[name];
+    uint32_t texture = 0;
+    if (!projectm_get_preset_texture(instance, name.c_str(), &texture, &override.width, &override.height) || override.width <= 0 ||
+        override.height <= 0)
+    {
+        GV_LOG_WARN(kLogCategory, "lane %d: instance %llu: the preset has no texture \"%s\" to put video into", m_id,
+                    static_cast<unsigned long long>(id), name.c_str());
+        override = {};
+        return nullptr;
+    }
+    override.texture = texture;
+    override.fbo = AttachedFbo(texture);
+    glGenTextures(1, &override.backup);
+    glBindTexture(GL_TEXTURE_2D, override.backup);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, override.width, override.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    override.backupFbo = AttachedFbo(override.backup);
+    if (override.fbo == 0 || override.backupFbo == 0)
+    {
+        GV_LOG_WARN(kLogCategory, "lane %d: instance %llu: texture \"%s\" can't be drawn into", m_id, static_cast<unsigned long long>(id),
+                    name.c_str());
+        DeleteOverride(override);
+        return nullptr;
+    }
+    Blit(override.fbo, override.width, override.height, override.backupFbo, override.width, override.height, false);
+    GV_LOG_INFO(kLogCategory, "lane %d: instance %llu: video replaces texture \"%s\" (%dx%d)", m_id, static_cast<unsigned long long>(id),
+                name.c_str(), override.width, override.height);
+    return &override;
+}
+
+void Lane::RestoreTextures(InstanceId id, const LanePlan& plan, TextureOverrides& overrides)
+{
+    for (auto it = overrides.begin(); it != overrides.end();)
+    {
+        if (DrawsTexture(plan, it->first))
+        {
+            ++it;
+            continue;
+        }
+        TextureOverride& override = it->second;
+        if (override.texture != 0)
+        {
+            Blit(override.backupFbo, override.width, override.height, override.fbo, override.width, override.height, false);
+            GV_LOG_INFO(kLogCategory, "lane %d: instance %llu: texture \"%s\" is the preset's image again", m_id,
+                        static_cast<unsigned long long>(id), it->first.c_str());
+        }
+        DeleteOverride(override);
+        it = overrides.erase(it);
+    }
 }
 
 auto Lane::BranchTarget(size_t index) -> std::pair<GLuint, GLuint>

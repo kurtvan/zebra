@@ -1,7 +1,9 @@
 #pragma once
 
+#include <filesystem>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace gv::library {
 
@@ -18,9 +20,13 @@ struct PathInfo
 /// Deeper trees use the first two folders; shallower ones leave the missing levels empty.
 auto ParsePresetPath(const std::string& relativePath) -> PathInfo;
 
-/// Names of the image textures a preset's shaders sample (lowercase, without the fw_/fc_/pw_/pc_ prefixes),
-/// leaving out projectM's built-in ones (main, blur1-3, noise*, noisevol*, rand00-15...).
+/// Names of the image textures a preset's shaders sample, as projectM 4.1.8 resolves them: lowercase, without the
+/// two-letter wrap/filter prefix (fw_, fc_, pw_, pc_, their reverses, or any other XY_), and leaving out what
+/// projectM provides itself (main, blur1-3, the noise and idle textures) and rand00-rand99 (decision D6).
 auto ExtractTextureNames(const std::string& presetText) -> std::set<std::string>;
+
+/// ExtractTextureNames for a preset file, sorted. Empty if it can't be read.
+auto PresetTextures(const std::filesystem::path& preset) -> std::vector<std::string>;
 
 /// Lowercase copy (ASCII).
 auto ToLower(std::string text) -> std::string;

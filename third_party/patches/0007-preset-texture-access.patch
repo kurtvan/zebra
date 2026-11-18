@@ -1,0 +1,178 @@
+From ba003783dd7ef9f3a61b12a2df30e2b3d5a5cb0e Mon Sep 17 00:00:00 2001
+From: kurtvan <kurtv7348@gmail.com>
+Date: Wed, 18 Nov 2026 17:08:17 -0500
+Subject: [PATCH] Let the caller find a preset's loaded image textures
+
+Adds projectm_get_preset_texture(instance, name, &texture, &width,
+&height). A preset's shaders resolve their textures once, at load, and
+bind the same GL texture every frame, so a caller that draws into the
+returned texture (e.g. live video) changes what the preset samples from
+the next frame on, with no reload and no new GL objects in projectM.
+
+Only already-loaded image files are returned (looked up by lower-case
+name, as TextureManager stores them); the missing-texture placeholder
+and the built-in noise/idle textures never are.
+---
+ src/api/include/projectM-4/render_opengl.h  | 19 ++++++++++++++
+ src/libprojectM/ProjectM.cpp                | 17 +++++++++++++
+ src/libprojectM/ProjectM.hpp                |  5 ++++
+ src/libprojectM/ProjectMCWrapper.cpp        | 28 +++++++++++++++++++++
+ src/libprojectM/Renderer/TextureManager.cpp | 11 ++++++++
+ src/libprojectM/Renderer/TextureManager.hpp |  6 +++++
+ 6 files changed, 86 insertions(+)
+
+diff --git a/src/api/include/projectM-4/render_opengl.h b/src/api/include/projectM-4/render_opengl.h
+index dd45a45df..06d9c830b 100644
+--- a/src/api/include/projectM-4/render_opengl.h
++++ b/src/api/include/projectM-4/render_opengl.h
+@@ -73,6 +73,25 @@ typedef enum
+  */
+ PROJECTM_EXPORT void projectm_set_layer_texture(projectm_handle instance, projectm_layer layer, uint32_t texture);
+ 
++/**
++ * @brief Finds an image texture the loaded preset samples, so the caller can draw into it.
++ *
++ * The preset's shaders look textures up once, when the preset loads, and bind the same GL texture every frame.
++ * Drawing into this texture (it's color-renderable RGBA) therefore changes what the preset sees from the next
++ * frame on, without reloading anything. projectM keeps owning it; it stays valid until another preset loads or
++ * the instance is destroyed. Its size is the image file's, which the preset sees as texsize_<name>.
++ * Added by the Govtech Visualizer patch set.
++ *
++ * @param instance The projectM instance handle.
++ * @param name The texture's name as in sampler_<name>, without the XY_ wrap/filter prefix; case-insensitive.
++ * @param texture Receives the GL_TEXTURE_2D id (image rows top first, as loaded from the file).
++ * @param width Receives the width in pixels.
++ * @param height Receives the height in pixels.
++ * @return false if the preset doesn't use that image or it couldn't be found (it samples a placeholder).
++ */
++PROJECTM_EXPORT bool projectm_get_preset_texture(projectm_handle instance, const char* name, uint32_t* texture,
++                                                 int* width, int* height);
++
+ #ifdef __cplusplus
+ } // extern "C"
+ #endif
+diff --git a/src/libprojectM/ProjectM.cpp b/src/libprojectM/ProjectM.cpp
+index 739c37817..ea057a815 100644
+--- a/src/libprojectM/ProjectM.cpp
++++ b/src/libprojectM/ProjectM.cpp
+@@ -201,6 +201,23 @@ void ProjectM::RenderFrame(uint32_t targetFramebufferObject /*= 0*/)
+     m_previousFrameVolume = audioData.vol;
+ }
+ 
++auto ProjectM::GetPresetTexture(const std::string& name, uint32_t& texture, int& width, int& height) const -> bool
++{
++    if (!m_textureManager)
++    {
++        return false;
++    }
++    const auto found = m_textureManager->FindLoadedTexture(name);
++    if (!found || found->Empty())
++    {
++        return false;
++    }
++    texture = found->TextureID();
++    width = found->Width();
++    height = found->Height();
++    return true;
++}
++
+ void ProjectM::SetLayerTexture(int layer, uint32_t texture)
+ {
+     switch (layer)
+diff --git a/src/libprojectM/ProjectM.hpp b/src/libprojectM/ProjectM.hpp
+index 1e3721aa6..e6d3476a0 100644
+--- a/src/libprojectM/ProjectM.hpp
++++ b/src/libprojectM/ProjectM.hpp
+@@ -114,6 +114,11 @@ public:
+      */
+     void SetLayerTexture(int layer, uint32_t texture);
+ 
++    /**
++     * @brief Finds an image texture the loaded preset samples. See projectm_get_preset_texture().
++     */
++    auto GetPresetTexture(const std::string& name, uint32_t& texture, int& width, int& height) const -> bool;
++
+     void SetBeatSensitivity(float sensitivity);
+ 
+     auto GetBeatSensitivity() const -> float;
+diff --git a/src/libprojectM/ProjectMCWrapper.cpp b/src/libprojectM/ProjectMCWrapper.cpp
+index 67c0cda2f..dc406dd77 100644
+--- a/src/libprojectM/ProjectMCWrapper.cpp
++++ b/src/libprojectM/ProjectMCWrapper.cpp
+@@ -182,6 +182,34 @@ void projectm_set_layer_texture(projectm_handle instance, projectm_layer layer,
+     handle_to_instance(instance)->SetLayerTexture(static_cast<int>(layer), texture);
+ }
+ 
++bool projectm_get_preset_texture(projectm_handle instance, const char* name, uint32_t* texture, int* width, int* height)
++{
++    if (name == nullptr)
++    {
++        return false;
++    }
++    uint32_t id{0};
++    int w{0};
++    int h{0};
++    if (!handle_to_instance(instance)->GetPresetTexture(name, id, w, h))
++    {
++        return false;
++    }
++    if (texture != nullptr)
++    {
++        *texture = id;
++    }
++    if (width != nullptr)
++    {
++        *width = w;
++    }
++    if (height != nullptr)
++    {
++        *height = h;
++    }
++    return true;
++}
++
+ void projectm_set_beat_sensitivity(projectm_handle instance, float sensitivity)
+ {
+     auto projectMInstance = handle_to_instance(instance);
+diff --git a/src/libprojectM/Renderer/TextureManager.cpp b/src/libprojectM/Renderer/TextureManager.cpp
+index 9def56c93..ebee250e4 100644
+--- a/src/libprojectM/Renderer/TextureManager.cpp
++++ b/src/libprojectM/Renderer/TextureManager.cpp
+@@ -164,6 +164,17 @@ void TextureManager::PurgeTextures()
+ #endif
+ }
+ 
++auto TextureManager::FindLoadedTexture(const std::string& name) const -> std::shared_ptr<Texture>
++{
++    // Loaded image files are stored under their lower-case base name.
++    const auto it = m_textures.find(Utils::ToLower(name));
++    if (it == m_textures.end() || it->second == m_placeholderTexture || !it->second->IsUserTexture())
++    {
++        return {};
++    }
++    return it->second;
++}
++
+ auto TextureManager::TryLoadingTexture(const std::string& name) -> TextureSamplerDescriptor
+ {
+     GLint wrapMode{0};
+diff --git a/src/libprojectM/Renderer/TextureManager.hpp b/src/libprojectM/Renderer/TextureManager.hpp
+index 388f722ac..c525a4cbc 100644
+--- a/src/libprojectM/Renderer/TextureManager.hpp
++++ b/src/libprojectM/Renderer/TextureManager.hpp
+@@ -58,6 +58,12 @@ public:
+      */
+     void PurgeTextures();
+ 
++    /**
++     * @brief Returns an image texture that's already loaded, by its unqualified name (case-insensitive), or
++     * nullptr. Never loads anything and never returns the missing-texture placeholder.
++     */
++    auto FindLoadedTexture(const std::string& name) const -> std::shared_ptr<Texture>;
++
+ private:
+     /**
+      * Texture usage statistics. Used to determine when to purge a texture.
+-- 
+2.50.1 (Apple Git-155)
+

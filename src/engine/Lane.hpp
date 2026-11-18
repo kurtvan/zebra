@@ -159,10 +159,27 @@ private:
     void CreateTargets();
     void DestroyTargets();
     auto CreateInstance() -> projectm_handle;
-    /// Runs the plan's branches on `video` and sets the instance's feedback layer. Returns the On top branch
-    /// textures, to composite over the rendered frame.
-    auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video) -> std::vector<GLuint>;
+    /// The preset's own texture that a Texture branch draws into, with a copy of the original image.
+    struct TextureOverride
+    {
+        GLuint texture{0}; //!< Owned by projectM; 0: the preset has no such image (logged once).
+        int width{0};
+        int height{0};
+        GLuint fbo{0};    //!< Draws into `texture`.
+        GLuint backup{0}; //!< The original image, restored on detach.
+        GLuint backupFbo{0};
+    };
+    using TextureOverrides = std::map<std::string, TextureOverride>;
+    static void DeleteOverride(TextureOverride& override); //!< Deletes the lane's objects, not projectM's texture.
+
+    /// Runs the plan's branches on `video` and sets the instance's layers. Texture branches are drawn only with
+    /// `overrides` (hosted instances, not warm-ups). Returns the On top branch textures, to composite over the
+    /// rendered frame.
+    auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides) -> std::vector<GLuint>;
     auto BranchTarget(size_t index) -> std::pair<GLuint, GLuint>; //!< (texture, fbo) at render size.
+    auto Override(InstanceId id, projectm_handle instance, const std::string& name, TextureOverrides& overrides) -> TextureOverride*;
+    /// Restores the original images of the textures `plan` no longer draws into (all of them with an empty plan).
+    void RestoreTextures(InstanceId id, const LanePlan& plan, TextureOverrides& overrides);
 
     const int m_id;
     SDL_Window* m_window;
@@ -185,6 +202,7 @@ private:
     {
         projectm_handle handle{nullptr};
         LanePlan plan; //!< How the scene draws its video.
+        TextureOverrides textures;
     };
     std::map<InstanceId, Hosted> m_instances;
     GLuint m_placeholderVideo{0}; //!< 1x1 black texture used while warming up video scenes (compiles the blends).

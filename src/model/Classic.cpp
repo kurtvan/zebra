@@ -361,4 +361,94 @@ auto ClassicFromGraph(const Graph& graph) -> std::optional<ClassicScene>
     return scene;
 }
 
+auto RuntimeViewFromGraph(const Graph& graph) -> ClassicScene
+{
+    ClassicScene scene;
+    const Node* viewport = graph.Viewport();
+    const Node* top = viewport != nullptr ? graph.Upstream(viewport->id, 0) : nullptr;
+    if (top == nullptr)
+        return scene;
+
+    std::vector<const Node*> presets;
+    if (top->type == NodeType::Preset)
+    {
+        presets.push_back(top);
+        scene.presetPath = ParamsOf<PresetParams>(*top).path;
+    }
+    else if (top->type == NodeType::Switcher)
+    {
+        const auto& params = ParamsOf<SwitcherParams>(*top);
+        for (int i = 0; i < params.inputCount; ++i)
+        {
+            const Node* input = graph.Upstream(top->id, i);
+            if (input != nullptr && input->type == NodeType::Preset)
+                presets.push_back(input);
+        }
+        if (presets.empty())
+            return scene;
+        scene.playlist.enabled = true;
+        scene.playlist.unit = params.unit;
+        scene.playlist.intervalSeconds = params.intervalSeconds;
+        scene.playlist.intervalCount = params.intervalCount;
+        scene.playlist.shuffle = params.shuffle;
+        for (const Node* preset : presets)
+            scene.playlist.presets.push_back(ParamsOf<PresetParams>(*preset).path);
+        scene.playlist.looks.assign(presets.size(), VideoLook{});
+        scene.presetPath = scene.playlist.presets.front();
+    }
+    else
+    {
+        return scene;
+    }
+
+    // The video: whatever the first wired preset input comes from, through its effects.
+    const Node* root = nullptr;
+    for (const Node* preset : presets)
+    {
+        for (const auto& wire : graph.wires)
+        {
+            if (wire.toNode != preset->id || root != nullptr)
+                continue;
+            const Chain chain = ReadChain(graph, graph.Find(wire.fromNode));
+            if (chain.root != nullptr && (chain.root->type == NodeType::VideoSource || chain.root->type == NodeType::Switcher))
+                root = chain.root;
+        }
+    }
+    if (root == nullptr)
+        return scene;
+    auto& video = scene.video;
+    if (root->type == NodeType::VideoSource)
+    {
+        const auto& source = ParamsOf<VideoSourceParams>(*root);
+        video.enabled = true;
+        video.source = source.source;
+        video.restartOnEnter = source.restartOnEnter;
+        video.loop = source.loop;
+        return scene;
+    }
+    const auto& params = ParamsOf<SwitcherParams>(*root);
+    const VideoSourceParams* first = nullptr;
+    for (int i = 0; i < params.inputCount; ++i)
+    {
+        const Node* input = graph.Upstream(root->id, i);
+        if (input == nullptr || input->type != NodeType::VideoSource || ParamsOf<VideoSourceParams>(*input).source.type != VideoSourceType::File)
+            continue;
+        if (first == nullptr)
+            first = &ParamsOf<VideoSourceParams>(*input);
+        video.playlist.videos.push_back(ParamsOf<VideoSourceParams>(*input).source.videoId);
+    }
+    if (first == nullptr)
+        return scene;
+    video.enabled = true;
+    video.playlist.enabled = true;
+    video.playlist.unit = params.unit;
+    video.playlist.intervalSeconds = params.intervalSeconds;
+    video.playlist.intervalCount = params.intervalCount;
+    video.playlist.shuffle = params.shuffle;
+    video.source = {VideoSourceType::File, video.playlist.videos.front(), {}, {}, {}};
+    video.restartOnEnter = first->restartOnEnter;
+    video.loop = first->loop;
+    return scene;
+}
+
 } // namespace gv::model

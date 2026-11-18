@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
+#include <sstream>
 #include <vector>
 
 namespace gv::library {
@@ -73,13 +75,15 @@ auto ParsePresetPath(const std::string& relativePath) -> PathInfo
 
 namespace {
 
+/// Textures projectM provides itself (MilkdropShader and TextureManager::Preload in 4.1.8), or picks at random.
 auto IsBuiltIn(const std::string& name) -> bool
 {
-    if (name == "main" || name == "blur1" || name == "blur2" || name == "blur3")
+    static const std::set<std::string> kBuiltIn = {"main",        "blur1",       "blur2",      "blur3",    "noise_lq",
+                                                   "noise_lq_lite", "noise_mq",  "noise_hq",   "noisevol_lq", "noisevol_hq",
+                                                   "idlem",       "idleheadphones"};
+    if (kBuiltIn.count(name) > 0)
         return true;
-    if (name.rfind("noisevol", 0) == 0 || name.rfind("noise_", 0) == 0)
-        return true;
-    // rand00..rand15 (with optional suffix, e.g. rand05_smalltiled)
+    // rand00..rand15 (with optional suffix, e.g. rand05_smalltiled) are random images (D6).
     return name.size() >= 6 && name.rfind("rand", 0) == 0 && std::isdigit(static_cast<unsigned char>(name[4])) &&
            std::isdigit(static_cast<unsigned char>(name[5]));
 }
@@ -100,18 +104,24 @@ auto ExtractTextureNames(const std::string& presetText) -> std::set<std::string>
         while (end < text.size() && (std::isalnum(static_cast<unsigned char>(text[end])) || text[end] == '_'))
             ++end;
         std::string name = text.substr(at + marker.size(), end - at - marker.size());
-        for (const char* prefix : {"fw_", "fc_", "pw_", "pc_"})
-        {
-            if (name.rfind(prefix, 0) == 0)
-            {
-                name.erase(0, 3);
-                break;
-            }
-        }
+        // projectM drops any two-letter prefix: fw_ and the other wrap/filter modes, and unknown ones too.
+        if (name.size() > 3 && name[2] == '_')
+            name.erase(0, 3);
         if (!name.empty() && !IsBuiltIn(name))
             names.insert(name);
     }
     return names;
+}
+
+auto PresetTextures(const std::filesystem::path& preset) -> std::vector<std::string>
+{
+    std::ifstream in(preset, std::ios::binary);
+    if (!in)
+        return {};
+    std::stringstream text;
+    text << in.rdbuf();
+    const auto names = ExtractTextureNames(text.str());
+    return {names.begin(), names.end()};
 }
 
 } // namespace gv::library

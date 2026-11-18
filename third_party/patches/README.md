@@ -35,6 +35,8 @@ To change an existing patch, amend or fix up its commit in the worktree and re-e
 | `0001-render-to-target-fbo.patch` | Backport of `projectm_opengl_render_frame_fbo()` from upstream 4.2.0 so projectM draws into our offscreen FBO. |
 | `0002-layer-texture-api.patch` | `projectm_set_layer_texture`: alpha-blends a caller's finished texture into the frame at a fixed layer (feedback, before the warp; before-composite is stored for a later patch). The app prepares the texture itself (`engine/VideoChain`). |
 | `0003-shader-program-cache.patch` | Reuses linked shader programs per thread (macOS's GL driver leaks ~35 KB per program, even after deletion); fixes two GL buffer leaks. |
+| `0006-before-composite-layer.patch` | Draws the before-composite layer into the flipped image the final composite samples (not fed back); the layer blend can draw flipped and no longer inherits projectM's sampler objects. |
+| `0007-preset-texture-access.patch` | `projectm_get_preset_texture`: the GL texture a loaded preset samples as `sampler_<name>`, so the app can draw video into it without reloading the preset. |
 
 `0004` and `0005` (feedback contrast, saturation and luma invert) were removed in N2: those effects now run in the app's
-own shader before the texture reaches projectM.
+own shader before the texture reaches projectM. Their numbers stay unused.

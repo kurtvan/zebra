@@ -168,3 +168,32 @@ TEST_CASE("unfinished graphs compile to nothing")
     CHECK(plan.presetNode == preset);
     CHECK(plan.branches.empty());
 }
+
+TEST_CASE("every preset input compiles to a branch, texture inputs by name")
+{
+    Graph graph;
+    AddNode(graph, NodeType::Viewport, 0, 0);
+    const auto preset = AddNode(graph, NodeType::Preset, 0, 0);
+    REQUIRE(Connect(graph, preset, "viewport", 0));
+    const auto source = AddNode(graph, NodeType::VideoSource, 0, 0);
+    // Fan-out: one source into the feedback, before-composite and on-top inputs and two textures.
+    for (int input : {static_cast<int>(PresetLayer::Feedback), static_cast<int>(PresetLayer::BeforeComposite), static_cast<int>(PresetLayer::OnTop)})
+        REQUIRE(Connect(graph, source, preset, input));
+    const auto contrast = AddNode(graph, NodeType::Contrast, 0, 0);
+    REQUIRE(Connect(graph, source, contrast, 0));
+    REQUIRE(Connect(graph, contrast, preset, static_cast<int>(PresetLayer::Texture), "worms"));
+    REQUIRE(Connect(graph, source, preset, static_cast<int>(PresetLayer::Texture), "clouds"));
+    CHECK(ValidateGraph(graph).empty());
+
+    const auto plan = CompilePlan(graph);
+    REQUIRE(plan.branches.size() == 5);
+    CHECK(plan.branches[0].layer == PresetLayer::Feedback);
+    CHECK(plan.branches[1].layer == PresetLayer::BeforeComposite);
+    CHECK(plan.branches[2].layer == PresetLayer::OnTop);
+    CHECK(plan.branches[3].layer == PresetLayer::Texture);
+    CHECK(plan.branches[3].textureName == "clouds");
+    CHECK(plan.branches[3].passes.empty());
+    CHECK(plan.branches[4].textureName == "worms");
+    REQUIRE(plan.branches[4].passes.size() == 1);
+    CHECK(plan.branches[4].passes[0].type == EffectPass::Type::Contrast);
+}
