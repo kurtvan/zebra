@@ -307,12 +307,24 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     if (ImGui::SmallButton("Fit"))
         m_fitRequested = true;
     ImGui::SameLine();
-    ImGui::TextColored(kDim, "%.0f%%   Right-click: add a node.  Drag from a pin: wire.  Delete: remove the selection.", m_zoom * 100.f);
+    ImGui::TextColored(kDim, "%.0f%%   Scroll: pan.  Cmd+scroll: zoom.  Right-click: add a node.  Drag from a pin: wire.  Delete: remove the selection.", m_zoom * 100.f);
 
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 size(std::max(ImGui::GetContentRegionAvail().x, 50.f), std::max(ImGui::GetContentRegionAvail().y, 50.f));
     const ImVec2 corner(origin.x + size.x, origin.y + size.y);
     m_hovered = ImGui::IsMouseHoveringRect(origin, corner) && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+
+    // Scrolling, the Mac way: two fingers (or the wheel) pan, Cmd or Ctrl + scroll zooms at the pointer. The
+    // editor's own wheel zoom is turned off by taking the wheel before it sees it.
+    ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 wheel(io.MouseWheelH, io.MouseWheel);
+    const bool zoomKey = io.KeySuper || io.KeyCtrl;
+    const bool scrolled = m_hovered && (wheel.x != 0.f || wheel.y != 0.f) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    if (scrolled)
+    {
+        io.MouseWheel = 0.f;
+        io.MouseWheelH = 0.f;
+    }
 
     ed::SetCurrentEditor(canvas.context);
     ed::Begin("graph", size);
@@ -320,6 +332,10 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     {
         FitView(graph, size);
         m_fitRequested = false;
+    }
+    else if (scrolled)
+    {
+        Scroll(wheel, zoomKey, ImVec2(io.MousePos.x - origin.x, io.MousePos.y - origin.y), size);
     }
     m_zoom = ed::GetCurrentZoom();
     const bool compact = m_zoom < kCompactZoom;
@@ -436,6 +452,32 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
 
     DrawErrors();
     canvas.frames++;
+}
+
+void GraphEditor::Scroll(ImVec2 wheel, bool zoom, ImVec2 pointer, ImVec2 size)
+{
+    constexpr float kPanPixelsPerStep = 40.f; //!< Screen pixels per wheel step (trackpads send fractions).
+    constexpr float kZoomPerStep = 1.12f;
+    constexpr float kMinZoom = 0.25f;
+    constexpr float kMaxZoom = 2.0f;
+    const ed::ViewState view = ed::GetViewState();
+    const float scale = size.x / std::max(view.VisibleMax.x - view.VisibleMin.x, 1.f); // screen pixels per canvas unit
+    ImVec2 min = view.VisibleMin;
+    float newScale = scale;
+    if (zoom)
+    {
+        // Keep the canvas point under the pointer where it is.
+        newScale = std::clamp(scale * std::pow(kZoomPerStep, wheel.y + wheel.x), kMinZoom, kMaxZoom);
+        const ImVec2 under(min.x + pointer.x / scale, min.y + pointer.y / scale);
+        min = ImVec2(under.x - pointer.x / newScale, under.y - pointer.y / newScale);
+    }
+    else
+    {
+        // Like scrolling a page: the canvas follows the fingers (ImGui's wheel signs, as in its own windows).
+        min.x -= wheel.x * kPanPixelsPerStep / scale;
+        min.y -= wheel.y * kPanPixelsPerStep / scale;
+    }
+    ed::SetViewState({min, ImVec2(min.x + size.x / newScale, min.y + size.y / newScale)});
 }
 
 void GraphEditor::FitView(const model::Graph& graph, ImVec2 size)
