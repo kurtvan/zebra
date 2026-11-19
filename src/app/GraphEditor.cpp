@@ -3,6 +3,7 @@
 #include "app/Shell.hpp"
 #include "app/Widgets.hpp"
 #include "app/macos/FileDialog.hpp"
+#include "io/VideoSource.hpp"
 #include "common/FitRect.hpp"
 #include "library/PresetParsing.hpp"
 
@@ -38,23 +39,6 @@ auto Faded(ImVec4 color, float alpha) -> ImVec4
     return color;
 }
 
-auto HeaderColor(model::NodeType type) -> ImVec4
-{
-    switch (type)
-    {
-        case model::NodeType::VideoSource:
-            return ImVec4(0.19f, 0.32f, 0.52f, 0.60f);
-        case model::NodeType::Preset:
-            return ImVec4(0.40f, 0.26f, 0.52f, 0.60f);
-        case model::NodeType::Switcher:
-            return ImVec4(0.50f, 0.37f, 0.16f, 0.60f);
-        case model::NodeType::Viewport:
-            return ImVec4(0.16f, 0.42f, 0.32f, 0.60f);
-        default:
-            return ImVec4(0.30f, 0.32f, 0.37f, 0.60f); // effects
-    }
-}
-
 /// 64-bit FNV-1a, never 0 (an invalid id for the editor).
 auto Hash(const std::string& text) -> uint64_t
 {
@@ -87,114 +71,197 @@ auto Joined(const std::vector<model::GraphError>& errors) -> std::string
 
 } // namespace
 
-// --- NodeContext ----------------------------------------------------------------------------------
+// --- The canvas's NodeContext ----------------------------------------------------------------------
 
-NodeContext::NodeContext(GraphEditor& editor, ShellState& shellState, AppActions& appActions, int sceneIndex)
-    : state(shellState)
-    , actions(appActions)
-    , scene(sceneIndex)
-    , performance(shellState.document->Get())
-    , sceneData(performance.scenes[static_cast<size_t>(sceneIndex)])
-    , live(shellState.engine != nullptr && shellState.engine->LiveScene() == sceneIndex)
-    , m_editor(editor)
+/// What nodes draw with on the canvas: the app's state, and edits through AppActions::EditGraph.
+class CanvasNodeContext final : public NodeContext
 {
-}
+public:
+    CanvasNodeContext(GraphEditor& editor, ShellState& state, AppActions& actions, int scene)
+        : m_editor(editor)
+        , m_state(state)
+        , m_actions(actions)
+        , m_scene(scene)
+        , m_performance(state.document->Get())
+        , m_live(state.engine != nullptr && state.engine->LiveScene() == scene)
+    {
+    }
 
-void NodeContext::Edit(const model::Node& node, const char* label, const char* field, const std::function<void(model::Node&)>& change)
-{
-    const std::string id = node.id;
-    auto errors = actions.EditGraph(
-        scene,
-        [&](model::Graph& graph) {
-            if (model::Node* edited = graph.Find(id))
-                change(*edited);
-        },
-        label, std::string(field) + ":" + sceneData.id + ":" + id);
-    if (!errors.empty())
-        m_editor.ShowErrors(std::move(errors));
-}
-
-void NodeContext::EditOnce(const model::Node& node, const char* label, const std::function<void(model::Node&)>& change)
-{
-    const std::string id = node.id;
-    auto errors = actions.EditGraph(
-        scene,
-        [&](model::Graph& graph) {
-            if (model::Node* edited = graph.Find(id))
-                change(*edited);
-        },
-        label);
-    if (!errors.empty())
-        m_editor.ShowErrors(std::move(errors));
-}
-
-void NodeContext::EndEditIfReleased()
-{
-    if (ImGui::IsItemDeactivatedAfterEdit())
-        actions.EndEdit();
-}
-
-void NodeContext::InputRow(const model::Node& node, const InputSpec& spec)
-{
-    const float height = ImGui::GetTextLineHeight() + 4.f;
-    m_editor.DrawPin(node, false, &spec, spec.kind, height);
-    ImGui::SameLine(0.f, 6.f);
-    const bool accepts = m_editor.Accepts(*m_editor.m_graph, GraphEditor::Pin{node.id, false, spec.input, spec.texture, spec.kind});
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.f);
-    ImGui::TextColored(accepts ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : kDim, "%s", spec.label.c_str());
-}
-
-void NodeContext::OpenPopup(const model::Node& node, int kind)
-{
-    m_editor.m_popupNode = node.id;
-    m_editor.m_popupKind = kind;
-    m_editor.m_openNodePopup = true;
-}
-
-void NodeContext::Tooltip(const char* text)
-{
-    if (ImGui::IsItemHovered() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
-        m_editor.m_bodyTooltip = text;
-}
-
-void NodeContext::Hint(const char* text)
-{
-    ImGui::SameLine();
-    ImGui::TextColored(kDim, "(?)");
-    Tooltip(text);
-}
-
-auto NodeContext::IsLivePreset(const model::Node& node) const -> bool
-{
-    return !m_editor.m_livePresetNode.empty() && node.id == m_editor.m_livePresetNode;
-}
-
-auto NodeContext::TexturesOf(const std::filesystem::path& preset) -> const std::vector<std::string>&
-{
-    auto it = m_editor.m_textures.find(preset.string());
-    if (it == m_editor.m_textures.end())
+    auto Performance() const -> const model::Performance& override
+    {
+        return m_performance;
+    }
+    auto SceneGraph() const -> const model::Graph& override
+    {
+        return m_performance.scenes[static_cast<size_t>(m_scene)].graph;
+    }
+    auto Live() const -> bool override
+    {
+        return m_live;
+    }
+    auto IsLivePreset(const model::Node& node) const -> bool override
+    {
+        return !m_editor.m_livePresetNode.empty() && node.id == m_editor.m_livePresetNode;
+    }
+    auto SceneReady() const -> bool override
+    {
+        return m_state.engine != nullptr && m_state.engine->Scene(m_scene).state == engine::ScenePool::State::Ready;
+    }
+    auto VideoState() const -> std::optional<std::pair<bool, std::string>> override
+    {
+        if (m_state.video == nullptr)
+            return std::nullopt;
+        const auto state = m_state.video->StateFor(m_scene);
+        if (!state)
+            return std::nullopt;
+        return std::pair<bool, std::string>{*state == io::VideoState::Live, std::string("Video: ") + io::ToString(*state)};
+    }
+    auto FrameTime() const -> std::optional<std::pair<double, bool>> override
+    {
+        if (m_state.engine == nullptr)
+            return std::nullopt;
+        const auto info = m_state.engine->Scene(m_scene);
+        return std::pair<double, bool>{info.frameMs, info.heavy};
+    }
+    auto FileExists(const std::filesystem::path& path) const -> bool override
     {
         std::error_code ec;
-        std::vector<std::string> names;
-        if (!preset.empty() && std::filesystem::is_regular_file(preset, ec))
-            names = library::PresetTextures(preset);
-        it = m_editor.m_textures.emplace(preset.string(), std::move(names)).first;
+        return std::filesystem::is_regular_file(path, ec);
     }
-    return it->second;
-}
+    auto TexturesOf(const std::filesystem::path& preset) -> const std::vector<std::string>& override
+    {
+        auto it = m_editor.m_textures.find(preset.string());
+        if (it == m_editor.m_textures.end())
+        {
+            std::vector<std::string> names;
+            if (!preset.empty() && FileExists(preset))
+                names = library::PresetTextures(preset);
+            it = m_editor.m_textures.emplace(preset.string(), std::move(names)).first;
+        }
+        return it->second;
+    }
 
-auto NodeContext::Thumbnail(const std::filesystem::path& preset) -> unsigned int
-{
-    if (state.library == nullptr || state.thumbnails == nullptr || preset.empty())
-        return 0;
-    const std::string id = state.library->IdForPath(preset);
-    const library::PresetInfo* info = id.empty() ? nullptr : state.library->Find(id);
-    if (info == nullptr)
-        return 0;
-    m_editor.m_wantedThumbnails.push_back({id, preset, std::to_string(info->modified) + ":" + std::to_string(info->size)});
-    const auto tile = state.thumbnails->Get(id);
-    return tile ? tile->texture : 0;
-}
+    auto LivePicture() -> unsigned int override
+    {
+        return m_state.preview;
+    }
+    auto Thumbnail(const std::filesystem::path& preset) -> unsigned int override
+    {
+        if (m_state.library == nullptr || m_state.thumbnails == nullptr || preset.empty())
+            return 0;
+        const std::string id = m_state.library->IdForPath(preset);
+        const library::PresetInfo* info = id.empty() ? nullptr : m_state.library->Find(id);
+        if (info == nullptr)
+            return 0;
+        m_editor.m_wantedThumbnails.push_back({id, preset, std::to_string(info->modified) + ":" + std::to_string(info->size)});
+        const auto tile = m_state.thumbnails->Get(id);
+        return tile ? tile->texture : 0;
+    }
+
+    auto IsFavourite(const std::filesystem::path& preset) const -> std::optional<bool> override
+    {
+        const std::string id = LibraryId(preset);
+        if (id.empty() || m_state.favourites == nullptr)
+            return std::nullopt;
+        return m_state.favourites->Contains(id);
+    }
+    void ToggleFavourite(const std::filesystem::path& preset) override
+    {
+        if (const std::string id = LibraryId(preset); !id.empty())
+            m_actions.ToggleFavourite(id);
+    }
+
+    void Edit(const model::Node& node, const char* label, const char* field, const std::function<void(model::Node&)>& change) override
+    {
+        EditNode(node, label, std::string(field) + ":" + SceneGraphId() + ":" + node.id, change);
+    }
+    void EditOnce(const model::Node& node, const char* label, const std::function<void(model::Node&)>& change) override
+    {
+        EditNode(node, label, {}, change);
+    }
+    void EndEditIfReleased() override
+    {
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            m_actions.EndEdit();
+    }
+    void EditPerformance(const std::function<void(model::Performance&, model::Graph&)>& change, const char* label) override
+    {
+        auto edited = m_performance;
+        change(edited, edited.scenes[static_cast<size_t>(m_scene)].graph);
+        m_actions.Edit(std::move(edited), label);
+        m_actions.EndEdit();
+    }
+
+    auto ChooseFile(const char* title, const std::vector<std::string>& extensions) -> std::optional<std::filesystem::path> override
+    {
+        return app::ChooseFile(title, extensions);
+    }
+    void Reveal(const std::filesystem::path& path) override
+    {
+        RevealInFinder(path);
+    }
+    auto SyphonServers() -> std::vector<SyphonServer> override
+    {
+        std::vector<SyphonServer> servers;
+        for (const auto& server : io::ListSyphonServers())
+            servers.push_back({server.appName, server.serverName});
+        return servers;
+    }
+
+    void InputRow(const model::Node& node, const InputSpec& spec) override
+    {
+        const float height = ImGui::GetTextLineHeight() + 4.f;
+        m_editor.DrawPin(node, false, &spec, spec.kind, height);
+        ImGui::SameLine(0.f, 6.f);
+        const bool accepts = m_editor.Accepts(*m_editor.m_graph, GraphEditor::Pin{node.id, false, spec.input, spec.texture, spec.kind});
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.f);
+        ImGui::TextColored(accepts ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : kDim, "%s", spec.label.c_str());
+    }
+    void OpenPopup(const model::Node& node, int kind) override
+    {
+        m_editor.m_popupNode = node.id;
+        m_editor.m_popupKind = kind;
+        m_editor.m_openNodePopup = true;
+    }
+    void Tooltip(const char* text) override
+    {
+        if (ImGui::IsItemHovered() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+            m_editor.m_bodyTooltip = text;
+    }
+
+private:
+    auto SceneGraphId() const -> const std::string&
+    {
+        return m_performance.scenes[static_cast<size_t>(m_scene)].id;
+    }
+    auto LibraryId(const std::filesystem::path& preset) const -> std::string
+    {
+        if (m_state.library == nullptr || preset.empty())
+            return {};
+        std::string id = m_state.library->IdForPath(preset);
+        return !id.empty() && m_state.library->Find(id) != nullptr ? id : std::string();
+    }
+    void EditNode(const model::Node& node, const char* label, const std::string& coalesceKey, const std::function<void(model::Node&)>& change)
+    {
+        const std::string id = node.id;
+        auto errors = m_actions.EditGraph(
+            m_scene,
+            [&](model::Graph& graph) {
+                if (model::Node* edited = graph.Find(id))
+                    change(*edited);
+            },
+            label, coalesceKey);
+        if (!errors.empty())
+            m_editor.ShowErrors(std::move(errors));
+    }
+
+    GraphEditor& m_editor;
+    ShellState& m_state;
+    AppActions& m_actions;
+    const int m_scene;
+    const model::Performance& m_performance;
+    const bool m_live;
+};
 
 // --- GraphEditor ---------------------------------------------------------------------------------
 
@@ -422,7 +489,7 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
             outlined.insert(error.nodeId);
     }
 
-    NodeContext context(*this, state, actions, sceneIndex);
+    CanvasNodeContext context(*this, state, actions, sceneIndex);
     m_nodeUnderMouse.clear();
     for (const auto& node : graph.nodes)
     {
@@ -474,7 +541,7 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
             canvas.selectedLinks.push_back(id.Get());
     }
 
-    DrawPopups(context, graph, sceneIndex);
+    DrawPopups(context, actions, graph, sceneIndex);
     ed::End();
     if (m_previewBehind)
         ed::PopStyleColor();
@@ -550,7 +617,7 @@ void GraphEditor::FitView(const model::Graph& graph, ImVec2 size)
     {
         ImVec2 extent = ed::GetNodeSize(NodeKey(node.id));
         if (extent.x <= 0.f)
-            extent = ImVec2(NodeWidth(node.type), 120.f);
+            extent = ImVec2(Ui(node.type).width, 120.f);
         min = ImVec2(std::min(min.x, node.x), std::min(min.y, node.y));
         max = ImVec2(std::max(max.x, node.x + extent.x), std::max(max.y, node.y + extent.y));
     }
@@ -570,7 +637,7 @@ void GraphEditor::DrawNode(const model::Node& node, NodeContext& context, bool c
 {
     const uint64_t key = NodeKey(node.id);
     const ImVec4 padding = ed::GetStyle().NodePadding;
-    context.width = NodeWidth(node.type) - padding.x - padding.z;
+    context.width = Ui(node.type).width - padding.x - padding.z;
     const auto inputs = NodeInputs(node, context);
     const bool titleOnly = compact || !node.expanded;
 
@@ -594,7 +661,7 @@ void GraphEditor::DrawNode(const model::Node& node, NodeContext& context, bool c
         const ImVec2 extent = ed::GetNodeSize(key);
         if (extent.x > 0.f)
         {
-            const ImU32 color = ImGui::GetColorU32(HeaderColor(node.type));
+            const ImU32 color = ImGui::GetColorU32(Ui(node.type).header);
             if (titleOnly)
             {
                 draw->AddRectFilled(at, ImVec2(at.x + extent.x, at.y + extent.y), color, kNodeRounding);
@@ -627,7 +694,7 @@ void GraphEditor::DrawTitleRow(const model::Node& node, NodeContext& context, bo
     const NodeStatus status = NodeStatusOf(node, context);
     const ImVec2 dot = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(10.f, height));
-    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(dot.x + 5.f, dot.y + height * 0.5f), 4.f, ImGui::GetColorU32(status.color));
+    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(dot.x + 5.f, dot.y + height * 0.5f), 4.f, ImGui::GetColorU32(StateColor(status.state)));
     if (!status.tooltip.empty())
         context.Tooltip(status.tooltip.c_str());
     ImGui::SameLine(0.f, 6.f);
@@ -947,7 +1014,7 @@ void GraphEditor::HandleEdits(AppActions& actions, int scene, const model::Graph
         moved.size() == 1 ? "Move Node" : "Move Nodes");
 }
 
-void GraphEditor::DrawPopups(NodeContext& context, const model::Graph& graph, int scene)
+void GraphEditor::DrawPopups(NodeContext& context, AppActions& actions, const model::Graph& graph, int scene)
 {
     ed::Suspend(); // popups and tooltips draw outside the zoomed canvas
     ed::NodeId contextNode;
@@ -969,30 +1036,36 @@ void GraphEditor::DrawPopups(NodeContext& context, const model::Graph& graph, in
 
     if (ImGui::BeginPopup("add-node"))
     {
-        using model::NodeType;
         ImGui::TextColored(kDim, "Add");
-        auto item = [&](const char* label, NodeType type, const std::function<void(model::Node&)>& configure = {}) {
-            if (ImGui::MenuItem(label))
-                AddNodeAt(context.actions, scene, type, m_addAt, configure);
-        };
-        item("Video file", NodeType::VideoSource);
-        item("Syphon video", NodeType::VideoSource, [](model::Node& node) { model::ParamsOf<model::VideoSourceParams>(node).source.type = model::VideoSourceType::Syphon; });
-        ImGui::Separator();
-        item("Contrast", NodeType::Contrast);
-        item("Saturation", NodeType::Saturation);
-        item("Luma gate", NodeType::LumaGate);
-        item("Mix", NodeType::Mix);
-        ImGui::Separator();
-        if (ImGui::MenuItem("Preset..."))
-            m_choosePreset = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Or drag a preset from the Presets panel onto the canvas.");
-        item("Preset switcher", NodeType::Switcher);
-        item("Video switcher", NodeType::Switcher, [](model::Node& node) { model::ParamsOf<model::SwitcherParams>(node).kind = model::PortKind::Video; });
-        if (graph.Viewport() == nullptr)
+        // Each node type's items, grouped as the types ask.
+        int groups = 0;
+        for (const NodeUi& ui : NodeUis())
+            groups = std::max(groups, ui.menuGroup + 1);
+        int lastGroup = -1;
+        for (int group = 0; group < groups; ++group)
         {
-            ImGui::Separator();
-            item("Viewport", NodeType::Viewport);
+            for (const NodeUi& ui : NodeUis())
+            {
+                if (ui.menuGroup != group)
+                    continue;
+                for (const AddItem& item : ui.addItems)
+                {
+                    if (item.available != nullptr && !item.available(graph))
+                        continue;
+                    if (lastGroup != -1 && lastGroup != group)
+                        ImGui::Separator();
+                    lastGroup = group;
+                    if (ImGui::MenuItem(item.label))
+                    {
+                        if (item.chooseFile)
+                            m_choosePreset = true;
+                        else
+                            AddNodeAt(actions, scene, ui.type, m_addAt, item.configure != nullptr ? std::function<void(model::Node&)>(item.configure) : nullptr);
+                    }
+                    if (item.tooltip != nullptr && ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", item.tooltip);
+                }
+            }
         }
         ImGui::EndPopup();
     }
@@ -1005,7 +1078,7 @@ void GraphEditor::DrawPopups(NodeContext& context, const model::Graph& graph, in
             if (ImGui::MenuItem(node->expanded ? "Collapse" : "Expand"))
                 context.EditOnce(*node, node->expanded ? "Collapse Node" : "Expand Node", [](model::Node& n) { n.expanded = !n.expanded; });
             if (ImGui::MenuItem("Delete", nullptr, false, node->type != model::NodeType::Viewport))
-                Delete(context.actions, scene, graph, {node->id}, {});
+                Delete(actions, scene, graph, {node->id}, {});
         }
         else
         {

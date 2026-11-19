@@ -39,10 +39,10 @@ auto FormatTwoBranches(const nlohmann::json& scene, int item) -> std::vector<Vid
     }
     const bool invert = video.value("invertLuma", false);
     auto passes = [&](float softness) -> std::vector<EffectPass> {
-        return {{EffectPass::Type::Contrast, look.value("contrast", 1.0f), 0.0f, false},
-                {EffectPass::Type::Saturation, look.value("saturation", 1.0f), 0.0f, false},
-                {EffectPass::Type::LumaGate, look.value("lumaMin", 0.0f), softness, invert},
-                {EffectPass::Type::Mix, look.value("mix", 1.0f), 0.0f, false}};
+        return {{NodeType::Contrast, look.value("contrast", 1.0f), 0.0f, false},
+                {NodeType::Saturation, look.value("saturation", 1.0f), 0.0f, false},
+                {NodeType::LumaGate, look.value("lumaMin", 0.0f), softness, invert},
+                {NodeType::Mix, look.value("mix", 1.0f), 0.0f, false}};
     };
     std::vector<VideoBranch> branches{{passes(0.1f), PresetLayer::Feedback, {}}};
     if (look.value("overlay", false))
@@ -131,10 +131,10 @@ TEST_CASE("plans follow switcher selections and carry each branch's effects in o
     REQUIRE(second.branches.size() == 2);
     CHECK(second.branches[0].layer == PresetLayer::Feedback);
     CHECK(second.branches[1].layer == PresetLayer::OnTop);
-    const std::vector<EffectPass> onTop = {{EffectPass::Type::Contrast, 3.0f, 0, false},
-                                           {EffectPass::Type::Saturation, 0.0f, 0, false},
-                                           {EffectPass::Type::LumaGate, 0.2f, 0.4f, true},
-                                           {EffectPass::Type::Mix, 0.8f, 0, false}};
+    const std::vector<EffectPass> onTop = {{NodeType::Contrast, 3.0f, 0, false},
+                                           {NodeType::Saturation, 0.0f, 0, false},
+                                           {NodeType::LumaGate, 0.2f, 0.4f, true},
+                                           {NodeType::Mix, 0.8f, 0, false}};
     CHECK(second.branches[1].passes == onTop);
 
     // The Video switcher's selection picks the source.
@@ -195,5 +195,5 @@ TEST_CASE("every preset input compiles to a branch, texture inputs by name")
     CHECK(plan.branches[3].passes.empty());
     CHECK(plan.branches[4].textureName == "worms");
     REQUIRE(plan.branches[4].passes.size() == 1);
-    CHECK(plan.branches[4].passes[0].type == EffectPass::Type::Contrast);
+    CHECK(plan.branches[4].passes[0].type == NodeType::Contrast);
 }

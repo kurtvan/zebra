@@ -52,6 +52,7 @@ enum class NodeType
     Switcher,
     Viewport
 };
+constexpr int kNodeTypeCount = 8; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
 
 /// What travels along a wire: a video picture, or a preset's finished frame.
 enum class PortKind
@@ -172,6 +173,8 @@ auto ParamsOf(Node& node) -> Params&
 {
     return std::get<Params>(node.params);
 }
+
+// Shorthands for the node type's definition (model/nodes/NodeDef.hpp), which has the rest.
 
 /// Default params for a node type.
 auto DefaultParams(NodeType type) -> NodeParams;

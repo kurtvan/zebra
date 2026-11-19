@@ -7,6 +7,7 @@
 // The only difference allowed is the RGBA8 branch texture's rounding: at most 1/255 per channel.
 
 #include "engine/VideoChain.hpp"
+#include "gl/GlTestContext.hpp"
 
 #include <SDL.h>
 
@@ -24,6 +25,9 @@
 
 using gv::engine::EffectPass;
 using gv::engine::VideoChain;
+using gv::model::NodeType;
+using gv::test::Context;
+using gv::test::Texture;
 
 namespace {
 
@@ -107,57 +111,6 @@ void main()
 }
 )GLSL";
 
-/// A hidden window and GL 4.1 core context for the whole test run, or nothing if none can be created.
-struct GlContext
-{
-    SDL_Window* window{nullptr};
-    SDL_GLContext context{nullptr};
-    std::string error;
-
-    GlContext()
-    {
-        if (SDL_Init(SDL_INIT_VIDEO) != 0)
-        {
-            error = SDL_GetError();
-            return;
-        }
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-        window = SDL_CreateWindow("gv_gl_tests", 0, 0, 64, 64, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
-        if (window == nullptr)
-        {
-            error = SDL_GetError();
-            return;
-        }
-        context = SDL_GL_CreateContext(window);
-        if (context == nullptr)
-            error = SDL_GetError();
-    }
-    ~GlContext()
-    {
-        if (context != nullptr)
-            SDL_GL_DeleteContext(context);
-        if (window != nullptr)
-            SDL_DestroyWindow(window);
-        SDL_Quit();
-    }
-};
-
-auto Context() -> GlContext&
-{
-    static GlContext context;
-    return context;
-}
-
-#define REQUIRE_GL()                                                                                                   \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (Context().context == nullptr)                                                                              \
-            SKIP("no GL 4.1 context: " << Context().error);                                                            \
-    } while (false)
-
 auto Program(const char* fragmentSource) -> GLuint
 {
     auto compile = [](GLenum type, const char* source) {
@@ -181,20 +134,6 @@ auto Program(const char* fragmentSource) -> GLuint
     glGetProgramiv(program, GL_LINK_STATUS, &ok);
     REQUIRE(ok);
     return program;
-}
-
-auto Texture(int width, int height, const std::vector<std::uint8_t>& pixels) -> GLuint
-{
-    GLuint texture = 0;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.empty() ? nullptr : pixels.data());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    return texture;
 }
 
 /// Gradients, a colour wheel and noise, with partial alpha (which the chain ignores, as the old shaders did).
@@ -408,10 +347,10 @@ private:
 /// The chain a converted scene compiles to (model/Classic.cpp): contrast, saturation, gate, mix.
 auto Chain(const Look& look) -> std::vector<EffectPass>
 {
-    return {{EffectPass::Type::Contrast, look.contrast, 0.0f, false},
-            {EffectPass::Type::Saturation, look.saturation, 0.0f, false},
-            {EffectPass::Type::LumaGate, look.lumaMin, look.softness, look.invert},
-            {EffectPass::Type::Mix, look.mix, 0.0f, false}};
+    return {{NodeType::Contrast, look.contrast, 0.0f, false},
+            {NodeType::Saturation, look.saturation, 0.0f, false},
+            {NodeType::LumaGate, look.lumaMin, look.softness, look.invert},
+            {NodeType::Mix, look.mix, 0.0f, false}};
 }
 
 /// About 200 looks: the defaults, the extremes, and random ones (seeded, so every run is the same).

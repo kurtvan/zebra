@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <string>
 
 namespace gv::engine {
 
@@ -22,9 +23,10 @@ void main()
 }
 )GLSL";
 
-// Pass types match EffectPass::Type. Params: contrast (c, _), saturation (s, _), gate (threshold, softness),
-// mix (opacity, _). Flag: the gate is inverted.
-constexpr const char* kChainShader = R"GLSL(#version 330 core
+// The effect chain: every pass in order, each running its node type's shader (NodeDef::shader).
+auto ChainShader() -> std::string
+{
+    std::string source = R"GLSL(#version 330 core
 uniform sampler2D uVideo;
 uniform int uCount;
 uniform int uType[16];
@@ -39,30 +41,24 @@ void main()
     float alpha = 1.0;
     for (int i = 0; i < uCount; ++i)
     {
-        if (uType[i] == 0)
-        {
-            color = (color - 0.5) * uParam[i].x + 0.5; // colour passes don't clamp
-        }
-        else if (uType[i] == 1)
-        {
-            color = mix(vec3(dot(color, lumaWeights)), color, uParam[i].x);
-        }
-        else if (uType[i] == 2)
-        {
-            color = clamp(color, 0.0, 1.0);
-            float luma = dot(color, lumaWeights);
-            float edge = uParam[i].y * 0.5;
-            float mask = edge > 0.0 ? smoothstep(uParam[i].x - edge, uParam[i].x + edge, luma) : step(uParam[i].x, luma);
-            alpha *= uFlag[i] != 0 ? 1.0 - mask : mask;
-        }
-        else
-        {
-            alpha *= uParam[i].x;
-        }
+        vec2 param = uParam[i];
+        bool flag = uFlag[i] != 0;
+)GLSL";
+    const char* keyword = "if";
+    for (const auto& def : model::NodeDefs())
+    {
+        if (def.shader == nullptr)
+            continue;
+        source += std::string("        ") + keyword + " (uType[i] == " + std::to_string(static_cast<int>(def.type)) + ")\n        {\n            " +
+                  def.shader + "\n        }\n";
+        keyword = "else if";
     }
+    source += R"GLSL(    }
     fragColor = vec4(clamp(color, 0.0, 1.0), alpha);
 }
 )GLSL";
+    return source;
+}
 
 constexpr const char* kCompositeShader = R"GLSL(#version 330 core
 uniform sampler2D uTexture;
@@ -117,7 +113,7 @@ auto Link(const char* fragmentSource) -> GLuint
 
 VideoChain::VideoChain()
 {
-    m_chainProgram = Link(kChainShader);
+    m_chainProgram = Link(ChainShader().c_str());
     m_videoLocation = glGetUniformLocation(m_chainProgram, "uVideo");
     m_countLocation = glGetUniformLocation(m_chainProgram, "uCount");
     m_typeLocation = glGetUniformLocation(m_chainProgram, "uType[0]");

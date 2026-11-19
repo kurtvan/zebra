@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/nodes/NodeDraw.hpp"
+#include "app/nodes/NodeUi.hpp"
 #include "model/Graph.hpp"
 #include "thumbnails/ThumbnailService.hpp"
 
@@ -65,7 +65,7 @@ public:
     }
 
 private:
-    friend class NodeContext;
+    friend class CanvasNodeContext;
 
     struct Pin
     {
@@ -111,7 +111,7 @@ private:
     void DrawMovingWire();
     void HandleDelete(AppActions& actions, int scene, const model::Graph& graph);
     void HandleEdits(AppActions& actions, int scene, const model::Graph& graph);
-    void DrawPopups(NodeContext& context, const model::Graph& graph, int scene);
+    void DrawPopups(NodeContext& context, AppActions& actions, const model::Graph& graph, int scene);
     void HandleDrop(ShellState& state, AppActions& actions, int scene, const model::Graph& graph, ImVec2 min, ImVec2 max);
     void DrawErrors();
 

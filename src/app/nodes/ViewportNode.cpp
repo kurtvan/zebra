@@ -1,18 +1,27 @@
-#include "app/nodes/NodeDraw.hpp"
+#include "app/nodes/NodeUi.hpp"
 
-#include "app/Widgets.hpp"
+namespace gv::app::nodes {
 
-namespace gv::app {
-
-void DrawViewportBody(const model::Node& node, NodeContext& context)
+auto ViewportUi() -> NodeUi
 {
-    for (const auto& spec : NodeInputs(node, context))
-        context.InputRow(node, spec);
-    const auto& canvas = context.performance.canvas;
-    if (canvas.matchScreen)
-        ImGui::TextColored(kDim, "Output: the screen's size");
-    else
-        ImGui::TextColored(kDim, "Output: %d x %d", canvas.width, canvas.height);
+    NodeUi ui;
+    ui.type = model::NodeType::Viewport;
+    ui.width = 220.f;
+    ui.header = ImVec4(0.16f, 0.42f, 0.32f, 0.60f);
+    ui.menuGroup = 3;
+    ui.inputLabel = "Picture";
+    Control output;
+    output.kind = Control::Kind::Text;
+    output.text = [](const model::Node&, NodeContext& context) -> std::string {
+        const auto& canvas = context.Performance().canvas;
+        if (canvas.matchScreen)
+            return "Output: the screen's size";
+        return "Output: " + std::to_string(canvas.width) + " x " + std::to_string(canvas.height);
+    };
+    ui.controls = {{Control::Kind::Inputs}, output};
+    // Only when the graph has none: there's one per scene, and it can't be deleted.
+    ui.addItems = {{"Viewport", nullptr, nullptr, false, [](const model::Graph& graph) { return graph.Viewport() == nullptr; }}};
+    return ui;
 }
 
-} // namespace gv::app
+} // namespace gv::app::nodes

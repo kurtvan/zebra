@@ -1,6 +1,8 @@
 #include "model/PerformanceJson.hpp"
 
 #include "model/Document.hpp"
+#include "model/nodes/NodeDef.hpp"
+#include "model/nodes/NodeJson.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -16,35 +18,14 @@ namespace gv::model {
 
 using nlohmann::json;
 
-namespace {
-
-auto Error(std::string path, std::string message) -> Issue
+auto JsonError(std::string path, std::string message) -> Issue
 {
     return {Issue::Severity::Error, std::move(path), std::move(message)};
 }
 
-auto Warning(std::string path, std::string message) -> Issue
+auto JsonWarning(std::string path, std::string message) -> Issue
 {
     return {Issue::Severity::Warning, std::move(path), std::move(message)};
-}
-
-/// Reads an optional field of type T, recording an error if it has the wrong type.
-template<typename T>
-void ReadField(const json& object, const char* key, T& out, const std::string& path, std::vector<Issue>& issues)
-{
-    auto it = object.find(key);
-    if (it == object.end() || it->is_null())
-    {
-        return;
-    }
-    try
-    {
-        out = it->get<T>();
-    }
-    catch (const json::exception&)
-    {
-        issues.push_back(Error(path + "/" + key, std::string("has the wrong type (found ") + it->type_name() + ")"));
-    }
 }
 
 auto ParseVideoSource(const json& object, const std::string& path, std::vector<Issue>& issues) -> VideoSource
@@ -68,9 +49,21 @@ auto ParseVideoSource(const json& object, const std::string& path, std::vector<I
     }
     else
     {
-        issues.push_back(Error(path + "/type", "unknown video source type \"" + type + "\" (expected \"file\" or \"syphon\")"));
+        issues.push_back(JsonError(path + "/type", "unknown video source type \"" + type + "\" (expected \"file\" or \"syphon\")"));
     }
     return source;
+}
+
+namespace {
+
+auto Error(std::string path, std::string message) -> Issue
+{
+    return JsonError(std::move(path), std::move(message));
+}
+
+auto Warning(std::string path, std::string message) -> Issue
+{
+    return JsonWarning(std::move(path), std::move(message));
 }
 
 auto ParseLook(const json& object, const std::string& path, std::vector<Issue>& issues) -> VideoLook
@@ -85,112 +78,22 @@ auto ParseLook(const json& object, const std::string& path, std::vector<Issue>& 
     return look;
 }
 
-/// The timing shared by preset and video playlists: interval unit, length and shuffle.
-template <class Playlist>
-void ParseTiming(const json& object, Playlist& playlist, const std::string& path, std::vector<Issue>& issues)
-{
-    ReadField(object, "intervalSeconds", playlist.intervalSeconds, path, issues);
-    ReadField(object, "intervalCount", playlist.intervalCount, path, issues);
-    std::string unit = "seconds";
-    ReadField(object, "intervalUnit", unit, path, issues);
-    if (unit == "seconds")
-        playlist.unit = IntervalUnit::Seconds;
-    else if (unit == "beats")
-        playlist.unit = IntervalUnit::Beats;
-    else if (unit == "bars")
-        playlist.unit = IntervalUnit::Bars;
-    else
-        issues.push_back(Error(path + "/intervalUnit", "unknown unit \"" + unit + "\" (expected \"seconds\", \"beats\" or \"bars\")"));
-    ReadField(object, "shuffle", playlist.shuffle, path, issues);
-}
-
-template <class Playlist>
-void WriteTiming(json& object, const Playlist& playlist)
-{
-    object["intervalUnit"] = playlist.unit == IntervalUnit::Seconds ? "seconds" : playlist.unit == IntervalUnit::Beats ? "beats" : "bars";
-    object["intervalSeconds"] = playlist.intervalSeconds;
-    object["intervalCount"] = playlist.intervalCount;
-    object["shuffle"] = playlist.shuffle;
-}
-
-auto VideoSourceJson(const VideoSource& source) -> json
-{
-    if (source.type == VideoSourceType::File)
-        return {{"type", "file"}, {"video", source.videoId}};
-    return {{"type", "syphon"}, {"appName", source.appName}, {"serverName", source.serverName}};
-}
-
-constexpr std::pair<NodeType, const char*> kNodeTypeNames[] = {
-    {NodeType::VideoSource, "videoSource"}, {NodeType::Contrast, "contrast"}, {NodeType::Saturation, "saturation"},
-    {NodeType::LumaGate, "lumaGate"},       {NodeType::Mix, "mix"},           {NodeType::Preset, "preset"},
-    {NodeType::Switcher, "switcher"},       {NodeType::Viewport, "viewport"},
-};
-
-constexpr std::pair<PresetLayer, const char*> kLayerNames[] = {
-    {PresetLayer::Feedback, "feedback"},
-    {PresetLayer::BeforeComposite, "beforeComposite"},
-    {PresetLayer::OnTop, "onTop"},
-    {PresetLayer::Texture, "texture"},
-};
-
 auto NodeJson(const Node& node) -> json
 {
-    json object = {{"id", node.id}, {"x", node.x}, {"y", node.y}, {"expanded", node.expanded}};
-    for (const auto& [type, name] : kNodeTypeNames)
-    {
-        if (type == node.type)
-            object["type"] = name;
-    }
-    std::visit(
-        [&](const auto& params) {
-            using T = std::decay_t<decltype(params)>;
-            if constexpr (std::is_same_v<T, VideoSourceParams>)
-            {
-                object["source"] = VideoSourceJson(params.source);
-                object["restartOnEnter"] = params.restartOnEnter;
-                object["loop"] = params.loop;
-            }
-            else if constexpr (std::is_same_v<T, ContrastParams>)
-                object["contrast"] = params.contrast;
-            else if constexpr (std::is_same_v<T, SaturationParams>)
-                object["saturation"] = params.saturation;
-            else if constexpr (std::is_same_v<T, LumaGateParams>)
-            {
-                object["threshold"] = params.threshold;
-                object["softness"] = params.softness;
-                object["invert"] = params.invert;
-            }
-            else if constexpr (std::is_same_v<T, MixParams>)
-                object["opacity"] = params.opacity;
-            else if constexpr (std::is_same_v<T, PresetParams>)
-                object["path"] = params.path.string();
-            else if constexpr (std::is_same_v<T, SwitcherParams>)
-            {
-                object["kind"] = params.kind == PortKind::Video ? "video" : "frame";
-                WriteTiming(object, params);
-            }
-        },
-        node.params);
+    const NodeDef& def = Def(node.type);
+    json object = {{"id", node.id}, {"type", def.jsonName}, {"x", node.x}, {"y", node.y}, {"expanded", node.expanded}};
+    if (def.write != nullptr)
+        def.write(node, object);
     return object;
 }
 
 auto WireJson(const Wire& wire, const Graph& graph) -> json
 {
-    json object = {{"from", wire.fromNode}, {"to", wire.toNode}};
-    const Node* to = graph.Find(wire.toNode);
-    if (to != nullptr && to->type == NodeType::Preset)
+    json object = {{"from", wire.fromNode}, {"to", wire.toNode}, {"input", wire.toInput}};
+    if (const Node* to = graph.Find(wire.toNode); to != nullptr)
     {
-        for (const auto& [layer, name] : kLayerNames)
-        {
-            if (static_cast<int>(layer) == wire.toInput)
-                object["input"] = name;
-        }
-        if (!object.contains("input"))
-            object["input"] = wire.toInput;
-    }
-    else
-    {
-        object["input"] = wire.toInput;
+        if (const auto names = Def(to->type).inputNames; wire.toInput >= 0 && wire.toInput < static_cast<int>(names.size()))
+            object["input"] = names[static_cast<size_t>(wire.toInput)];
     }
     if (!wire.textureName.empty())
         object["texture"] = wire.textureName;
@@ -222,61 +125,17 @@ auto ParseNode(const json& object, const std::string& path, std::vector<Issue>& 
     ReadField(object, "x", node.x, path, issues);
     ReadField(object, "y", node.y, path, issues);
     ReadField(object, "expanded", node.expanded, path, issues);
-    bool known = false;
-    for (const auto& [value, name] : kNodeTypeNames)
-    {
-        if (type == name)
-        {
-            node.type = value;
-            known = true;
-        }
-    }
+    const auto known = NodeTypeFromJson(type);
     if (!known)
     {
         issues.push_back(Warning(path + "/type", "unknown node type \"" + type + "\": the node was left out"));
         return std::nullopt;
     }
-    node.params = DefaultParams(node.type);
-    std::visit(
-        [&](auto& params) {
-            using T = std::decay_t<decltype(params)>;
-            if constexpr (std::is_same_v<T, VideoSourceParams>)
-            {
-                if (auto source = object.find("source"); source != object.end() && source->is_object())
-                    params.source = ParseVideoSource(*source, path + "/source", issues);
-                ReadField(object, "restartOnEnter", params.restartOnEnter, path, issues);
-                ReadField(object, "loop", params.loop, path, issues);
-            }
-            else if constexpr (std::is_same_v<T, ContrastParams>)
-                ReadField(object, "contrast", params.contrast, path, issues);
-            else if constexpr (std::is_same_v<T, SaturationParams>)
-                ReadField(object, "saturation", params.saturation, path, issues);
-            else if constexpr (std::is_same_v<T, LumaGateParams>)
-            {
-                ReadField(object, "threshold", params.threshold, path, issues);
-                ReadField(object, "softness", params.softness, path, issues);
-                ReadField(object, "invert", params.invert, path, issues);
-            }
-            else if constexpr (std::is_same_v<T, MixParams>)
-                ReadField(object, "opacity", params.opacity, path, issues);
-            else if constexpr (std::is_same_v<T, PresetParams>)
-            {
-                std::string presetPath;
-                ReadField(object, "path", presetPath, path, issues);
-                params.path = presetPath;
-            }
-            else if constexpr (std::is_same_v<T, SwitcherParams>)
-            {
-                std::string kind = "frame";
-                ReadField(object, "kind", kind, path, issues);
-                if (kind == "video")
-                    params.kind = PortKind::Video;
-                else if (kind != "frame")
-                    issues.push_back(Error(path + "/kind", "unknown switcher kind \"" + kind + "\" (expected \"frame\" or \"video\")"));
-                ParseTiming(object, params, path, issues);
-            }
-        },
-        node.params);
+    node.type = *known;
+    const NodeDef& def = Def(node.type);
+    node.params = def.defaults;
+    if (def.read != nullptr)
+        def.read(object, node, path, issues);
     return node;
 }
 
@@ -289,20 +148,14 @@ auto ParseWire(const json& object, const Graph& graph, const std::string& path, 
     if (auto input = object.find("input"); input != object.end() && input->is_string())
     {
         const Node* to = graph.Find(wire.toNode);
-        bool known = false;
-        for (const auto& [layer, name] : kLayerNames)
-        {
-            if (*input == name)
-            {
-                wire.toInput = static_cast<int>(layer);
-                known = true;
-            }
-        }
-        if (!known || to == nullptr || to->type != NodeType::Preset)
+        const auto names = to != nullptr ? Def(to->type).inputNames : std::span<const char* const>{};
+        const auto it = std::find_if(names.begin(), names.end(), [&](const char* name) { return *input == name; });
+        if (it == names.end())
         {
             issues.push_back(Warning(path + "/input", "unknown input \"" + input->get<std::string>() + "\": the wire was left out"));
             return std::nullopt;
         }
+        wire.toInput = static_cast<int>(it - names.begin());
     }
     else
     {
@@ -769,14 +622,11 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
             issues.push_back(Error(path + "/graph", NodeLabel(error) + error.message));
         for (const auto& node : scene.graph.nodes)
         {
-            if (node.type == NodeType::Preset && ParamsOf<PresetParams>(node).path.empty())
-                issues.push_back(Error(path + "/graph", "node \"" + node.id + "\": no preset file chosen"));
-            if (node.type != NodeType::VideoSource)
-                continue;
-            const auto& source = ParamsOf<VideoSourceParams>(node).source;
-            if (source.type == VideoSourceType::File && performance.FindVideo(source.videoId) == nullptr)
-                issues.push_back(Error(path + "/graph", "node \"" + node.id + "\": " +
-                                                            (source.videoId.empty() ? std::string("no video chosen") : "video \"" + source.videoId + "\" isn't in the video pool")));
+            std::vector<std::string> problems;
+            if (const NodeDef& def = Def(node.type); def.checkInShow != nullptr)
+                def.checkInShow(performance, node, problems);
+            for (const auto& problem : problems)
+                issues.push_back(Error(path + "/graph", "node \"" + node.id + "\": " + problem));
         }
     }
     std::set<std::string> videoIds;

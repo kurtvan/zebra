@@ -1,20 +1,26 @@
-#include "app/nodes/NodeDraw.hpp"
+#include "app/nodes/NodeUi.hpp"
 
-#include "app/Shell.hpp"
 #include "app/Widgets.hpp"
-#include "app/macos/FileDialog.hpp"
-#include "io/VideoSource.hpp"
 #include "model/Document.hpp"
 
-namespace gv::app {
+namespace gv::app::nodes {
 
 namespace {
 
-enum Popup
+using model::VideoSourceParams;
+using model::VideoSourceType;
+
+constexpr const char* kTypes[] = {"File", "Syphon"}; // by VideoSourceType
+
+auto SourceOf(const model::Node& node) -> const model::VideoSource&
 {
-    kFilePopup = 1,
-    kSyphonPopup = 2,
-};
+    return model::ParamsOf<VideoSourceParams>(node).source;
+}
+
+auto IsFile(const model::Node& node) -> bool
+{
+    return SourceOf(node).type == VideoSourceType::File;
+}
 
 auto SyphonLabel(const model::VideoSource& source) -> std::string
 {
@@ -23,7 +29,7 @@ auto SyphonLabel(const model::VideoSource& source) -> std::string
     return source.appName + (source.serverName.empty() ? "" : " / " + source.serverName);
 }
 
-/// A button that looks like a combo and opens popup `kind` (combos can't open inside the zoomed canvas).
+/// A button that looks like a combo (combos can't open inside the zoomed canvas). Returns whether it was pressed.
 auto ChoiceButton(const char* id, const std::string& label, float width) -> bool
 {
     ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.f, 0.5f));
@@ -32,145 +38,173 @@ auto ChoiceButton(const char* id, const std::string& label, float width) -> bool
     return pressed;
 }
 
-} // namespace
-
-auto VideoSourceTitle(const model::Node& node, const NodeContext& context) -> std::string
+void DrawFileChoice(const model::Node& node, NodeContext& context)
 {
-    const auto& source = model::ParamsOf<model::VideoSourceParams>(node).source;
-    if (source.type == model::VideoSourceType::Syphon)
-        return "Syphon: " + SyphonLabel(source);
-    const model::PoolVideo* video = context.performance.FindVideo(source.videoId);
-    return video != nullptr ? video->DisplayName() : "Video (none chosen)";
+    const model::PoolVideo* video = context.Performance().FindVideo(SourceOf(node).videoId);
+    if (ChoiceButton("##file", video != nullptr ? video->DisplayName() : "Choose a video", context.width))
+        context.OpenPopup(node, context.control);
+    context.Tooltip("The video from the pool. Its start point and speed are in the Videos panel.");
 }
 
-auto VideoSourceStatus(const model::Node& node, NodeContext& context) -> NodeStatus
+void DrawFileList(const model::Node& node, NodeContext& context)
 {
-    const auto& source = model::ParamsOf<model::VideoSourceParams>(node).source;
-    if (source.type == model::VideoSourceType::File)
+    const auto& performance = context.Performance();
+    for (const auto& video : performance.videos)
     {
-        const model::PoolVideo* video = context.performance.FindVideo(source.videoId);
-        if (video == nullptr)
-            return {kDim, "No video chosen."};
-        if (video->missing)
-            return {kRed, "File not found: " + video->path.string()};
-    }
-    if (context.live)
-    {
-        if (context.state.video != nullptr)
+        ImGui::PushID(video.id.c_str());
+        if (ImGui::Selectable(video.DisplayName().c_str(), video.id == SourceOf(node).videoId))
         {
-            if (const auto state = context.state.video->StateFor(context.scene))
-                return {*state == io::VideoState::Live ? kGreen : kAmber, std::string("Video: ") + io::ToString(*state)};
+            const std::string id = video.id;
+            context.EditOnce(node, "Change Video", [&](model::Node& n) { model::ParamsOf<VideoSourceParams>(n).source.videoId = id; });
         }
-        return {kGreen, "The scene is live."};
+        ImGui::PopID();
     }
-    return {ImVec4(0.85f, 0.86f, 0.9f, 1.f), "Ready."};
-}
-
-void DrawVideoSourceBody(const model::Node& node, NodeContext& context)
-{
-    const auto& params = model::ParamsOf<model::VideoSourceParams>(node);
-    const auto& source = params.source;
-
-    int type = source.type == model::VideoSourceType::Syphon ? 1 : 0;
-    bool typeChanged = ImGui::RadioButton("File", &type, 0);
-    ImGui::SameLine();
-    typeChanged |= ImGui::RadioButton("Syphon", &type, 1);
-    if (typeChanged)
+    if (performance.videos.empty())
+        ImGui::TextColored(kDim, "The video pool is empty.");
+    ImGui::Separator();
+    if (ImGui::Selectable("Add Video..."))
     {
-        const auto newType = type == 1 ? model::VideoSourceType::Syphon : model::VideoSourceType::File;
-        if (newType != source.type)
-            context.EditOnce(node, "Change Video Source", [&](model::Node& n) { model::ParamsOf<model::VideoSourceParams>(n).source.type = newType; });
-    }
-
-    if (source.type == model::VideoSourceType::File)
-    {
-        const model::PoolVideo* video = context.performance.FindVideo(source.videoId);
-        if (ChoiceButton("##file", video != nullptr ? video->DisplayName() : "Choose a video", context.width))
-            context.OpenPopup(node, kFilePopup);
-        context.Tooltip("The video from the pool. Its start point and speed are in the Videos panel.");
-        if (video != nullptr && video->missing)
-            ImGui::TextColored(kRed, "File not found.");
-    }
-    else
-    {
-        if (ChoiceButton("##syphon", SyphonLabel(source), context.width))
-            context.OpenPopup(node, kSyphonPopup);
-        context.Tooltip("The Syphon sender to show.");
-    }
-
-    bool restart = params.restartOnEnter;
-    if (ImGui::Checkbox("Restart on scene start", &restart))
-        context.EditOnce(node, "Change Restart", [&](model::Node& n) { model::ParamsOf<model::VideoSourceParams>(n).restartOnEnter = restart; });
-    context.Tooltip("On: the video starts from its start point whenever the scene goes live.\nOff: it carries on from where it was.");
-    if (source.type == model::VideoSourceType::File)
-    {
-        bool loop = params.loop;
-        if (ImGui::Checkbox("Loop", &loop))
-            context.EditOnce(node, loop ? "Loop Video" : "Play Video Once", [&](model::Node& n) { model::ParamsOf<model::VideoSourceParams>(n).loop = loop; });
-        context.Tooltip("On: the video loops back to its start point at the end.\nOff: it plays to the end once and holds its last frame.");
+        ImGui::CloseCurrentPopup();
+        if (auto file = context.ChooseFile("Add a video", kVideoExtensions))
+        {
+            // The pool and the node change together, as one step.
+            const auto path = *file;
+            const std::string nodeId = node.id;
+            context.EditPerformance(
+                [&](model::Performance& edited, model::Graph& graph) {
+                    const std::string id = model::AddPoolVideo(edited, path);
+                    if (model::Node* n = graph.Find(nodeId))
+                        model::ParamsOf<VideoSourceParams>(*n).source = {VideoSourceType::File, id, {}, {}, {}};
+                },
+                "Change Video");
+        }
     }
 }
 
-void DrawVideoSourcePopup(const model::Node& node, int kind, NodeContext& context)
+void DrawSyphonChoice(const model::Node& node, NodeContext& context)
 {
-    const auto& source = model::ParamsOf<model::VideoSourceParams>(node).source;
-    if (kind == kFilePopup)
+    if (ChoiceButton("##syphon", SyphonLabel(SourceOf(node)), context.width))
+        context.OpenPopup(node, context.control);
+    context.Tooltip("The Syphon sender to show.");
+}
+
+void DrawSyphonList(const model::Node& node, NodeContext& context)
+{
+    const std::string current = SyphonLabel(SourceOf(node));
+    if (ImGui::Selectable("Any sender", current == "Any sender"))
     {
-        for (const auto& video : context.performance.videos)
-        {
-            ImGui::PushID(video.id.c_str());
-            if (ImGui::Selectable(video.DisplayName().c_str(), video.id == source.videoId))
-            {
-                const std::string id = video.id;
-                context.EditOnce(node, "Change Video", [&](model::Node& n) { model::ParamsOf<model::VideoSourceParams>(n).source.videoId = id; });
-            }
-            ImGui::PopID();
-        }
-        if (context.performance.videos.empty())
-            ImGui::TextColored(kDim, "The video pool is empty.");
-        ImGui::Separator();
-        if (ImGui::Selectable("Add Video..."))
-        {
-            ImGui::CloseCurrentPopup();
-            if (auto file = ChooseFile("Add a video", kVideoExtensions))
-            {
-                // The pool and the node change together, as one step.
-                auto edited = context.performance;
-                const std::string id = model::AddPoolVideo(edited, *file);
-                if (model::Node* n = edited.scenes[static_cast<size_t>(context.scene)].graph.Find(node.id))
-                    model::ParamsOf<model::VideoSourceParams>(*n).source = {model::VideoSourceType::File, id, {}, {}, {}};
-                context.actions.Edit(std::move(edited), "Change Video");
-                context.actions.EndEdit();
-            }
-        }
+        context.EditOnce(node, "Change Syphon Server", [](model::Node& n) {
+            auto& source = model::ParamsOf<VideoSourceParams>(n).source;
+            source.appName.clear();
+            source.serverName.clear();
+        });
     }
-    else if (kind == kSyphonPopup)
+    const auto servers = context.SyphonServers();
+    for (const auto& server : servers)
     {
-        const std::string current = SyphonLabel(source);
-        if (ImGui::Selectable("Any sender", current == "Any sender"))
+        const std::string label = server.appName + (server.serverName.empty() ? "" : " / " + server.serverName);
+        if (ImGui::Selectable(label.c_str(), label == current))
         {
-            context.EditOnce(node, "Change Syphon Server", [](model::Node& n) {
-                auto& s = model::ParamsOf<model::VideoSourceParams>(n).source;
-                s.appName.clear();
-                s.serverName.clear();
+            context.EditOnce(node, "Change Syphon Server", [&](model::Node& n) {
+                auto& source = model::ParamsOf<VideoSourceParams>(n).source;
+                source.appName = server.appName;
+                source.serverName = server.serverName;
             });
         }
-        const auto servers = io::ListSyphonServers();
-        for (const auto& server : servers)
-        {
-            const std::string label = server.appName + (server.serverName.empty() ? "" : " / " + server.serverName);
-            if (ImGui::Selectable(label.c_str(), label == current))
-            {
-                context.EditOnce(node, "Change Syphon Server", [&](model::Node& n) {
-                    auto& s = model::ParamsOf<model::VideoSourceParams>(n).source;
-                    s.appName = server.appName;
-                    s.serverName = server.serverName;
-                });
-            }
-        }
-        if (servers.empty())
-            ImGui::TextColored(kDim, "No Syphon servers are running.");
     }
+    if (servers.empty())
+        ImGui::TextColored(kDim, "No Syphon servers are running.");
 }
 
-} // namespace gv::app
+} // namespace
+
+auto VideoSourceUi() -> NodeUi
+{
+    NodeUi ui;
+    ui.type = model::NodeType::VideoSource;
+    ui.width = 240.f;
+    ui.header = ImVec4(0.19f, 0.32f, 0.52f, 0.60f);
+    ui.menuGroup = 0;
+    ui.title = [](const model::Node& node, NodeContext& context) -> std::string {
+        const auto& source = SourceOf(node);
+        if (source.type == VideoSourceType::Syphon)
+            return "Syphon: " + SyphonLabel(source);
+        const model::PoolVideo* video = context.Performance().FindVideo(source.videoId);
+        return video != nullptr ? video->DisplayName() : "Video (none chosen)";
+    };
+    ui.status = [](const model::Node& node, NodeContext& context) -> NodeStatus {
+        if (IsFile(node))
+        {
+            const model::PoolVideo* video = context.Performance().FindVideo(SourceOf(node).videoId);
+            if (video == nullptr)
+                return {NodeState::Empty, "No video chosen."};
+            if (video->missing)
+                return {NodeState::Missing, "File not found: " + video->path.string()};
+        }
+        if (context.Live())
+        {
+            if (const auto video = context.VideoState())
+                return {video->first ? NodeState::Live : NodeState::Waiting, video->second};
+            return {NodeState::Live, "The scene is live."};
+        }
+        return {NodeState::Ready, "Ready."};
+    };
+
+    Control type;
+    type.kind = Control::Kind::Choice;
+    type.id = "##type";
+    type.radio = true;
+    type.options = kTypes;
+    type.get = [](const model::Node& node) { return static_cast<double>(SourceOf(node).type); };
+    type.set = [](model::Node& node, double value) { model::ParamsOf<VideoSourceParams>(node).source.type = static_cast<VideoSourceType>(value); };
+    type.undo = "Change Video Source";
+
+    Control file;
+    file.id = "##file";
+    file.draw = DrawFileChoice;
+    file.popup = DrawFileList;
+    file.visible = IsFile;
+    Control syphon;
+    syphon.id = "##syphon";
+    syphon.draw = DrawSyphonChoice;
+    syphon.popup = DrawSyphonList;
+    syphon.visible = [](const model::Node& node) { return !IsFile(node); };
+
+    Control missing;
+    missing.kind = Control::Kind::Text;
+    missing.warning = true;
+    missing.visible = IsFile;
+    missing.text = [](const model::Node& node, NodeContext& context) -> std::string {
+        const model::PoolVideo* video = context.Performance().FindVideo(SourceOf(node).videoId);
+        return video != nullptr && video->missing ? "File not found." : "";
+    };
+
+    Control restart;
+    restart.kind = Control::Kind::Checkbox;
+    restart.id = "##restart";
+    restart.label = "Restart on scene start";
+    restart.get = ParamGet<VideoSourceParams, &VideoSourceParams::restartOnEnter>;
+    restart.set = ParamSet<VideoSourceParams, &VideoSourceParams::restartOnEnter>;
+    restart.undo = "Change Restart";
+    restart.tooltip = "On: the video starts from its start point whenever the scene goes live.\nOff: it carries on from where it was.";
+
+    Control loop;
+    loop.kind = Control::Kind::Checkbox;
+    loop.id = "##loop";
+    loop.label = "Loop";
+    loop.get = ParamGet<VideoSourceParams, &VideoSourceParams::loop>;
+    loop.set = ParamSet<VideoSourceParams, &VideoSourceParams::loop>;
+    loop.undo = "Loop Video";
+    loop.undoOff = "Play Video Once";
+    loop.tooltip = "On: the video loops back to its start point at the end.\nOff: it plays to the end once and holds its last frame.";
+    loop.visible = IsFile;
+
+    ui.controls = {type, file, syphon, missing, restart, loop};
+    ui.addItems = {
+        {"Video file"},
+        {"Syphon video", [](model::Node& node) { model::ParamsOf<VideoSourceParams>(node).source.type = VideoSourceType::Syphon; }},
+    };
+    return ui;
+}
+
+} // namespace gv::app::nodes

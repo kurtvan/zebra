@@ -1,6 +1,7 @@
 #pragma once
 
 #include "model/Graph.hpp"
+#include "model/nodes/NodeDef.hpp"
 
 #include <filesystem>
 #include <map>
@@ -10,22 +11,7 @@
 namespace gv::engine {
 
 /// One effect of a video branch, in the order the video passes through it.
-struct EffectPass
-{
-    enum class Type
-    {
-        Contrast,   //!< a: contrast
-        Saturation, //!< a: saturation
-        LumaGate,   //!< a: threshold, b: softness, flag: invert
-        Mix,        //!< a: opacity
-    };
-    Type type{Type::Contrast};
-    float a{0.0f};
-    float b{0.0f};
-    bool flag{false};
-
-    auto operator==(const EffectPass&) const -> bool = default;
-};
+using model::EffectPass;
 
 /// The video's path from the active source into one preset input.
 struct VideoBranch
