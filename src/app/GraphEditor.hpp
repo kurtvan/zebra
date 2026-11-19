@@ -153,6 +153,7 @@ private:
     std::vector<model::GraphError> m_pendingErrors;
     bool m_hovered{false};
     bool m_fitRequested{false};
+    bool m_previewBehind{false}; //!< The live output is drawn behind the nodes this frame.
     bool m_choosePreset{false}; //!< The add menu's "Preset..." was picked: ask for a file after the canvas.
     const model::Graph* m_graph{nullptr};
     float m_zoom{1.f};

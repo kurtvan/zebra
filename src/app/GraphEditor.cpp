@@ -3,6 +3,7 @@
 #include "app/Shell.hpp"
 #include "app/Widgets.hpp"
 #include "app/macos/FileDialog.hpp"
+#include "common/FitRect.hpp"
 #include "library/PresetParsing.hpp"
 
 #include <imgui_internal.h>
@@ -307,7 +308,32 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     if (ImGui::SmallButton("Fit"))
         m_fitRequested = true;
     ImGui::SameLine();
-    ImGui::TextColored(kDim, "%.0f%%   Scroll: pan.  Cmd+scroll: zoom.  Right-click: add a node.  Drag from a pin: wire.  Delete: remove the selection.", m_zoom * 100.f);
+    ImGui::TextColored(kDim, "%.0f%%", m_zoom * 100.f);
+    Settings* settings = state.settings;
+    if (settings != nullptr)
+    {
+        ImGui::SameLine(0.f, 16.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 1));
+        if (ImGui::Checkbox("Preview behind", &settings->graphPreview))
+            actions.SettingsChanged();
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Shows the live output behind the nodes. Dimmed further while the scene on the canvas isn't the live one.");
+        if (settings->graphPreview)
+        {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(110.f);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 1));
+            float dim = settings->graphPreviewDim * 100.f;
+            if (ImGui::SliderFloat("##dim", &dim, 0.f, 90.f, "dim %.0f%%"))
+                settings->graphPreviewDim = dim / 100.f;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                actions.SettingsChanged();
+            ImGui::PopStyleVar();
+        }
+    }
+    ImGui::SameLine(0.f, 16.f);
+    ImGui::TextColored(kDim, "Scroll: pan.  Cmd+scroll: zoom.  Right-click: add.  Delete: remove.");
 
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 size(std::max(ImGui::GetContentRegionAvail().x, 50.f), std::max(ImGui::GetContentRegionAvail().y, 50.f));
@@ -326,7 +352,27 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
         io.MouseWheelH = 0.f;
     }
 
+    // The live output behind the nodes, letterboxed, darkened so the nodes stay readable.
+    const engine::Engine* engine = state.engine;
+    const bool liveHere = engine != nullptr && engine->LiveScene() == sceneIndex;
+    m_previewBehind = settings != nullptr && settings->graphPreview && state.preview != 0 && engine != nullptr;
+    if (m_previewBehind)
+    {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const Rect fit = FitRect(engine->RenderWidth(), engine->RenderHeight(), static_cast<int>(size.x), static_cast<int>(size.y));
+        const ImVec2 min(origin.x + static_cast<float>(fit.x), origin.y + static_cast<float>(fit.y));
+        const ImVec2 max(min.x + static_cast<float>(fit.width), min.y + static_cast<float>(fit.height));
+        draw->AddRectFilled(origin, corner, IM_COL32_BLACK);
+        draw->AddImage(static_cast<ImTextureID>(state.preview), min, max, ImVec2(0, 1), ImVec2(1, 0)); // GL is bottom-up
+        float dim = settings->graphPreviewDim;
+        if (!liveHere)
+            dim += (1.f - dim) * 0.6f; // another scene's output: mostly out of the way
+        draw->AddRectFilled(origin, corner, IM_COL32(0, 0, 0, static_cast<int>(dim * 255.f)));
+    }
+
     ed::SetCurrentEditor(canvas.context);
+    if (m_previewBehind)
+        ed::PushStyleColor(ed::StyleColor_Bg, ImVec4(0, 0, 0, 0));
     ed::Begin("graph", size);
     if (canvas.frames == 1 || m_fitRequested) // node sizes are known after the first frame
     {
@@ -428,7 +474,19 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
 
     DrawPopups(context, graph, sceneIndex);
     ed::End();
+    if (m_previewBehind)
+        ed::PopStyleColor();
     ed::SetCurrentEditor(nullptr);
+
+    // Whose output is behind the nodes, when it isn't this scene's.
+    if (m_previewBehind && !liveHere)
+    {
+        const int live = engine->LiveScene();
+        const std::string label = live >= 0 && live < static_cast<int>(performance.scenes.size())
+                                      ? "Behind: live scene \"" + performance.scenes[static_cast<size_t>(live)].DisplayName() + "\""
+                                      : std::string("Behind: nothing is live");
+        ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + 10.f, origin.y + 8.f), ImGui::GetColorU32(kDim), label.c_str());
+    }
 
     HandleDrop(state, actions, sceneIndex, graph, origin, corner);
 
@@ -663,7 +721,8 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
             continue;
         const uint64_t key = WireKey(wire);
         m_wires[key] = wire;
-        ed::Link(key, OutputKey(wire.fromNode), InputKey(wire.toNode, wire.toInput, wire.textureName), KindColor(*kind), 2.f);
+        // Thicker over the preview, to stand out from the visuals.
+        ed::Link(key, OutputKey(wire.fromNode), InputKey(wire.toNode, wire.toInput, wire.textureName), KindColor(*kind), m_previewBehind ? 3.f : 2.f);
     }
 }
 
