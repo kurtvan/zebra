@@ -1,5 +1,6 @@
 #include "app/Shell.hpp"
 
+#include "app/Widgets.hpp"
 #include "app/macos/FileDialog.hpp"
 #include "common/FitRect.hpp"
 
@@ -26,17 +27,8 @@ constexpr const char* kBrowser = "Presets";
 constexpr const char* kStatus = "Status";
 constexpr const char* kMessages = "Messages";
 constexpr const char* kVideos = "Videos";
+constexpr const char* kGraph = "Graph";
 constexpr const char* kSceneDragPayload = "GV_SCENE";
-constexpr const char* kPresetDragPayload = "GV_PRESET"; //!< Payload: a preset's absolute path (NUL-terminated).
-constexpr const char* kVideoDragPayload = "GV_VIDEO";   //!< Payload: a pool video's id (NUL-terminated).
-
-const ImVec4 kAccent{0.29f, 0.72f, 0.70f, 1.f};
-const ImVec4 kGreen{0.36f, 0.82f, 0.48f, 1.f};
-const ImVec4 kAmber{0.96f, 0.72f, 0.30f, 1.f};
-const ImVec4 kRed{0.96f, 0.42f, 0.42f, 1.f};
-const ImVec4 kDim{0.58f, 0.60f, 0.64f, 1.f};
-
-const std::vector<std::string> kVideoExtensions = {"mp4", "mov", "m4v"};
 
 constexpr double kGpuBudgetMs = 1000.0 / 60.0; //!< Over this, the live scene can't keep up with 60 fps.
 
@@ -57,18 +49,6 @@ constexpr CanvasPreset kCanvasPresets[] = {
 auto CanvasSize(int size) -> int
 {
     return std::clamp(size, model::kMinCanvasSize, model::kMaxCanvasSize) & ~1;
-}
-
-auto Lower(std::string text) -> std::string
-{
-    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return text;
-}
-
-auto IsVideoFile(const std::filesystem::path& file) -> bool
-{
-    const auto extension = Lower(file.extension().string());
-    return extension == ".mp4" || extension == ".mov" || extension == ".m4v";
 }
 
 auto StateLabel(const engine::Engine::SceneInfo& info, bool pending, ImVec4& color) -> const char*
@@ -102,29 +82,6 @@ auto StateLabel(const engine::Engine::SceneInfo& info, bool pending, ImVec4& col
     return "";
 }
 
-/// A small star toggle drawn with the draw list (the UI font has no star glyph).
-auto StarButton(const char* id, bool on, float size = 15.f) -> bool
-{
-    const ImVec2 position = ImGui::GetCursorScreenPos();
-    const bool pressed = ImGui::InvisibleButton(id, ImVec2(size, size));
-    const bool hovered = ImGui::IsItemHovered();
-    const ImVec2 center(position.x + size * 0.5f, position.y + size * 0.5f + 0.5f);
-    ImVec2 points[10];
-    for (int i = 0; i < 10; ++i)
-    {
-        const float radius = (i % 2 == 0) ? size * 0.5f : size * 0.21f;
-        const float angle = -1.5707963f + static_cast<float>(i) * 0.6283185f;
-        points[i] = ImVec2(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius);
-    }
-    ImDrawList* draw = ImGui::GetWindowDrawList();
-    const ImU32 colour = ImGui::GetColorU32(on ? kAmber : (hovered ? ImVec4(0.8f, 0.8f, 0.85f, 1.f) : ImVec4(0.42f, 0.44f, 0.48f, 1.f)));
-    if (on)
-        draw->AddConcavePolyFilled(points, 10, colour);
-    else
-        draw->AddPolyline(points, 10, colour, ImDrawFlags_Closed, 1.2f);
-    return pressed;
-}
-
 /// A level meter, vertically centred on the current text line (a ProgressBar sits at the top of the line).
 void LevelMeter(float level, float width, float height)
 {
@@ -152,28 +109,6 @@ auto ClockText(const io::ClockState& clock) -> std::string
     else
         std::snprintf(text, sizeof(text), "%.1f BPM  stopped", clock.bpm);
     return text;
-}
-
-/// Starts dragging a preset (to drop it on a scene).
-void PresetDragSource(const std::filesystem::path& preset, const std::string& label)
-{
-    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
-    {
-        const std::string path = preset.string();
-        ImGui::SetDragDropPayload(kPresetDragPayload, path.c_str(), path.size() + 1);
-        ImGui::Text("%s", label.c_str());
-        ImGui::TextColored(kDim, "Drop on a scene to use it, below the list to add a scene,\nor on the preview to put it in the live scene");
-        ImGui::EndDragDropSource();
-    }
-}
-
-/// A one-line help marker.
-void Hint(const char* text)
-{
-    ImGui::SameLine();
-    ImGui::TextColored(kDim, "(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", text);
 }
 
 } // namespace
@@ -273,14 +208,26 @@ void Shell::Draw(ShellState& state, AppActions& actions)
         m_layoutBuilt = true;
     }
 
+    m_gridVisible.clear();
+    m_gridPrefetch.clear();
+    m_graph.ClearWantedThumbnails();
     DrawPreview(state, actions);
     DrawScenes(state, actions);
     DrawSceneProperties(state, actions);
+    DrawGraph(state, actions);
     DrawSetup(state, actions);
     DrawBrowser(state, actions);
     DrawVideos(state, actions);
     DrawStatus(state);
     DrawMessages(state);
+
+    // Thumbnails: the canvas's preset nodes first, then the browser's tiles.
+    if (state.thumbnails != nullptr)
+    {
+        auto visible = m_graph.WantedThumbnails();
+        visible.insert(visible.end(), m_gridVisible.begin(), m_gridVisible.end());
+        state.thumbnails->SetWanted(std::move(visible), std::move(m_gridPrefetch));
+    }
 }
 
 void Shell::BuildDefaultLayout(unsigned int dockspace)
@@ -288,7 +235,13 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     ImGuiDockNode* node = ImGui::DockBuilderGetNode(dockspace);
     if (node != nullptr && !node->IsLeafNode())
     {
-        return; // a saved layout exists
+        // A saved layout exists. From before the node canvas: put the canvas next to the preview.
+        if (ImGui::FindWindowSettingsByID(ImHashStr(kGraph)) == nullptr)
+        {
+            if (const ImGuiWindowSettings* preview = ImGui::FindWindowSettingsByID(ImHashStr(kPreview)); preview != nullptr && preview->DockId != 0)
+                ImGui::DockBuilderDockWindow(kGraph, preview->DockId);
+        }
+        return;
     }
     ImGui::DockBuilderRemoveNode(dockspace);
     ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
@@ -298,6 +251,7 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.27f, nullptr, &center);
     const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.31f, nullptr, &center);
     const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.40f, nullptr, &center);
+    const ImGuiID graph = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.55f, nullptr, &center);
 
     ImGui::DockBuilderDockWindow(kScenes, left);
     ImGui::DockBuilderDockWindow(kProperties, right);
@@ -307,6 +261,7 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     ImGui::DockBuilderDockWindow(kStatus, bottom);
     ImGui::DockBuilderDockWindow(kMessages, bottom);
     ImGui::DockBuilderDockWindow(kPreview, center);
+    ImGui::DockBuilderDockWindow(kGraph, graph);
     ImGui::DockBuilderFinish(dockspace);
     m_showBrowserTab = 2; // the browser, not the last docked tab, should be in front (after docking settles)
 }
@@ -710,8 +665,21 @@ void Shell::HandleDrops(ShellState& state, AppActions& actions, int hoveredScene
     {
         return;
     }
-    auto edited = state.document->Get();
     int& selected = *state.selectedScene;
+    if (m_graph.Hovered() && selected >= 0 && selected < static_cast<int>(state.document->Get().scenes.size()))
+    {
+        // Dropped on the node canvas: preset and video nodes where they land.
+        std::vector<std::filesystem::path> files;
+        for (const auto& file : *state.droppedFiles)
+        {
+            if (Lower(file.extension().string()) == ".milk" || IsVideoFile(file))
+                files.push_back(file);
+        }
+        state.droppedFiles->clear();
+        m_graph.DropFiles(state, actions, selected, files);
+        return;
+    }
+    auto edited = state.document->Get();
     int changes = 0;
     for (const auto& file : *state.droppedFiles)
     {
@@ -720,8 +688,7 @@ void Shell::HandleDrops(ShellState& state, AppActions& actions, int hoveredScene
         {
             if (hoveredScene >= 0 && state.droppedFiles->size() == 1)
             {
-                const auto& target = edited.scenes[static_cast<size_t>(hoveredScene)];
-                model::ReplacePreset(edited, hoveredScene, target.IsPlaylist() ? SelectedEntry(target) : 0, file);
+                PutPreset(edited, hoveredScene, file);
                 selected = hoveredScene;
             }
             else if (const int index = model::AddScene(edited, static_cast<int>(edited.scenes.size()) - 1, file); index >= 0)
@@ -784,19 +751,6 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
     };
 
     const bool isLive = state.engine->LiveScene() == index;
-    // While the scene is live, the selected playlist entry follows the one on screen, so the Video sliders
-    // change what you see. Clicking another entry selects it until the playlist moves on (never mid-drag).
-    if (isLive && scene.IsPlaylist())
-    {
-        const int onScreen = state.engine->LiveItem();
-        if ((m_followScene != scene.id || m_followEntry != onScreen) && !ImGui::IsAnyItemActive())
-        {
-            m_followScene = scene.id;
-            m_followEntry = onScreen;
-            m_entryScene = scene.id;
-            m_entry = onScreen;
-        }
-    }
     ImGui::BeginDisabled(isLive);
     if (ImGui::Button(isLive ? "Live" : "Go Live", ImVec2(110, 0)))
         actions.Trigger(index);
@@ -826,52 +780,6 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
             ImGui::TextColored(kRed, "Also used by \"%s\": change one before saving.", performance.scenes[static_cast<size_t>(other)].DisplayName().c_str());
             break;
         }
-    }
-
-    const auto info = state.engine->Scene(index);
-    ImGui::SeparatorText(scene.IsPlaylist() ? "Presets" : "Preset");
-    if (!scene.classicShape)
-    {
-        ImGui::TextColored(kAmber, "This scene can only be edited on the node canvas.");
-    }
-    else if (scene.IsPlaylist())
-    {
-        DrawPlaylist(state, actions, index, info);
-    }
-    else
-    {
-        const auto& presetPath = scene.classic.presetPath;
-        if (state.library != nullptr && state.favourites != nullptr)
-        {
-            if (const std::string id = state.library->IdForPath(presetPath); !id.empty() && state.library->Find(id) != nullptr)
-            {
-                if (StarButton("##favourite-scene-preset", state.favourites->Contains(id)))
-                    actions.ToggleFavourite(id);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Favourite");
-                ImGui::SameLine();
-            }
-        }
-        ImGui::TextWrapped("%s", presetPath.empty() ? "(none)" : presetPath.filename().c_str());
-        if (scene.presetMissing)
-            ImGui::TextColored(kRed, "File not found.");
-        if (ImGui::Button("Choose Preset..."))
-        {
-            if (auto file = ChooseFile("Choose a preset", {"milk"}))
-            {
-                auto edited = performance;
-                model::ReplacePreset(edited, index, 0, *file);
-                actions.Edit(std::move(edited), "Change Preset");
-            }
-            actions.EndEdit();
-        }
-        ImGui::SameLine();
-        ImGui::BeginDisabled(scene.presetMissing || presetPath.empty());
-        if (ImGui::Button("Reveal"))
-            RevealInFinder(presetPath);
-        ImGui::EndDisabled();
-        if (info.frameMs > 0.0)
-            ImGui::TextColored(info.heavy ? kAmber : kDim, "%.1f ms per frame%s", info.frameMs, info.heavy ? ": too heavy for 60 fps" : "");
     }
 
     ImGui::SeparatorText("Beat hits");
@@ -914,7 +822,24 @@ void Shell::DrawSceneProperties(ShellState& state, AppActions& actions)
             ImGui::TextColored(kDim, "Counting from the clock's start: no song position, so hits may not land on the bar's first beat.");
     }
 
-    DrawVideoSummary(state, index);
+    ImGui::Spacing();
+    ImGui::TextColored(kDim, "Presets, video and how they're wired: the Graph panel.");
+    ImGui::End();
+}
+
+void Shell::DrawGraph(ShellState& state, AppActions& actions)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
+    const bool open = ImGui::Begin(kGraph);
+    ImGui::PopStyleVar();
+    const int index = *state.selectedScene;
+    if (open)
+    {
+        if (index < 0 || index >= static_cast<int>(state.document->Get().scenes.size()))
+            ImGui::TextColored(kDim, "Select a scene to see its graph.");
+        else
+            m_graph.Draw(state, actions, index);
+    }
     ImGui::End();
 }
 
@@ -1076,184 +1001,16 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
     ImGui::End();
 }
 
-auto Shell::SelectedEntry(const model::Scene& scene) const -> int
+void Shell::PutPreset(model::Performance& edited, int index, const std::filesystem::path& preset) const
 {
-    if (m_entryScene == scene.id && m_entry >= 0 && m_entry < static_cast<int>(scene.classic.playlist.presets.size()))
-        return m_entry;
-    return 0;
-}
-
-namespace {
-
-/// "Changes every 4 bars, shuffled", for preset and video playlists.
-template <class Playlist>
-auto TimingText(const Playlist& p) -> std::string
-{
-    char every[64];
-    if (p.unit == model::IntervalUnit::Seconds)
-        std::snprintf(every, sizeof(every), "%.3g s", p.intervalSeconds);
-    else
-        std::snprintf(every, sizeof(every), "%d %s", p.intervalCount,
-                      p.unit == model::IntervalUnit::Bars ? (p.intervalCount == 1 ? "bar" : "bars") : (p.intervalCount == 1 ? "beat" : "beats"));
-    return std::string("Changes every ") + every + (p.shuffle ? ", shuffled" : ", top to bottom");
-}
-
-void ReadOnlyRow(const char* label, const char* format, ...) IM_FMTARGS(2);
-void ReadOnlyRow(const char* label, const char* format, ...)
-{
-    ImGui::TextColored(kDim, "%s", label);
-    ImGui::SameLine(110.f);
-    va_list args;
-    va_start(args, format);
-    ImGui::TextV(format, args);
-    va_end(args);
-}
-
-constexpr const char* kCanvasNote = "Read-only for now: this moves to the node canvas.";
-
-} // namespace
-
-void Shell::DrawVideoSummary(const ShellState& state, int index)
-{
-    const auto& performance = state.document->Get();
-    const auto& scene = performance.scenes[static_cast<size_t>(index)];
-    const auto& video = scene.classic.video;
-    ImGui::SeparatorText("Video");
-    ImGui::TextColored(kDim, "%s", kCanvasNote);
-    if (!scene.classicShape)
-        return;
-    if (!video.enabled)
+    auto& scene = edited.scenes[static_cast<size_t>(index)];
+    if (model::Node* node = scene.graph.Find(m_graph.SelectedNode(scene.id)); node != nullptr && node->type == model::NodeType::Preset)
     {
-        ImGui::TextUnformatted("No video. Drop a video on the scene to add one.");
+        model::ParamsOf<model::PresetParams>(*node).path = preset;
+        scene.Refresh();
         return;
     }
-
-    if (video.source.type == model::VideoSourceType::Syphon)
-    {
-        const auto& source = video.source;
-        ReadOnlyRow("Syphon", "%s", source.appName.empty() && source.serverName.empty()
-                                        ? "Any sender"
-                                        : (source.appName + (source.serverName.empty() ? "" : " / " + source.serverName)).c_str());
-    }
-    else if (scene.IsVideoPlaylist())
-    {
-        const auto& playlist = video.playlist;
-        const bool live = state.engine != nullptr && state.engine->LiveScene() == index;
-        const int playing = live && state.video != nullptr ? state.video->VideoItemFor(index) : -1;
-        ImGui::TextUnformatted("Video playlist");
-        ImGui::TextColored(kDim, "%s", TimingText(playlist).c_str());
-        for (int i = 0; i < static_cast<int>(playlist.videos.size()); ++i)
-        {
-            const model::PoolVideo* pool = performance.FindVideo(playlist.videos[static_cast<size_t>(i)]);
-            const bool missing = pool == nullptr || pool->missing;
-            ImGui::TextColored(missing ? kRed : (i == playing ? kGreen : ImGui::GetStyleColorVec4(ImGuiCol_Text)), "%d. %s%s", i + 1,
-                               pool != nullptr ? pool->DisplayName().c_str() : playlist.videos[static_cast<size_t>(i)].c_str(),
-                               missing ? "  (file not found)" : "");
-        }
-    }
-    else
-    {
-        const model::PoolVideo* current = performance.VideoFor(scene);
-        ReadOnlyRow("File", "%s", current != nullptr ? current->DisplayName().c_str() : "(no video)");
-        if (scene.videoMissing)
-            ImGui::TextColored(kRed, "File not found.");
-    }
-    if (state.video != nullptr)
-    {
-        if (const auto videoState = state.video->StateFor(index))
-            ImGui::TextColored(*videoState == io::VideoState::Live ? kGreen : kAmber, "Status: %s", io::ToString(*videoState));
-    }
-
-    // The look: the selected playlist entry's, or the scene's.
-    const int lookItem = scene.IsPlaylist() ? SelectedEntry(scene) : -1;
-    const model::VideoLook& look = scene.LookFor(lookItem);
-    ImGui::Spacing();
-    if (lookItem >= 0)
-        ImGui::TextColored(kAccent, "Look for preset %d: %s", lookItem + 1, scene.classic.playlist.presets[static_cast<size_t>(lookItem)].stem().c_str());
-    ReadOnlyRow("Mix", "%.2f", look.mix);
-    ReadOnlyRow("Luma gate", "%.2f%s", look.lumaMin, video.invertLuma ? ", inverted" : "");
-    ReadOnlyRow("Contrast", look.contrast < 10.f ? "%.2f" : "%.0f", look.contrast);
-    ReadOnlyRow("Saturation", "%.2f", look.saturation);
-    if (look.overlay)
-        ReadOnlyRow("Overlay", "on top, softness %.2f", look.softness);
-    else
-        ReadOnlyRow("Overlay", "off");
-    ReadOnlyRow("On entry", "%s", video.restartOnEnter ? "restarts the video" : "carries on");
-    if (video.source.type == model::VideoSourceType::File)
-        ReadOnlyRow("At the end", "%s", video.loop ? "loops" : "holds the last frame");
-}
-
-void Shell::DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info)
-{
-    const auto& performance = state.document->Get();
-    const auto& scene = performance.scenes[static_cast<size_t>(index)];
-    const auto& playlist = scene.classic.playlist;
-    const int selectedEntry = SelectedEntry(scene);
-
-    ImGui::TextColored(kDim, "%s", TimingText(playlist).c_str());
-    if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()) && info.waitingForClock)
-        ImGui::TextColored(kAmber, "Now %d of %zu, waiting for MIDI clock (Ableton stopped, or Sync off)", info.playlistItem + 1, playlist.presets.size());
-    else if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()) && info.beatsToNextItem >= 0.0)
-        ImGui::TextColored(kGreen, "Now %d of %zu, next in %.0f beat%s", info.playlistItem + 1, playlist.presets.size(), std::ceil(info.beatsToNextItem),
-                           std::ceil(info.beatsToNextItem) == 1.0 ? "" : "s");
-    else if (info.playlistItem >= 0 && info.playlistItem < static_cast<int>(playlist.presets.size()))
-        ImGui::TextColored(kGreen, "Now %d of %zu, next in %.0f s", info.playlistItem + 1, playlist.presets.size(), info.secondsToNextItem);
-
-    // The list: click selects an entry (its look shows below, and Replace changes its preset);
-    // double-click goes live on it.
-    const float rowHeight = ImGui::GetFrameHeightWithSpacing();
-    const float padding = ImGui::GetStyle().WindowPadding.y * 2.f;
-    ImGui::SetNextWindowSizeConstraints(ImVec2(0, rowHeight * 2.f + padding), ImVec2(FLT_MAX, rowHeight * 9.f + padding));
-    ImGui::BeginChild("playlist", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
-    for (int i = 0; i < static_cast<int>(playlist.presets.size()); ++i)
-    {
-        ImGui::PushID(i);
-        const auto& preset = playlist.presets[static_cast<size_t>(i)];
-        const bool missing = i < static_cast<int>(scene.playlistMissing.size()) && scene.playlistMissing[static_cast<size_t>(i)];
-        const bool playing = i == info.playlistItem;
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(playing ? kGreen : kDim, "%d", i + 1);
-        ImGui::SameLine(30.f);
-        ImGui::PushStyleColor(ImGuiCol_Text, missing ? kRed : (playing ? kGreen : ImGui::GetStyleColorVec4(ImGuiCol_Text)));
-        const std::string name = preset.stem().string() + (missing ? "  (missing)" : "");
-        if (ImGui::Selectable(name.c_str(), i == selectedEntry, ImGuiSelectableFlags_AllowDoubleClick))
-        {
-            m_entryScene = scene.id;
-            m_entry = i;
-            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !missing)
-                actions.TriggerItem(index, i);
-        }
-        ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s\nClick to select (its look shows under Video); double-click to go live on it.", preset.c_str());
-        ImGui::PopID();
-    }
-    ImGui::EndChild();
-    if (ImGui::BeginDragDropTarget())
-    {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPresetDragPayload))
-        {
-            auto edited = performance;
-            model::ReplacePreset(edited, index, selectedEntry, static_cast<const char*>(payload->Data));
-            actions.Edit(std::move(edited), "Replace Playlist Preset");
-            actions.EndEdit();
-        }
-        ImGui::EndDragDropTarget();
-    }
-
-    if (ImGui::Button("Replace Selected..."))
-    {
-        if (auto file = ChooseFile("Replace the selected preset", {"milk"}))
-        {
-            auto edited = performance;
-            model::ReplacePreset(edited, index, selectedEntry, *file);
-            actions.Edit(std::move(edited), "Replace Playlist Preset");
-        }
-        actions.EndEdit();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Puts another preset in place of the selected one (keeping its look). Dropping a preset on the list does the same.");
-    ImGui::TextColored(kDim, "Adding, removing and reordering presets moves to the node canvas.");
+    model::ReplacePreset(edited, index, 0, preset);
 }
 
 void Shell::AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene)
@@ -1261,10 +1018,8 @@ void Shell::AssignPreset(ShellState& state, AppActions& actions, const std::file
     auto edited = state.document->Get();
     if (scene >= 0 && scene < static_cast<int>(edited.scenes.size()))
     {
-        const auto& target = edited.scenes[static_cast<size_t>(scene)];
-        const bool playlist = target.IsPlaylist();
-        model::ReplacePreset(edited, scene, playlist ? SelectedEntry(target) : 0, preset);
-        actions.Edit(std::move(edited), playlist ? "Replace Playlist Preset" : "Change Preset");
+        PutPreset(edited, scene, preset);
+        actions.Edit(std::move(edited), "Change Preset");
         *state.selectedScene = scene;
     }
     else if (const int index = model::AddScene(edited, static_cast<int>(edited.scenes.size()) - 1, preset); index >= 0)
@@ -1293,11 +1048,6 @@ auto Shell::ReplaceLivePreset(const ShellState& state, AppActions& actions, cons
         actions.TriggerItem(live, item);
     *state.selectedScene = live;
     m_scrollToScene = live;
-    if (playlist)
-    {
-        m_entryScene = sceneId;
-        m_entry = item;
-    }
     return true;
 }
 
@@ -1316,8 +1066,6 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
     if (!ImGui::Begin(kBrowser))
     {
         // Hidden tab: no previews needed.
-        if (state.thumbnails != nullptr)
-            state.thumbnails->SetWanted({}, {});
         ImGui::End();
         return;
     }
@@ -1414,14 +1162,12 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
     if (m_results.empty())
     {
         ImGui::TextColored(kDim, state.indexing && library->Presets().empty() ? "Indexing your presets..." : "No presets match.");
-        if (state.thumbnails != nullptr)
-            state.thumbnails->SetWanted({}, {});
     }
     else if (!state.settings->namesOnly && state.thumbnails != nullptr)
     {
         DrawPresetGrid(state, actions);
     }
-    else if ((state.thumbnails != nullptr ? (state.thumbnails->SetWanted({}, {}), true) : true) && ImGui::BeginTable("presets", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
+    else if (ImGui::BeginTable("presets", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, 20.f);
@@ -1432,9 +1178,7 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
         ImGui::TableHeadersRow();
 
         const int selectedScene = *state.selectedScene;
-    const auto& scenes = state.document->Get().scenes;
-    const bool selectedIsPlaylist = selectedScene >= 0 && selectedScene < static_cast<int>(scenes.size()) && scenes[static_cast<size_t>(selectedScene)].IsPlaylist();
-    const char* useLabel = selectedIsPlaylist ? "Add to Selected Scene's Playlist" : "Use in Selected Scene";
+    const char* useLabel = "Use in Selected Scene";
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(m_results.size()));
         while (clipper.Step())
@@ -1572,9 +1316,7 @@ void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
     const int count = static_cast<int>(m_results.size());
     const int rows = (count + columns - 1) / columns;
     const int selectedScene = *state.selectedScene;
-    const auto& scenes = state.document->Get().scenes;
-    const bool selectedIsPlaylist = selectedScene >= 0 && selectedScene < static_cast<int>(scenes.size()) && scenes[static_cast<size_t>(selectedScene)].IsPlaylist();
-    const char* useLabel = selectedIsPlaylist ? "Add to Selected Scene's Playlist" : "Use in Selected Scene";
+    const char* useLabel = "Use in Selected Scene";
 
     std::vector<thumbnails::Request> visible;
     std::vector<thumbnails::Request> prefetch;
@@ -1696,7 +1438,8 @@ void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
                 prefetch.push_back(request(index));
         }
     }
-    state.thumbnails->SetWanted(std::move(visible), std::move(prefetch));
+    m_gridVisible = std::move(visible);
+    m_gridPrefetch = std::move(prefetch);
 }
 
 void Shell::DrawVideos(ShellState& state, AppActions& actions)

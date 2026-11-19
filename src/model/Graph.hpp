@@ -217,6 +217,10 @@ auto Connect(Graph& graph, const std::string& from, const std::string& to, int i
 auto Disconnect(Graph& graph, const std::string& to, int input, const std::string& textureName = {}) -> bool;
 /// Keeps exactly one empty input after the last wired one of every switcher (inputs are never renumbered).
 void NormalizeSwitcherInputs(Graph& graph);
+/// Every error wiring `from` into `to`'s input would cause (Connect on a copy, then NormalizeSwitcherInputs and
+/// ValidateGraph), or none if the wire can be made. For an already valid graph, these are the wire's errors only.
+auto ConnectErrors(const Graph& graph, const std::string& from, const std::string& to, int input, const std::string& textureName = {})
+    -> std::vector<GraphError>;
 
 // --- Queries used by the rest of the app ----------------------------------------------------------
 

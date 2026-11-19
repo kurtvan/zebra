@@ -198,7 +198,7 @@ auto AssignVideo(Performance& performance, int index, const std::string& videoId
                 params.restartOnEnter = ParamsOf<VideoSourceParams>(*first).restartOnEnter;
                 params.loop = ParamsOf<VideoSourceParams>(*first).loop;
             }
-            const std::string source = AddNode(graph, NodeType::VideoSource, node.x - 280.0f, node.y + 140.0f * static_cast<float>(input));
+            const std::string source = AddNode(graph, NodeType::VideoSource, node.x - 280.0f, node.y + 230.0f * static_cast<float>(input));
             graph.Find(source)->params = params;
             Connect(graph, source, switcher, input);
             scene.Refresh();
@@ -218,11 +218,11 @@ auto AssignVideo(Performance& performance, int index, const std::string& videoId
     // No video yet: a source, and a default look chain into every preset's Feedback input.
     const std::string source = AddNode(graph, NodeType::VideoSource, 40.0f, 0.0f);
     ParamsOf<VideoSourceParams>(*graph.Find(source)).source = file;
-    float y = 0.0f;
     for (const auto& preset : ScenePresets(graph))
     {
         std::string previous = source;
-        float x = 600.0f;
+        const float y = graph.Find(preset)->y; // the chain on the preset's row, ending left of it
+        float x = graph.Find(preset)->x - 900.0f;
         for (NodeType type : {NodeType::Contrast, NodeType::Saturation, NodeType::LumaGate, NodeType::Mix})
         {
             const std::string id = AddNode(graph, type, x, y);
@@ -233,7 +233,6 @@ auto AssignVideo(Performance& performance, int index, const std::string& videoId
             x += 220.0f;
         }
         Connect(graph, previous, preset, static_cast<int>(PresetLayer::Feedback));
-        y += 210.0f;
     }
     scene.Refresh();
     return true;

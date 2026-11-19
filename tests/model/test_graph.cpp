@@ -177,6 +177,31 @@ TEST_CASE("edits: connect replaces, remove drops wires, the viewport stays, swit
     CHECK(graph.Upstream(switcher, 1) != nullptr);
 }
 
+TEST_CASE("ConnectErrors checks a wire on a copy, as the canvas does while one is dragged")
+{
+    Graph graph = Basic();
+    const auto source = AddNode(graph, NodeType::VideoSource, 0, 0);
+    const auto gate = AddNode(graph, NodeType::LumaGate, 0, 0);
+    const Graph before = graph;
+
+    // Fine: video into an effect, and the effect into a preset input (replacing nothing).
+    CHECK(ConnectErrors(graph, source, gate, 0).empty());
+    CHECK(ConnectErrors(graph, gate, "preset-1", Feedback()).empty());
+    CHECK(graph == before); // the graph itself is never changed
+
+    // Refused, with the reason: kinds, loops, missing texture names, missing nodes.
+    CHECK(Has(ConnectErrors(graph, "preset-1", gate, 0), "takes video"));
+    CHECK(Has(ConnectErrors(graph, source, "viewport", 0), "not video"));
+    CHECK(Has(ConnectErrors(graph, source, "preset-1", static_cast<int>(PresetLayer::Texture)), "needs the name"));
+    CHECK(Has(ConnectErrors(graph, "gone", gate, 0), "isn't there"));
+    Connect(graph, source, gate, 0);
+    CHECK(Has(ConnectErrors(graph, gate, gate, 0), "loop"));
+
+    // An occupied input: the new wire replaces the old one.
+    const auto other = AddNode(graph, NodeType::VideoSource, 0, 0);
+    CHECK(ConnectErrors(graph, other, gate, 0).empty());
+}
+
 TEST_CASE("queries: presets and pool videos of a graph")
 {
     ClassicScene classic;

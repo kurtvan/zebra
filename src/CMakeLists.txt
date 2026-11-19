@@ -83,6 +83,17 @@ add_executable(govtech-visualizer
     app/Settings.hpp
     app/Shell.cpp
     app/Shell.hpp
+    app/Widgets.cpp
+    app/Widgets.hpp
+    app/GraphEditor.cpp
+    app/GraphEditor.hpp
+    app/nodes/NodeDraw.hpp
+    app/nodes/NodeDraw.cpp
+    app/nodes/VideoSourceNode.cpp
+    app/nodes/EffectNodes.cpp
+    app/nodes/PresetNode.cpp
+    app/nodes/SwitcherNode.cpp
+    app/nodes/ViewportNode.cpp
     app/VideoManager.cpp
     app/VideoManager.hpp
     app/macos/FileDialog.mm
@@ -99,7 +110,7 @@ target_link_libraries(govtech-visualizer PRIVATE
     gv_engine
     gv_library
     gv_thumbnails
-    imgui
+    imgui_node_editor # and imgui
     nlohmann_json::nlohmann_json
     SDL2::SDL2
     OpenGL::GL
