@@ -338,6 +338,8 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 size(std::max(ImGui::GetContentRegionAvail().x, 50.f), std::max(ImGui::GetContentRegionAvail().y, 50.f));
     const ImVec2 corner(origin.x + size.x, origin.y + size.y);
+    m_canvasMin = origin;
+    m_canvasMax = corner;
     m_hovered = ImGui::IsMouseHoveringRect(origin, corner) && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 
     // Scrolling, the Mac way: two fingers (or the wheel) pan, Cmd or Ctrl + scroll zooms at the pointer. The
@@ -663,6 +665,7 @@ auto GraphEditor::Accepts(const model::Graph& graph, const Pin& pin) -> bool
 {
     if (!m_dragStart)
         return true;
+    const model::Graph& checked = m_dragGraph ? *m_dragGraph : graph; // without a picked-up wire
     const Pin& from = *m_dragStart;
     const uint64_t key = pin.output ? OutputKey(pin.node) : InputKey(pin.node, pin.input, pin.texture);
     const uint64_t fromKey = from.output ? OutputKey(from.node) : InputKey(from.node, from.input, from.texture);
@@ -674,7 +677,7 @@ auto GraphEditor::Accepts(const model::Graph& graph, const Pin& pin) -> bool
         return it->second;
     const Pin& out = from.output ? from : pin;
     const Pin& in = from.output ? pin : from;
-    const bool accepts = model::ConnectErrors(graph, out.node, in.node, in.input, in.texture).empty();
+    const bool accepts = model::ConnectErrors(checked, out.node, in.node, in.input, in.texture).empty();
     m_accepts[key] = accepts;
     return accepts;
 }
@@ -693,12 +696,12 @@ void GraphEditor::DrawPin(const model::Node& node, bool output, const InputSpec*
     {
         connected = m_graph->WireInto(node.id, pin.input, pin.texture) != nullptr;
     }
-    m_pins[key] = std::move(pin);
-
     ed::BeginPin(key, output ? ed::PinKind::Output : ed::PinKind::Input);
     const ImVec2 at = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(kPinSize, height));
     const ImVec2 center(at.x + kPinSize * 0.5f, at.y + height * 0.5f);
+    pin.center = center;
+    m_pins[key] = std::move(pin);
     ed::PinPivotRect(center, center);
     ed::PinRect(ImVec2(center.x - 7.f, center.y - 7.f), ImVec2(center.x + 7.f, center.y + 7.f));
     ed::EndPin();
@@ -721,6 +724,8 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
             continue;
         const uint64_t key = WireKey(wire);
         m_wires[key] = wire;
+        if (m_moving && *m_moving == wire)
+            continue; // picked up: DrawMovingWire draws it at the pointer
         // Thicker over the preview, to stand out from the visuals.
         ed::Link(key, OutputKey(wire.fromNode), InputKey(wire.toNode, wire.toInput, wire.textureName), KindColor(*kind), m_previewBehind ? 3.f : 2.f);
     }
@@ -730,23 +735,55 @@ void GraphEditor::HandleCreate(ShellState& /*state*/, AppActions& actions, int s
 {
     m_hoverErrorNodes.clear();
     m_hoverTooltip.clear();
-    if (ed::BeginCreate(ImVec4(1.f, 1.f, 1.f, 0.8f), 2.f))
+    // While a wire is moved, the editor's own line (from the input it left) is hidden; DrawMovingWire draws it
+    // from its source instead.
+    const ImVec4 hidden(0, 0, 0, 0);
+    if (ed::BeginCreate(m_moving ? hidden : ImVec4(1.f, 1.f, 1.f, 0.8f), 2.f))
     {
         ed::PinId a;
         ed::PinId b;
+        const Pin* start = nullptr;
+        const Pin* target = nullptr;
+        bool overPin = false;
         if (ed::QueryNewLink(&a, &b))
         {
-            auto first = m_pins.find(a.Get());
-            auto second = m_pins.find(b.Get());
-            if (first != m_pins.end() && second != m_pins.end())
+            overPin = true;
+            if (auto it = m_pins.find(a.Get()); it != m_pins.end())
+                start = &it->second;
+            if (auto it = m_pins.find(b.Get()); it != m_pins.end())
+                target = &it->second;
+        }
+        else if (ed::QueryNewNode(&a))
+        {
+            if (auto it = m_pins.find(a.Get()); it != m_pins.end())
+                start = &it->second;
+        }
+
+        // Dragging from a wired input picks up that wire.
+        const model::Wire* wire = start != nullptr && !start->output ? graph.WireInto(start->node, start->input, start->texture) : nullptr;
+        if (wire != nullptr)
+        {
+            m_moving = *wire;
+            m_dragGraph = graph;
+            model::Disconnect(*m_dragGraph, wire->toNode, wire->toInput, wire->textureName);
+            model::NormalizeSwitcherInputs(*m_dragGraph);
+            if (auto source = m_pins.find(OutputKey(wire->fromNode)); source != m_pins.end())
+                m_dragStart = source->second;
+            HandleMove(actions, scene, overPin ? target : nullptr);
+        }
+        else if (start != nullptr)
+        {
+            m_moving.reset();
+            m_dragGraph.reset();
+            m_dragStart = *start;
+            if (overPin && target != nullptr)
             {
-                m_dragStart = first->second;
-                const Pin out = first->second.output ? first->second : second->second;
-                const Pin in = first->second.output ? second->second : first->second;
+                const Pin out = start->output ? *start : *target;
+                const Pin in = start->output ? *target : *start;
                 std::vector<model::GraphError> errors;
-                if (first->second.output == second->second.output)
-                    errors.push_back({"", first->second.output ? "Both ends are outputs: wire an output (right) to an input (left)."
-                                                               : "Both ends are inputs: wire an output (right) to an input (left)."});
+                if (start->output == target->output)
+                    errors.push_back({"", start->output ? "Both ends are outputs: wire an output (right) to an input (left)."
+                                                        : "Both ends are inputs: wire an output (right) to an input (left)."});
                 else
                     errors = model::ConnectErrors(graph, out.node, in.node, in.input, in.texture);
                 if (!errors.empty())
@@ -767,17 +804,84 @@ void GraphEditor::HandleCreate(ShellState& /*state*/, AppActions& actions, int s
                 }
             }
         }
-        else if (ed::QueryNewNode(&a))
-        {
-            if (auto it = m_pins.find(a.Get()); it != m_pins.end())
-                m_dragStart = it->second;
-        }
     }
     else
     {
         m_dragStart.reset();
+        m_moving.reset();
+        m_dragGraph.reset();
     }
     ed::EndCreate();
+    DrawMovingWire();
+}
+
+void GraphEditor::HandleMove(AppActions& actions, int scene, const Pin* target)
+{
+    const ImVec4 hidden(0, 0, 0, 0);
+    const model::Wire wire = *m_moving;
+    auto kind = model::PortKind::Video;
+    if (const model::Node* from = m_graph->Find(wire.fromNode))
+        kind = model::OutputKind(*from).value_or(model::PortKind::Video);
+
+    if (target == nullptr)
+    {
+        // Over empty canvas: letting go disconnects it.
+        m_movingColor = Faded(KindColor(kind), 0.6f);
+        m_hoverTooltip = "Let go to disconnect.";
+        if (ed::AcceptNewItem(hidden, 3.f))
+        {
+            actions.EditGraph(
+                scene, [&](model::Graph& g) { model::Disconnect(g, wire.toNode, wire.toInput, wire.textureName); }, "Disconnect Wire");
+        }
+        return;
+    }
+
+    std::vector<model::GraphError> errors;
+    const bool home = !target->output && target->node == wire.toNode && target->input == wire.toInput && target->texture == wire.textureName;
+    if (target->output)
+        errors.push_back({"", "Drop the wire on an input, or on empty canvas to disconnect it."});
+    else if (!home)
+        errors = model::ConnectErrors(*m_dragGraph, wire.fromNode, target->node, target->input, target->texture);
+    if (!errors.empty())
+    {
+        m_movingColor = kRed;
+        ed::RejectNewItem(hidden, 2.f);
+        m_hoverTooltip = Joined(errors);
+        for (const auto& error : errors)
+            m_hoverErrorNodes.push_back(error.nodeId);
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+            ShowErrors(std::move(errors));
+        return;
+    }
+    m_movingColor = kGreen;
+    if (ed::AcceptNewItem(hidden, 3.f) && !home)
+    {
+        const Pin to = *target;
+        auto refused = actions.EditGraph(
+            scene,
+            [&](model::Graph& g) {
+                model::Disconnect(g, wire.toNode, wire.toInput, wire.textureName);
+                model::Connect(g, wire.fromNode, to.node, to.input, to.texture);
+            },
+            "Move Wire");
+        if (!refused.empty())
+            ShowErrors(std::move(refused));
+    }
+}
+
+void GraphEditor::DrawMovingWire()
+{
+    if (!m_moving || !m_dragStart)
+        return;
+    // On top of everything, in screen space, clipped to the canvas.
+    const ImVec2 from = ed::CanvasToScreen(m_dragStart->center);
+    const ImVec2 to = ed::CanvasToScreen(m_mouseCanvas);
+    const float tangent = std::max(50.f, std::abs(to.x - from.x) * 0.5f);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->PushClipRect(m_canvasMin, m_canvasMax, true);
+    draw->AddBezierCubic(from, ImVec2(from.x + tangent, from.y), ImVec2(to.x - tangent, to.y), to, ImGui::GetColorU32(m_movingColor), 3.f);
+    draw->AddCircleFilled(to, 4.f, ImGui::GetColorU32(m_movingColor));
+    draw->PopClipRect();
 }
 
 void GraphEditor::HandleDelete(AppActions& actions, int scene, const model::Graph& graph)

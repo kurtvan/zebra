@@ -74,6 +74,7 @@ private:
         int input{0};
         std::string texture;
         model::PortKind kind{model::PortKind::Video};
+        ImVec2 center{0, 0}; //!< In canvas coordinates.
     };
 
     /// Per scene: the editor (with its zoom and pan) and what we last told it about node positions.
@@ -105,6 +106,9 @@ private:
     void DrawPin(const model::Node& node, bool output, const InputSpec* spec, model::PortKind kind, float height);
     void DrawLinks(const model::Graph& graph);
     void HandleCreate(ShellState& state, AppActions& actions, int scene, const model::Graph& graph);
+    /// A wire picked up by its input end: over `target` (an input or output), or over empty canvas.
+    void HandleMove(AppActions& actions, int scene, const Pin* target);
+    void DrawMovingWire();
     void HandleDelete(AppActions& actions, int scene, const model::Graph& graph);
     void HandleEdits(AppActions& actions, int scene, const model::Graph& graph);
     void DrawPopups(NodeContext& context, const model::Graph& graph, int scene);
@@ -141,6 +145,11 @@ private:
     std::string m_bodyTooltip;
 
     std::optional<Pin> m_dragStart; //!< The pin a wire is being dragged from (last frame).
+    std::optional<model::Wire> m_moving;   //!< A wire picked up by its input end, while it's dragged.
+    std::optional<model::Graph> m_dragGraph; //!< The graph without the picked-up wire, to check where it may go.
+    ImVec4 m_movingColor{1, 1, 1, 1};
+    ImVec2 m_canvasMin{0, 0}; //!< The canvas on screen.
+    ImVec2 m_canvasMax{0, 0};
     std::string m_popupNode;        //!< The node whose popup is open, and which one.
     int m_popupKind{0};
     bool m_openNodePopup{false};
