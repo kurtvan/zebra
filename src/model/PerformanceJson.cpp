@@ -767,16 +767,22 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
 
         for (const auto& error : ValidateGraph(scene.graph))
             issues.push_back(Error(path + "/graph", NodeLabel(error) + error.message));
+        // A node with nothing chosen yet (as the canvas adds them) is unfinished, not broken: a warning, so the
+        // show still saves, opens and recovers after a crash. A video the pool doesn't have is broken.
         for (const auto& node : scene.graph.nodes)
         {
+            const std::string where = "node \"" + node.id + "\": ";
             if (node.type == NodeType::Preset && ParamsOf<PresetParams>(node).path.empty())
-                issues.push_back(Error(path + "/graph", "node \"" + node.id + "\": no preset file chosen"));
+                issues.push_back(Warning(path + "/graph", where + "no preset file chosen"));
             if (node.type != NodeType::VideoSource)
                 continue;
             const auto& source = ParamsOf<VideoSourceParams>(node).source;
-            if (source.type == VideoSourceType::File && performance.FindVideo(source.videoId) == nullptr)
-                issues.push_back(Error(path + "/graph", "node \"" + node.id + "\": " +
-                                                            (source.videoId.empty() ? std::string("no video chosen") : "video \"" + source.videoId + "\" isn't in the video pool")));
+            if (source.type != VideoSourceType::File || performance.FindVideo(source.videoId) != nullptr)
+                continue;
+            if (source.videoId.empty())
+                issues.push_back(Warning(path + "/graph", where + "no video chosen"));
+            else
+                issues.push_back(Error(path + "/graph", where + "video \"" + source.videoId + "\" isn't in the video pool"));
         }
     }
     std::set<std::string> videoIds;
