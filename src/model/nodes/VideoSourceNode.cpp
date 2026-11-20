@@ -25,12 +25,16 @@ auto VideoSourceDef() -> NodeDef
     def.displayName = "Video source";
     def.defaults = VideoSourceParams{};
     def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Video; };
-    // A file source plays a video from the pool.
-    def.checkInShow = [](const Performance& performance, const Node& node, std::vector<std::string>& problems) {
+    // A file source plays a video from the pool. One with no video yet is a warning; one naming a video
+    // that isn't in the pool is a broken file.
+    def.checkInShow = [](const Performance& performance, const Node& node, std::vector<ShowProblem>& problems) {
         const auto& source = ParamsOf<VideoSourceParams>(node).source;
         if (source.type != VideoSourceType::File || performance.FindVideo(source.videoId) != nullptr)
             return;
-        problems.push_back(source.videoId.empty() ? std::string("no video chosen") : "video \"" + source.videoId + "\" isn't in the video pool");
+        if (source.videoId.empty())
+            problems.push_back({false, "no video chosen"});
+        else
+            problems.push_back({true, "video \"" + source.videoId + "\" isn't in the video pool"});
     };
     def.write = [](const Node& node, nlohmann::json& object) {
         const auto& params = ParamsOf<VideoSourceParams>(node);

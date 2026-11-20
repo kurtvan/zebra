@@ -97,9 +97,9 @@ TEST_CASE("preset: saved with its path; wires into it by layer name", "[node:pre
 TEST_CASE("preset: a show file needs its file chosen", "[node:preset]")
 {
     test::NodeScene scene;
-    std::vector<std::string> problems;
+    std::vector<model::ShowProblem> problems;
     model::Def(NodeType::Preset).checkInShow(scene.performance, scene.Node(scene.Add(NodeType::Preset)), problems);
-    CHECK(problems == std::vector<std::string>{"no preset file chosen"});
+    CHECK(problems == std::vector<model::ShowProblem>{{false, "no preset file chosen"}});
     problems.clear();
     model::Def(NodeType::Preset).checkInShow(scene.performance, scene.Node(scene.Add(NodeType::Preset, WithPath("/p.milk"))), problems);
     CHECK(problems.empty());

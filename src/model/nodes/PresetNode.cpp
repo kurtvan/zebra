@@ -42,9 +42,9 @@ auto PresetDef() -> NodeDef
             errors.push_back({node.id, "A preset can show only one video at a time, but its inputs come from " + std::to_string(starts.size()) +
                                            " different sources."});
     };
-    def.checkInShow = [](const Performance&, const Node& node, std::vector<std::string>& problems) {
+    def.checkInShow = [](const Performance&, const Node& node, std::vector<ShowProblem>& problems) {
         if (ParamsOf<PresetParams>(node).path.empty())
-            problems.emplace_back("no preset file chosen");
+            problems.push_back({false, "no preset file chosen"});
     };
     def.write = [](const Node& node, nlohmann::json& object) { object["path"] = ParamsOf<PresetParams>(node).path.string(); };
     def.read = [](const nlohmann::json& object, Node& node, const std::string& path, std::vector<Issue>& issues) {

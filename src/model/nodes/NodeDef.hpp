@@ -15,6 +15,16 @@ namespace gv::model {
 struct Issue;
 struct Performance;
 
+/// Something a show file's node is missing (NodeDef::checkInShow). An error stops the show from saving and
+/// opening; a warning loads anyway and is listed in the issues.
+struct ShowProblem
+{
+    bool error{false};
+    std::string message; //!< Short, put after the node's id: "no video chosen".
+
+    bool operator==(const ShowProblem&) const = default;
+};
+
 /// One shader pass of a video branch: what an effect node compiles to (engine/RenderPlan), and what the video
 /// chain's shader runs (engine/VideoChain).
 struct EffectPass
@@ -57,9 +67,9 @@ struct NodeDef
     /// ends exist.
     void (*checkInGraph)(const Graph&, const Node&, std::vector<GraphError>&){nullptr};
 
-    /// Rules for a show file (Validate): what the node needs from the rest of the performance. Each
-    /// problem is a short message ("no video chosen") that Validate puts after the node's id.
-    void (*checkInShow)(const Performance&, const Node&, std::vector<std::string>& problems){nullptr};
+    /// Rules for a show file (Validate): what the node needs from the rest of the performance. Something
+    /// not chosen yet is a warning, so a half-built scene still saves and comes back from crash recovery.
+    void (*checkInShow)(const Performance&, const Node&, std::vector<ShowProblem>& problems){nullptr};
 
     // Show files: the node's settings, next to its id, type, position and expanded flag.
     void (*write)(const Node&, nlohmann::json& object){nullptr};

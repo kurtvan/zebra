@@ -88,14 +88,14 @@ TEST_CASE("video source: a show file needs a file source's video in the pool; Sy
 {
     VideoScene file;
     auto problems = [&](const std::string& id) {
-        std::vector<std::string> found;
+        std::vector<model::ShowProblem> found;
         model::Def(NodeType::VideoSource).checkInShow(file.scene.performance, file.scene.Node(id), found);
         return found;
     };
     CHECK(problems(file.id).empty());
-    CHECK(problems(file.scene.Add(NodeType::VideoSource)) == std::vector<std::string>{"no video chosen"});
+    CHECK(problems(file.scene.Add(NodeType::VideoSource)) == std::vector<model::ShowProblem>{{false, "no video chosen"}});
     const std::string gone = file.scene.Add(NodeType::VideoSource, [](model::Node& n) { model::ParamsOf<VideoSourceParams>(n).source.videoId = "gone"; });
-    CHECK(problems(gone) == std::vector<std::string>{"video \"gone\" isn't in the video pool"});
+    CHECK(problems(gone) == std::vector<model::ShowProblem>{{true, "video \"gone\" isn't in the video pool"}});
     CHECK(problems(file.scene.Add(NodeType::VideoSource, Syphon("", ""))).empty());
 }
 

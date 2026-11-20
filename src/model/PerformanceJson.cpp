@@ -620,13 +620,18 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
 
         for (const auto& error : ValidateGraph(scene.graph))
             issues.push_back(Error(path + "/graph", NodeLabel(error) + error.message));
+        // A node with nothing chosen yet (as the canvas adds them) is unfinished, not broken: a warning, so the
+        // show still saves, opens and recovers after a crash. A video the pool doesn't have is broken.
         for (const auto& node : scene.graph.nodes)
         {
-            std::vector<std::string> problems;
+            std::vector<ShowProblem> problems;
             if (const NodeDef& def = Def(node.type); def.checkInShow != nullptr)
                 def.checkInShow(performance, node, problems);
             for (const auto& problem : problems)
-                issues.push_back(Error(path + "/graph", "node \"" + node.id + "\": " + problem));
+            {
+                const std::string message = "node \"" + node.id + "\": " + problem.message;
+                issues.push_back(problem.error ? Error(path + "/graph", message) : Warning(path + "/graph", message));
+            }
         }
     }
     std::set<std::string> videoIds;
