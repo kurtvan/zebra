@@ -270,10 +270,13 @@ TEST_CASE("validation rules")
         syphonScene.video.source.type = VideoSourceType::Syphon;
         performance.scenes = {file, MakeScene("b", 1, syphonScene)};
         const auto issues = Validate(performance);
-        CHECK(HasIssueAt(issues, "/scenes/0/graph"));
+        REQUIRE(CountIssuesAt(issues, "/scenes/0/graph") == 1);
+        CHECK(issues[0].severity == Issue::Severity::Warning); // none chosen yet: unfinished
         CHECK_FALSE(HasIssueAt(issues, "/scenes/1/graph"));
         performance.scenes[0] = MakeScene("a", 0, WithVideo("/a.milk", "gone"));
-        CHECK(HasIssueAt(Validate(performance), "/scenes/0/graph"));
+        const auto gone = Validate(performance);
+        REQUIRE(CountIssuesAt(gone, "/scenes/0/graph") == 1);
+        CHECK(gone[0].severity == Issue::Severity::Error); // a video the pool doesn't have: broken
     }
     SECTION("pool videos: unique ids, speed 0.1-4, start not negative")
     {
@@ -291,6 +294,26 @@ TEST_CASE("validation rules")
             performance.scenes.push_back(MakeScene("s" + std::to_string(i), i % 128));
         CHECK(HasIssueAt(Validate(performance), "/scenes"));
     }
+}
+
+TEST_CASE("nodes with nothing chosen yet save and open again, with a warning each")
+{
+    // As the canvas's Add menu leaves them: a preset with no file and a file video with no video.
+    Performance performance;
+    performance.scenes = {MakeScene("a", 0)};
+    Graph& graph = performance.scenes[0].graph;
+    const std::string preset = AddNode(graph, NodeType::Preset, 0.f, 0.f);
+    const std::string video = AddNode(graph, NodeType::VideoSource, 0.f, 200.f);
+    REQUIRE(Validate(performance).size() == 2);
+
+    const auto loaded = ParsePerformance(SerializePerformance(performance));
+    CHECK(loaded.ok); // so saving is allowed, and a crash recovery file opens
+    CHECK(HasIssueAt(loaded, "/scenes/0/graph", Issue::Severity::Warning));
+    CHECK_FALSE(HasIssueAt(loaded, "/scenes/0/graph", Issue::Severity::Error));
+    REQUIRE(loaded.performance.scenes.size() == 1);
+    CHECK(loaded.performance.scenes[0].graph == graph);
+    CHECK(loaded.performance.scenes[0].graph.Find(preset) != nullptr);
+    CHECK(loaded.performance.scenes[0].graph.Find(video) != nullptr);
 }
 
 TEST_CASE("a scene without a midi block is reported")

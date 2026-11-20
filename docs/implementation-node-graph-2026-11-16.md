@@ -409,7 +409,10 @@ PROJECTM_EXPORT bool projectm_get_preset_texture(projectm_handle, const char* na
   - typed pins with our own validation;
   - our own saved positions;
   - 100 nodes at 60 fps in the editor.
-- **Result:** a short note in the PR with the choice and why. The chosen library is vendored with `FetchContent` at a pinned tag, the way ImGui is.
+- **Result (2026-11-18): imgui-node-editor**, `develop` at commit `27bcace`, vendored with `FetchContent` in `cmake/Dependencies.cmake`.
+  - Both libraries built against ImGui 1.92.9b with no warnings, and drew 100 nodes in about 1.1–1.5 ms per frame.
+  - imnodes has no zoom, which fails a must-have.
+  - imgui-node-editor zooms with sharp text and widgets, reports finished drags as edits, and takes our node positions. Combos and popups must open outside the zoomed canvas (`Suspend`/`Resume`), so node bodies use buttons that open popups instead of combos.
 
 ### N4.2 Structure
 
@@ -418,9 +421,12 @@ PROJECTM_EXPORT bool projectm_get_preset_texture(projectm_handle, const char* na
 | `src/app/GraphEditor.hpp/.cpp` | Wraps the library: `Draw(const Graph&, const GraphView& state, GraphActions&)`; owns zoom and pan per scene (not saved); hit-testing; the wire being dragged |
 | `src/app/nodes/NodeDraw.hpp` | `DrawNodeBody(const Node&, NodeContext&) -> std::optional<NodeEdit>`, one per type |
 | `src/app/nodes/VideoSourceNode.cpp`, `EffectNodes.cpp`, `PresetNode.cpp`, `SwitcherNode.cpp`, `ViewportNode.cpp` | Each node's body, using today's widgets moved out of `Shell.cpp` (about 650 lines move) |
-| `Shell.cpp` | `DrawSceneProperties` keeps name, CC and beat hits, then hosts the canvas. The read-only video and playlist sections are deleted. |
+| `Shell.cpp` | `DrawSceneProperties` keeps name, CC and beat hits. The canvas has its own **Graph** panel (decided during N4: the Scene panel is too narrow for it), docked under the preview, or as a tab next to it in a layout saved before N4. The read-only video and playlist sections are deleted. |
+| `Widgets.hpp/.cpp` | Colours and small widgets shared by the panels and the node bodies, moved out of `Shell.cpp` |
 
 ### N4.3 Node layout
+
+*As built:* the switcher node already has its interval, unit and shuffle controls in N4, so playlist timing stays editable; N5 adds the live row markers and double-click. Texture inputs show their name; a thumbnail of the texture image is left for later.
 
 - **Fixed widths:** effects 180 px, source 240, preset 260, switcher 220, viewport 220.
 - **Title bar:** the name, the expand/collapse button, and a state dot (live, ready, missing file).

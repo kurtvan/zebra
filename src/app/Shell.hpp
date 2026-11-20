@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/GraphEditor.hpp"
 #include "app/Settings.hpp"
 #include "app/VideoManager.hpp"
 #include "engine/Engine.hpp"
@@ -14,6 +15,7 @@
 
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -35,6 +37,10 @@ public:
     /// Replaces the performance with `edited` as one undoable step (see Document::Edit for `coalesceKey`).
     virtual void Edit(model::Performance edited, const std::string& label, const std::string& coalesceKey = {}) = 0;
     virtual void EndEdit() = 0; //!< Ends a coalesced edit (e.g. slider released).
+    /// Edits scene `scene`'s graph through model::TryEditGraph: commits it as one undoable step if the graph
+    /// stays valid, else changes nothing and returns every error.
+    virtual auto EditGraph(int scene, const std::function<void(model::Graph&)>& edit, const std::string& label,
+                           const std::string& coalesceKey = {}) -> std::vector<model::GraphError> = 0;
     virtual void Undo() = 0;
     virtual void Redo() = 0;
 
@@ -78,7 +84,7 @@ struct ShellState
     double liveGpuMs{-1.0}; //!< The live lane's GPU time over the last second; -1 if not known.
 };
 
-/// The editor: preview, scene list, scene properties, setup, preset browser (M5), status and messages.
+/// The editor: preview, scene list, scene properties, the node canvas, setup, preset browser, status and messages.
 class Shell
 {
 public:
@@ -92,8 +98,7 @@ private:
     void DrawPreview(const ShellState& state, AppActions& actions);
     void DrawScenes(ShellState& state, AppActions& actions);
     void DrawSceneProperties(ShellState& state, AppActions& actions);
-    void DrawPlaylist(ShellState& state, AppActions& actions, int index, const engine::Engine::SceneInfo& info);
-    void DrawVideoSummary(const ShellState& state, int index);
+    void DrawGraph(ShellState& state, AppActions& actions);
     void DrawSetup(ShellState& state, AppActions& actions);
     void DrawCanvas(const ShellState& state, AppActions& actions);
     void DrawBrowser(ShellState& state, AppActions& actions);
@@ -108,7 +113,8 @@ private:
     void DrawMessages(const ShellState& state);
     void DrawStatusBar(const ShellState& state);
     void HandleDrops(ShellState& state, AppActions& actions, int hoveredScene);
-    auto SelectedEntry(const model::Scene& scene) const -> int;
+    /// Puts `preset` in scene `index` of `edited`: in the preset node selected on its canvas, else its first.
+    void PutPreset(model::Performance& edited, int index, const std::filesystem::path& preset) const;
 
     bool m_layoutBuilt{false};
     int m_showBrowserTab{0}; //!< Frames until the browser tab is brought to front.
@@ -118,10 +124,9 @@ private:
     int m_canvasWidthField{-1};  //!< Canvas size being typed (-1: not editing).
     int m_canvasHeightField{-1};
     bool m_videosHovered{false}; //!< Last frame: Finder drops add to the pool instead of a scene.
-    std::string m_entryScene; //!< Scene id of the selected playlist entry (whose look the Video sliders edit).
-    int m_entry{0};
-    std::string m_followScene; //!< The live playlist entry the selection last followed (scene id, entry).
-    int m_followEntry{-1};
+    GraphEditor m_graph;
+    std::vector<thumbnails::Request> m_gridVisible; //!< The browser's thumbnails this frame.
+    std::vector<thumbnails::Request> m_gridPrefetch;
 
     // Preset browser.
     library::Query m_query;

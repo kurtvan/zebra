@@ -6,8 +6,10 @@ namespace gv::model {
 
 namespace {
 
-// Column layout for converted scenes, left to right.
-constexpr float kRow = 140.0f;
+// Column layout for converted scenes, left to right, spaced for the node canvas's node sizes (N4.3).
+constexpr float kRow = 200.0f;         //!< One look chain (the luma gate is the tallest effect node).
+constexpr float kSourceRow = 230.0f;   //!< Video sources stacked into a Video switcher.
+constexpr float kPresetBlock = 420.0f; //!< At least one preset node (thumbnail and inputs) per block.
 constexpr float kSourceX = 40.0f;
 constexpr float kVideoSwitcherX = 320.0f;
 constexpr float kContrastX = 600.0f;
@@ -169,7 +171,7 @@ auto GraphFromClassic(const ClassicScene& classic) -> Graph
         for (size_t i = 0; i < playlist.videos.size(); ++i)
         {
             const VideoSourceParams source{{VideoSourceType::File, playlist.videos[i], {}, {}, {}}, scene.video.restartOnEnter, scene.video.loop};
-            const auto id = Add(graph, NodeType::VideoSource, kSourceX, kRow * static_cast<float>(i), source);
+            const auto id = Add(graph, NodeType::VideoSource, kSourceX, kSourceRow * static_cast<float>(i), source);
             Connect(graph, id, root, static_cast<int>(i));
         }
     }
@@ -183,6 +185,7 @@ auto GraphFromClassic(const ClassicScene& classic) -> Graph
     float y = 0.0f;
     for (size_t i = 0; i < presets.size(); ++i)
     {
+        const float blockStart = y;
         const std::string preset = Add(graph, NodeType::Preset, kPresetX, y, PresetParams{presets[i]});
         presetIds.push_back(preset);
         if (video)
@@ -194,8 +197,9 @@ auto GraphFromClassic(const ClassicScene& classic) -> Graph
                 y += kRow;
                 AddChain(graph, root, preset, PresetLayer::OnTop, look, scene.video.invertLuma, look.softness, y);
             }
+            y += kRow;
         }
-        y += kRow * 1.5f;
+        y = blockStart + std::max(y - blockStart, kPresetBlock);
     }
 
     const std::string viewport = Add(graph, NodeType::Viewport, kViewportX, 0.0f, ViewportParams{});

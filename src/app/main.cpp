@@ -283,6 +283,15 @@ public:
         m_document.EndCoalescing();
     }
 
+    auto EditGraph(int scene, const std::function<void(gv::model::Graph&)>& edit, const std::string& label, const std::string& coalesceKey)
+        -> std::vector<gv::model::GraphError> override
+    {
+        auto errors = gv::model::TryEditGraph(m_document, scene, edit, label, coalesceKey);
+        if (errors.empty())
+            SyncEngine();
+        return errors;
+    }
+
     void Undo() override
     {
         m_document.Undo();
@@ -985,6 +994,14 @@ private:
         if (m_options.smokeEdits)
         {
             SmokeEdits(elapsed);
+            // Held ticks in the half second after each canvas edit (the edit's own cost).
+            if (m_smokeCanvasEditAt >= 0.0 && elapsed >= m_smokeCanvasEditAt + 0.5)
+            {
+                const long long held = m_engine.GetStats().heldTicks - m_smokeCanvasHeldBefore;
+                m_smokeCanvasHeld += held;
+                GV_LOG_INFO(kLogCategory, "smoke edit (canvas): %lld held ticks in the 0.5 s after it", held);
+                m_smokeCanvasEditAt = -1.0;
+            }
         }
         if (m_options.smokeEdits && m_options.smokeLayer.rfind("texture", 0) == 0)
             SmokeToggleTexture(elapsed);
@@ -1048,7 +1065,9 @@ private:
             const auto clock = m_midi->Clock();
             GV_LOG_INFO(kLogCategory, "smoke: MIDI clock %s, %.1f BPM, %s, position %s, source %s", clock.receiving ? "receiving" : "absent", clock.bpm,
                         clock.running ? "running" : "stopped", clock.positionKnown ? "known" : "unknown", clock.sourceName.c_str());
-            m_smokeOk = stats.presentedFrames > liveTicks / 2;
+            if (m_options.smokeEdits)
+                GV_LOG_INFO(kLogCategory, "smoke: canvas edits refused: %d, held ticks within 0.5 s after them: %lld", m_smokeCanvasRefusals, m_smokeCanvasHeld);
+            m_smokeOk = stats.presentedFrames > liveTicks / 2 && m_smokeCanvasRefusals == 0;
             m_smokeDone = true;
         }
     }
@@ -1138,6 +1157,122 @@ private:
                 return;
             }
         }
+    }
+
+    /// The node canvas's edits on the live scene, through the same gate the canvas uses (EditGraph):
+    /// 15 adds a Contrast node mid-chain, 16 moves a video wire from On top (or Feedback) to Before composite,
+    /// 17 wires a chain into one of the preset's texture inputs, 18 deletes an effect node and bridges its wires.
+    void SmokeCanvasEdit(int step, int live)
+    {
+        using namespace gv::model;
+        const auto started = Clock::now();
+        m_selectedScene = live; // so the canvas draws the scene being edited
+        if (step == 15 && VideoIdsOf(m_document.Get().scenes[static_cast<size_t>(live)].graph).empty() && !m_document.Get().videos.empty())
+        {
+            auto edited = m_document.Get();
+            AssignVideo(edited, live, edited.videos.front().id);
+            Edit(std::move(edited), "Assign Video", {});
+        }
+        const Graph& graph = m_document.Get().scenes[static_cast<size_t>(live)].graph;
+        auto firstWire = [&](auto&& match) -> std::optional<Wire> {
+            for (const auto& wire : graph.wires)
+            {
+                if (match(wire))
+                    return wire;
+            }
+            return std::nullopt;
+        };
+        auto isEffect = [&](const std::string& id) {
+            const Node* node = graph.Find(id);
+            return node != nullptr && IsEffect(node->type);
+        };
+        auto isPreset = [&](const std::string& id) {
+            const Node* node = graph.Find(id);
+            return node != nullptr && node->type == NodeType::Preset;
+        };
+        std::string what = "nothing to do";
+        std::vector<GraphError> errors;
+        if (step == 15)
+        {
+            if (const auto wire = firstWire([&](const Wire& w) { return isEffect(w.fromNode) && isEffect(w.toNode); }))
+            {
+                what = "added a Contrast node between " + wire->fromNode + " and " + wire->toNode;
+                errors = EditGraph(live, [&](Graph& g) {
+                    const Node* to = g.Find(wire->toNode);
+                    const std::string id = AddNode(g, NodeType::Contrast, to->x, to->y + 120.0f);
+                    ParamsOf<ContrastParams>(*g.Find(id)).contrast = 1.6f;
+                    Connect(g, wire->fromNode, id, 0);
+                    Connect(g, id, wire->toNode, wire->toInput, wire->textureName);
+                }, "Add Contrast", {});
+            }
+        }
+        else if (step == 16)
+        {
+            auto into = [&](PresetLayer layer) {
+                return firstWire([&](const Wire& w) { return isPreset(w.toNode) && w.toInput == static_cast<int>(layer); });
+            };
+            auto wire = into(PresetLayer::OnTop);
+            if (!wire)
+                wire = into(PresetLayer::Feedback);
+            if (wire)
+            {
+                what = "rewired " + wire->fromNode + " from input " + std::to_string(wire->toInput) + " to before composite";
+                errors = EditGraph(live, [&](Graph& g) {
+                    Disconnect(g, wire->toNode, wire->toInput);
+                    Connect(g, wire->fromNode, wire->toNode, static_cast<int>(PresetLayer::BeforeComposite));
+                }, "Rewire", {});
+            }
+        }
+        else if (step == 17)
+        {
+            for (const auto& node : graph.nodes)
+            {
+                if (node.type != NodeType::Preset)
+                    continue;
+                const auto textures = gv::library::PresetTextures(ParamsOf<PresetParams>(node).path);
+                const auto chain = firstWire([&](const Wire& w) { return w.toNode == node.id && isEffect(w.fromNode); });
+                if (textures.empty() || !chain)
+                    continue;
+                what = "wired " + chain->fromNode + " into " + node.id + "'s texture " + textures.front();
+                errors = EditGraph(live, [&](Graph& g) {
+                    Connect(g, chain->fromNode, node.id, static_cast<int>(PresetLayer::Texture), textures.front());
+                }, "Connect Texture", {});
+                break;
+            }
+        }
+        else if (step == 18)
+        {
+            // An effect with an effect upstream: remove it and wire its input to where it went.
+            for (const auto& node : graph.nodes)
+            {
+                const Node* upstream = IsEffect(node.type) ? graph.Upstream(node.id, 0) : nullptr;
+                if (upstream == nullptr || !IsEffect(upstream->type))
+                    continue;
+                std::vector<Wire> out;
+                for (const auto& wire : graph.wires)
+                {
+                    if (wire.fromNode == node.id)
+                        out.push_back(wire);
+                }
+                const std::string id = node.id;
+                const std::string from = upstream->id;
+                what = "deleted " + id + " and wired " + from + " past it";
+                errors = EditGraph(live, [&](Graph& g) {
+                    RemoveNode(g, id);
+                    for (const auto& wire : out)
+                        Connect(g, from, wire.toNode, wire.toInput, wire.textureName);
+                }, "Delete Node", {});
+                break;
+            }
+        }
+        m_smokeCanvasEditAt = std::chrono::duration<double>(Clock::now() - m_smokeStart).count();
+        m_smokeCanvasHeldBefore = m_engine.GetStats().heldTicks;
+        GV_LOG_INFO(kLogCategory, "smoke edit (canvas): scene %d: %s%s (%.2f ms on the main thread)", live, what.c_str(), errors.empty() ? "" : " - REFUSED",
+                    std::chrono::duration<double, std::milli>(Clock::now() - started).count());
+        for (const auto& error : errors)
+            GV_LOG_INFO(kLogCategory, "  refused: %s", error.message.c_str());
+        if (!errors.empty())
+            m_smokeCanvasRefusals++;
     }
 
     /// Scripted edits while playing, one per second from 3 s, to exercise live updates of the engine.
@@ -1230,6 +1365,18 @@ private:
                         TriggerItem(live, item);
                     GV_LOG_INFO(kLogCategory, "smoke edit: replaced preset %d of live scene %d with %s", item + 1, live, preset.filename().c_str());
                 }
+                break;
+            case 15:
+            case 16:
+            case 17:
+            case 18:
+                if (live >= 0)
+                    SmokeCanvasEdit(step, live);
+                break;
+            case 19:
+                while (m_document.CanUndo())
+                    Undo();
+                GV_LOG_INFO(kLogCategory, "smoke edit: undid the canvas edits too; %zu scenes, dirty=%d", m_document.Get().scenes.size(), m_document.IsDirty());
                 break;
             case 9:
             case 13:
@@ -1368,6 +1515,10 @@ private:
     bool m_smokeDone{false};
     bool m_editorSnapshotTaken{false};
     int m_smokeEditStep{-1};
+    int m_smokeCanvasRefusals{0};
+    double m_smokeCanvasEditAt{-1.0}; //!< When the last canvas edit ran (smoke seconds), until its held ticks are counted.
+    long long m_smokeCanvasHeldBefore{0};
+    long long m_smokeCanvasHeld{0};
     double m_smokeNextReport{0.0};
     std::mt19937 m_smokeRandom{12345};
     bool m_smokeOk{false};

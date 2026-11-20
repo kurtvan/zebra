@@ -15,6 +15,8 @@ struct Settings
     float gain{1.0f};
     int midiChannel{0};      //!< 0-15 (shown as 1-16).
     bool namesOnly{false};
+    bool graphPreview{false};    //!< The Graph panel shows the live output behind the nodes.
+    float graphPreviewDim{0.5f}; //!< 0..0.9: how much that preview is darkened, so the nodes stay readable.
     std::filesystem::path lastPerformance;
     std::vector<std::filesystem::path> recentPerformances; //!< Most recent first.
 

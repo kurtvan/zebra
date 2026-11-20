@@ -414,6 +414,16 @@ auto Connect(Graph& graph, const std::string& from, const std::string& to, int i
     return true;
 }
 
+auto ConnectErrors(const Graph& graph, const std::string& from, const std::string& to, int input, const std::string& textureName)
+    -> std::vector<GraphError>
+{
+    Graph trial = graph;
+    if (!Connect(trial, from, to, input, textureName))
+        return {{"", "That node isn't there any more."}};
+    NormalizeSwitcherInputs(trial);
+    return ValidateGraph(trial);
+}
+
 auto Disconnect(Graph& graph, const std::string& to, int input, const std::string& textureName) -> bool
 {
     const auto before = graph.wires.size();
