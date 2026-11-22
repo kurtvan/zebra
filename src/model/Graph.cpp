@@ -314,8 +314,8 @@ auto PresetsOf(const Graph& graph) -> std::vector<std::filesystem::path>
     std::vector<std::filesystem::path> presets;
     for (const auto& node : graph.nodes)
     {
-        if (node.type == NodeType::Preset)
-            presets.push_back(std::get<PresetParams>(node.params).path);
+        if (node.type == NodeType::MilkdropPreset)
+            presets.push_back(std::get<MilkdropPresetParams>(node.params).path);
     }
     return presets;
 }

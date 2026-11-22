@@ -35,7 +35,7 @@ TEST_CASE("viewport: exactly one per graph, and it can't be removed", "[node:vie
 TEST_CASE("viewport: takes a preset's picture, not video", "[node:viewport]")
 {
     test::NodeScene scene;
-    const std::string preset = scene.Add(NodeType::Preset);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
     CHECK(model::ConnectErrors(scene.Graph(), preset, "viewport", 0).empty());
     CHECK(test::Messages(model::ConnectErrors(scene.Graph(), video, "viewport", 0)) ==
@@ -46,7 +46,7 @@ TEST_CASE("viewport: what's wired into it is what the scene draws; nothing wired
 {
     test::NodeScene scene;
     CHECK(engine::CompilePlan(scene.Graph()).presetNode.empty());
-    const std::string preset = scene.Add(NodeType::Preset, [](model::Node& n) { model::ParamsOf<model::PresetParams>(n).path = "/a.milk"; });
+    const std::string preset = scene.Add(NodeType::MilkdropPreset, [](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = "/a.milk"; });
     model::Connect(scene.Graph(), preset, "viewport", 0);
     const auto plan = engine::CompilePlan(scene.Graph());
     CHECK(plan.presetNode == preset);

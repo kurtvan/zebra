@@ -47,8 +47,8 @@ enum class NodeType
     Contrast,
     Saturation,
     LumaGate,
-    Mix,
-    Preset,
+    Opacity,
+    MilkdropPreset,
     Switcher,
     Viewport
 };
@@ -95,15 +95,15 @@ struct LumaGateParams
     bool invert{false};
     auto operator==(const LumaGateParams&) const -> bool = default;
 };
-struct MixParams
+struct OpacityParams
 {
     float opacity{1.0f}; //!< 0..1
-    auto operator==(const MixParams&) const -> bool = default;
+    auto operator==(const OpacityParams&) const -> bool = default;
 };
-struct PresetParams
+struct MilkdropPresetParams
 {
     std::filesystem::path path;
-    auto operator==(const PresetParams&) const -> bool = default;
+    auto operator==(const MilkdropPresetParams&) const -> bool = default;
 };
 struct SwitcherParams
 {
@@ -120,7 +120,7 @@ struct ViewportParams
     auto operator==(const ViewportParams&) const -> bool = default;
 };
 
-using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, MixParams, PresetParams,
+using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, OpacityParams, MilkdropPresetParams,
                                 SwitcherParams, ViewportParams>;
 
 struct Node
@@ -189,7 +189,7 @@ auto InputCount(const Node& node) -> int;
 /// The kind input `input` of `node` takes, or nullopt if out of range.
 auto InputKind(const Node& node, int input) -> std::optional<PortKind>;
 
-/// True for Contrast, Saturation, LumaGate and Mix: one Video input, one Video output.
+/// True for Contrast, Saturation, LumaGate and Opacity: one Video input, one Video output.
 auto IsEffect(NodeType type) -> bool;
 
 // --- Validation ----------------------------------------------------------------------------------

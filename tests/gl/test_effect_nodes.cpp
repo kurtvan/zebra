@@ -175,13 +175,13 @@ TEST_CASE("luma gate: cuts pixels darker than the threshold (brighter ones inver
     }
 }
 
-TEST_CASE("mix: the video's alpha is the opacity, its colour unchanged", "[gl][node:mix]")
+TEST_CASE("mix: the video's alpha is the opacity, its colour unchanged", "[gl][node:opacity]")
 {
     REQUIRE_GL();
     for (float opacity : {0.f, 0.25f, 1.f})
     {
         INFO("opacity " << opacity);
-        Compare({NodeType::Mix, opacity, 0.f, false}, [&](const Rgba& c) { return Rgba{c.r, c.g, c.b, opacity}; });
+        Compare({NodeType::Opacity, opacity, 0.f, false}, [&](const Rgba& c) { return Rgba{c.r, c.g, c.b, opacity}; });
     }
 }
 

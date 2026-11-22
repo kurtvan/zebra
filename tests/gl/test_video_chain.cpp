@@ -350,7 +350,7 @@ auto Chain(const Look& look) -> std::vector<EffectPass>
     return {{NodeType::Contrast, look.contrast, 0.0f, false},
             {NodeType::Saturation, look.saturation, 0.0f, false},
             {NodeType::LumaGate, look.lumaMin, look.softness, look.invert},
-            {NodeType::Mix, look.mix, 0.0f, false}};
+            {NodeType::Opacity, look.mix, 0.0f, false}};
 }
 
 /// About 200 looks: the defaults, the extremes, and random ones (seeded, so every run is the same).

@@ -58,7 +58,7 @@ TEST_CASE("video source: feeds video inputs only", "[node:video-source]")
 {
     test::NodeScene scene;
     const std::string video = scene.Add(NodeType::VideoSource);
-    const std::string preset = scene.Add(NodeType::Preset);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string presetSwitcher = scene.Add(NodeType::Switcher);
     CHECK(model::ConnectErrors(scene.Graph(), video, preset, static_cast<int>(model::PresetLayer::BeforeComposite)).empty());
     CHECK(model::ConnectErrors(scene.Graph(), video, scene.Add(NodeType::Contrast), 0).empty());
@@ -102,7 +102,7 @@ TEST_CASE("video source: a show file needs a file source's video in the pool; Sy
 TEST_CASE("video source: the plan plays its source", "[node:video-source]")
 {
     test::NodeScene scene;
-    const std::string preset = scene.Add(NodeType::Preset);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource, Syphon("VDMX", ""));
     model::Connect(scene.Graph(), preset, "viewport", 0);
     model::Connect(scene.Graph(), video, preset, 0);

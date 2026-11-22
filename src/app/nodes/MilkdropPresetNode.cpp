@@ -12,7 +12,7 @@ using model::PresetLayer;
 
 auto PathOf(const model::Node& node) -> const std::filesystem::path&
 {
-    return model::ParamsOf<model::PresetParams>(node).path;
+    return model::ParamsOf<model::MilkdropPresetParams>(node).path;
 }
 
 auto Missing(const model::Node& node, NodeContext& context) -> bool
@@ -66,7 +66,7 @@ void DrawButtons(const model::Node& node, NodeContext& context)
         if (auto file = context.ChooseFile("Choose a preset", {"milk"}))
         {
             const auto chosen = *file;
-            context.EditOnce(node, "Change Preset", [&](model::Node& n) { model::ParamsOf<model::PresetParams>(n).path = chosen; });
+            context.EditOnce(node, "Change Milkdrop Preset", [&](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = chosen; });
         }
     }
     context.Tooltip("Or drop a preset from the Presets panel on this node.");
@@ -88,15 +88,15 @@ void DrawFrameTime(const model::Node& node, NodeContext& context)
 
 } // namespace
 
-auto PresetUi() -> NodeUi
+auto MilkdropPresetUi() -> NodeUi
 {
     NodeUi ui;
-    ui.type = model::NodeType::Preset;
+    ui.type = model::NodeType::MilkdropPreset;
     ui.width = 260.f;
     ui.header = ImVec4(0.40f, 0.26f, 0.52f, 0.60f);
     ui.menuGroup = 2;
     ui.title = [](const model::Node& node, NodeContext&) -> std::string {
-        return PathOf(node).empty() ? "Preset (none chosen)" : PathOf(node).stem().string();
+        return PathOf(node).empty() ? "Milkdrop preset (none chosen)" : PathOf(node).stem().string();
     };
     ui.status = [](const model::Node& node, NodeContext& context) -> NodeStatus {
         if (PathOf(node).empty())
@@ -143,7 +143,7 @@ auto PresetUi() -> NodeUi
     frameTime.id = "##frame-time";
     frameTime.draw = DrawFrameTime;
     ui.controls = {picture, buttons, missing, frameTime, {Control::Kind::Inputs}};
-    ui.addItems = {{"Preset...", nullptr, "Or drag a preset from the Presets panel onto the canvas.", true}};
+    ui.addItems = {{"Milkdrop preset...", nullptr, "Or drag a preset from the Presets panel onto the canvas.", true}};
     return ui;
 }
 

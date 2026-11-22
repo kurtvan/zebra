@@ -45,7 +45,10 @@ struct EffectPass
 struct NodeDef
 {
     NodeType type{NodeType::Viewport};
-    const char* jsonName{""};    //!< "lumaGate": the node's "type" in show files. Never change it.
+    const char* jsonName{""};    //!< "lumaGate": the node's "type" in show files.
+    /// Earlier jsonNames, still read so older show files open ("mix" for Opacity). Renaming a type moves
+    /// its old jsonName here; the next save writes the new one.
+    std::span<const char* const> formerJsonNames{};
     const char* idPrefix{""};    //!< "gate": new nodes are "gate-1", "gate-2"...
     const char* displayName{""}; //!< "Luma gate"
     NodeParams defaults;         //!< A new node's settings (and the variant alternative it must hold).
@@ -87,7 +90,7 @@ struct NodeDef
 auto Def(NodeType type) -> const NodeDef&;
 /// Every node type's definition, in NodeType order.
 auto NodeDefs() -> std::span<const NodeDef>;
-/// The type whose jsonName is `name`.
+/// The type whose jsonName, or one of its formerJsonNames, is `name`.
 auto NodeTypeFromJson(std::string_view name) -> std::optional<NodeType>;
 
 /// How errors and the canvas name `node` ("Video switcher").
@@ -108,8 +111,8 @@ auto VideoSourceDef() -> NodeDef;
 auto ContrastDef() -> NodeDef;
 auto SaturationDef() -> NodeDef;
 auto LumaGateDef() -> NodeDef;
-auto MixDef() -> NodeDef;
-auto PresetDef() -> NodeDef;
+auto OpacityDef() -> NodeDef;
+auto MilkdropPresetDef() -> NodeDef;
 auto SwitcherDef() -> NodeDef;
 auto ViewportDef() -> NodeDef;
 

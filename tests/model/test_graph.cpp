@@ -13,8 +13,8 @@ namespace {
 auto Basic() -> Graph
 {
     Graph graph;
-    const auto preset = AddNode(graph, NodeType::Preset, 0, 0);
-    ParamsOf<PresetParams>(*graph.Find(preset)).path = "/a.milk";
+    const auto preset = AddNode(graph, NodeType::MilkdropPreset, 0, 0);
+    ParamsOf<MilkdropPresetParams>(*graph.Find(preset)).path = "/a.milk";
     const auto viewport = AddNode(graph, NodeType::Viewport, 0, 0);
     Connect(graph, preset, viewport, 0);
     return graph;
@@ -35,9 +35,9 @@ auto Feedback() -> int
 TEST_CASE("node ids are unique per type and the viewport is 'viewport'")
 {
     Graph graph = Basic();
-    CHECK(graph.Find("preset-1") != nullptr);
+    CHECK(graph.Find("milkdrop-1") != nullptr);
     CHECK(graph.Find("viewport") != nullptr);
-    CHECK(AddNode(graph, NodeType::Preset, 0, 0) == "preset-2");
+    CHECK(AddNode(graph, NodeType::MilkdropPreset, 0, 0) == "milkdrop-2");
     CHECK(AddNode(graph, NodeType::LumaGate, 0, 0) == "gate-1");
     CHECK(AddNode(graph, NodeType::Viewport, 0, 0) == "viewport-1");
 }
@@ -50,18 +50,18 @@ TEST_CASE("valid and unfinished graphs pass validation")
     AddNode(unfinished, NodeType::Viewport, 0, 0);
     AddNode(unfinished, NodeType::Contrast, 0, 0); // loose
     const auto gate = AddNode(unfinished, NodeType::LumaGate, 0, 0);
-    const auto preset = AddNode(unfinished, NodeType::Preset, 0, 0);
+    const auto preset = AddNode(unfinished, NodeType::MilkdropPreset, 0, 0);
     Connect(unfinished, gate, preset, Feedback()); // an effect chain with no source carries no video
     CHECK(ValidateGraph(unfinished).empty());
 
     // Fan-out: one source into two inputs of one preset.
     Graph fan = Basic();
     const auto source = AddNode(fan, NodeType::VideoSource, 0, 0);
-    const auto mix = AddNode(fan, NodeType::Mix, 0, 0);
+    const auto mix = AddNode(fan, NodeType::Opacity, 0, 0);
     Connect(fan, source, mix, 0);
-    Connect(fan, mix, "preset-1", Feedback());
-    Connect(fan, source, "preset-1", static_cast<int>(PresetLayer::OnTop));
-    Connect(fan, source, "preset-1", static_cast<int>(PresetLayer::Texture), "clouds");
+    Connect(fan, mix, "milkdrop-1", Feedback());
+    Connect(fan, source, "milkdrop-1", static_cast<int>(PresetLayer::OnTop));
+    Connect(fan, source, "milkdrop-1", static_cast<int>(PresetLayer::Texture), "clouds");
     CHECK(ValidateGraph(fan).empty());
 }
 
@@ -70,7 +70,7 @@ TEST_CASE("validation reports every broken rule")
     SECTION("viewports")
     {
         Graph none;
-        AddNode(none, NodeType::Preset, 0, 0);
+        AddNode(none, NodeType::MilkdropPreset, 0, 0);
         CHECK(Has(ValidateGraph(none), "no viewport"));
         Graph two = Basic();
         AddNode(two, NodeType::Viewport, 0, 0);
@@ -81,10 +81,10 @@ TEST_CASE("validation reports every broken rule")
         Graph graph = Basic();
         const auto source = AddNode(graph, NodeType::VideoSource, 0, 0);
         graph.wires.push_back({source, "viewport", 0, {}});     // video into a Frame input (and a second wire there)
-        graph.wires.push_back({"preset-1", "nowhere", 0, {}});
-        graph.wires.push_back({source, "preset-1", 7, {}});     // no input 8
+        graph.wires.push_back({"milkdrop-1", "nowhere", 0, {}});
+        graph.wires.push_back({source, "milkdrop-1", 7, {}});     // no input 8
         graph.wires.push_back({"viewport", source, 0, {}});     // the viewport has no output
-        graph.wires.push_back({source, "preset-1", static_cast<int>(PresetLayer::Texture), {}}); // texture input without a name
+        graph.wires.push_back({source, "milkdrop-1", static_cast<int>(PresetLayer::Texture), {}}); // texture input without a name
         const auto errors = ValidateGraph(graph);
         CHECK(Has(errors, "takes a preset's picture, not video"));
         CHECK(Has(errors, "two wires into one input"));
@@ -108,7 +108,7 @@ TEST_CASE("validation reports every broken rule")
         const auto outer = AddNode(graph, NodeType::Switcher, 0, 0);
         const auto inner = AddNode(graph, NodeType::Switcher, 0, 0);
         Connect(graph, inner, outer, 0);
-        Connect(graph, "preset-1", inner, 0);
+        Connect(graph, "milkdrop-1", inner, 0);
         Connect(graph, outer, "viewport", 0);
         CHECK(Has(ValidateGraph(graph), "can't be fed by another Preset switcher"));
 
@@ -118,8 +118,8 @@ TEST_CASE("validation reports every broken rule")
         const auto videos = AddNode(mixed, NodeType::Switcher, 0, 0);
         ParamsOf<SwitcherParams>(*mixed.Find(videos)).kind = PortKind::Video;
         Connect(mixed, AddNode(mixed, NodeType::VideoSource, 0, 0), videos, 0);
-        Connect(mixed, videos, "preset-1", Feedback());
-        Connect(mixed, "preset-1", frames, 0);
+        Connect(mixed, videos, "milkdrop-1", Feedback());
+        Connect(mixed, "milkdrop-1", frames, 0);
         Connect(mixed, frames, "viewport", 0);
         CHECK(ValidateGraph(mixed).empty());
     }
@@ -130,15 +130,15 @@ TEST_CASE("validation reports every broken rule")
         const auto b = AddNode(graph, NodeType::VideoSource, 0, 0);
         const auto gate = AddNode(graph, NodeType::LumaGate, 0, 0);
         Connect(graph, a, gate, 0);
-        Connect(graph, gate, "preset-1", Feedback());
-        Connect(graph, b, "preset-1", static_cast<int>(PresetLayer::OnTop));
+        Connect(graph, gate, "milkdrop-1", Feedback());
+        Connect(graph, b, "milkdrop-1", static_cast<int>(PresetLayer::OnTop));
         CHECK(Has(ValidateGraph(graph), "only one video at a time"));
     }
     SECTION("parameter ranges")
     {
         Graph graph = Basic();
         ParamsOf<ContrastParams>(*graph.Find(AddNode(graph, NodeType::Contrast, 0, 0))).contrast = 101.f;
-        ParamsOf<MixParams>(*graph.Find(AddNode(graph, NodeType::Mix, 0, 0))).opacity = -0.5f;
+        ParamsOf<OpacityParams>(*graph.Find(AddNode(graph, NodeType::Opacity, 0, 0))).opacity = -0.5f;
         auto& switcher = ParamsOf<SwitcherParams>(*graph.Find(AddNode(graph, NodeType::Switcher, 0, 0)));
         switcher.unit = IntervalUnit::Beats;
         switcher.intervalCount = 0;
@@ -157,7 +157,7 @@ TEST_CASE("validation reports every broken rule")
 TEST_CASE("edits: connect replaces, remove drops wires, the viewport stays, switchers keep one empty input")
 {
     Graph graph = Basic();
-    const auto other = AddNode(graph, NodeType::Preset, 0, 0);
+    const auto other = AddNode(graph, NodeType::MilkdropPreset, 0, 0);
     CHECK(Connect(graph, other, "viewport", 0)); // replaces preset-1's wire
     REQUIRE(graph.wires.size() == 1);
     CHECK(graph.wires[0].fromNode == other);
@@ -168,9 +168,9 @@ TEST_CASE("edits: connect replaces, remove drops wires, the viewport stays, swit
 
     const auto switcher = AddNode(graph, NodeType::Switcher, 0, 0);
     CHECK(InputCount(*graph.Find(switcher)) == 1);
-    Connect(graph, "preset-1", switcher, 0);
+    Connect(graph, "milkdrop-1", switcher, 0);
     CHECK(InputCount(*graph.Find(switcher)) == 2);
-    Connect(graph, AddNode(graph, NodeType::Preset, 0, 0), switcher, 1);
+    Connect(graph, AddNode(graph, NodeType::MilkdropPreset, 0, 0), switcher, 1);
     CHECK(InputCount(*graph.Find(switcher)) == 3);
     Disconnect(graph, switcher, 0); // input numbers never change: input 1 stays wired
     CHECK(InputCount(*graph.Find(switcher)) == 3);
@@ -186,13 +186,13 @@ TEST_CASE("ConnectErrors checks a wire on a copy, as the canvas does while one i
 
     // Fine: video into an effect, and the effect into a preset input (replacing nothing).
     CHECK(ConnectErrors(graph, source, gate, 0).empty());
-    CHECK(ConnectErrors(graph, gate, "preset-1", Feedback()).empty());
+    CHECK(ConnectErrors(graph, gate, "milkdrop-1", Feedback()).empty());
     CHECK(graph == before); // the graph itself is never changed
 
     // Refused, with the reason: kinds, loops, missing texture names, missing nodes.
-    CHECK(Has(ConnectErrors(graph, "preset-1", gate, 0), "takes video"));
+    CHECK(Has(ConnectErrors(graph, "milkdrop-1", gate, 0), "takes video"));
     CHECK(Has(ConnectErrors(graph, source, "viewport", 0), "not video"));
-    CHECK(Has(ConnectErrors(graph, source, "preset-1", static_cast<int>(PresetLayer::Texture)), "needs the name"));
+    CHECK(Has(ConnectErrors(graph, source, "milkdrop-1", static_cast<int>(PresetLayer::Texture)), "needs the name"));
     CHECK(Has(ConnectErrors(graph, "gone", gate, 0), "isn't there"));
     Connect(graph, source, gate, 0);
     CHECK(Has(ConnectErrors(graph, gate, gate, 0), "loop"));
@@ -287,12 +287,12 @@ TEST_CASE("classic scenes convert to valid graphs and read back unchanged")
 TEST_CASE("the conversion follows the product doc's table")
 {
     auto cases = Cases();
-    SECTION("a look becomes Contrast -> Saturation -> Luma gate (softness 0.1) -> Mix into Feedback")
+    SECTION("a look becomes Contrast -> Saturation -> Luma gate (softness 0.1) -> Opacity into Feedback")
     {
         const Graph graph = GraphFromClassic(cases[1]);
-        const Node* mix = graph.Upstream("preset-1", Feedback());
+        const Node* mix = graph.Upstream("milkdrop-1", Feedback());
         REQUIRE(mix != nullptr);
-        CHECK(mix->type == NodeType::Mix);
+        CHECK(mix->type == NodeType::Opacity);
         const Node* gate = graph.Upstream(mix->id, 0);
         REQUIRE(gate->type == NodeType::LumaGate);
         CHECK(ParamsOf<LumaGateParams>(*gate).softness == kFeedbackGateSoftness);
@@ -301,12 +301,12 @@ TEST_CASE("the conversion follows the product doc's table")
         const Node* contrast = graph.Upstream(saturation->id, 0);
         CHECK(contrast->type == NodeType::Contrast);
         CHECK(graph.Upstream(contrast->id, 0)->type == NodeType::VideoSource);
-        CHECK(graph.Upstream("preset-1", static_cast<int>(PresetLayer::OnTop)) == nullptr);
+        CHECK(graph.Upstream("milkdrop-1", static_cast<int>(PresetLayer::OnTop)) == nullptr);
     }
     SECTION("the overlay is a second chain from the same source into On top, with its own softness")
     {
         const Graph graph = GraphFromClassic(cases[2]);
-        const Node* mix = graph.Upstream("preset-1", static_cast<int>(PresetLayer::OnTop));
+        const Node* mix = graph.Upstream("milkdrop-1", static_cast<int>(PresetLayer::OnTop));
         REQUIRE(mix != nullptr);
         const Node* gate = graph.Upstream(mix->id, 0);
         CHECK(ParamsOf<LumaGateParams>(*gate).softness == 0.7f);
@@ -341,10 +341,10 @@ TEST_CASE("graphs that aren't classic-shaped are reported as such")
     CHECK(ClassicFromGraph(graph).has_value());
     // An extra effect in the chain.
     const auto extra = AddNode(graph, NodeType::Contrast, 0, 0);
-    const Node* mix = graph.Upstream("preset-1", Feedback());
+    const Node* mix = graph.Upstream("milkdrop-1", Feedback());
     const std::string mixId = mix->id;
     Connect(graph, mixId, extra, 0);
-    Connect(graph, extra, "preset-1", Feedback());
+    Connect(graph, extra, "milkdrop-1", Feedback());
     CHECK_FALSE(ClassicFromGraph(graph).has_value());
 
     // Nothing wired into the viewport: an empty classic scene.
@@ -366,7 +366,7 @@ TEST_CASE("scenes the classic view can't read still find their presets, playlist
     for (auto& wire : graph.wires)
     {
         const Node* to = graph.Find(wire.toNode);
-        if (to != nullptr && to->type == NodeType::Preset && wire.toInput == static_cast<int>(PresetLayer::Feedback))
+        if (to != nullptr && to->type == NodeType::MilkdropPreset && wire.toInput == static_cast<int>(PresetLayer::Feedback))
         {
             wire.toInput = static_cast<int>(PresetLayer::Texture);
             wire.textureName = "worms";

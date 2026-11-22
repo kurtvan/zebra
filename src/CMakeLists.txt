@@ -33,8 +33,8 @@ add_library(gv_model STATIC
     model/nodes/ContrastNode.cpp
     model/nodes/SaturationNode.cpp
     model/nodes/LumaGateNode.cpp
-    model/nodes/MixNode.cpp
-    model/nodes/PresetNode.cpp
+    model/nodes/OpacityNode.cpp
+    model/nodes/MilkdropPresetNode.cpp
     model/nodes/SwitcherNode.cpp
     model/nodes/ViewportNode.cpp)
 # Public: model/nodes/NodeDef.hpp names nlohmann::json in the node definitions' signatures.
@@ -100,8 +100,8 @@ add_library(gv_app_nodes STATIC
     app/nodes/ContrastNode.cpp
     app/nodes/SaturationNode.cpp
     app/nodes/LumaGateNode.cpp
-    app/nodes/MixNode.cpp
-    app/nodes/PresetNode.cpp
+    app/nodes/OpacityNode.cpp
+    app/nodes/MilkdropPresetNode.cpp
     app/nodes/SwitcherNode.cpp
     app/nodes/ViewportNode.cpp)
 target_link_libraries(gv_app_nodes PUBLIC gv_common gv_model imgui PRIVATE gv_warnings)

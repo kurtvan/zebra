@@ -56,7 +56,7 @@ TEST_CASE("saturation: saved as \"saturation\" and read back", "[node:saturation
 TEST_CASE("saturation: compiles to a saturation pass, in chain order", "[node:saturation]")
 {
     test::NodeScene scene;
-    const std::string preset = scene.Add(NodeType::Preset);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
     const std::string first = scene.Add(NodeType::Saturation, SetSaturation(0.f));
     const std::string second = scene.Add(NodeType::Saturation, SetSaturation(2.f));

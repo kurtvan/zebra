@@ -1,5 +1,7 @@
 #include "model/nodes/NodeDef.hpp"
 
+#include <algorithm>
+
 #include <array>
 #include <cstdlib>
 
@@ -11,7 +13,7 @@ auto BuildDefs() -> std::array<NodeDef, kNodeTypeCount>
 {
     std::array<NodeDef, kNodeTypeCount> defs = {
         nodes::VideoSourceDef(), nodes::ContrastDef(), nodes::SaturationDef(), nodes::LumaGateDef(),
-        nodes::MixDef(),         nodes::PresetDef(),   nodes::SwitcherDef(),   nodes::ViewportDef(),
+        nodes::OpacityDef(),         nodes::MilkdropPresetDef(),   nodes::SwitcherDef(),   nodes::ViewportDef(),
     };
     // Def() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < kNodeTypeCount; ++i)
@@ -44,7 +46,7 @@ auto NodeTypeFromJson(std::string_view name) -> std::optional<NodeType>
 {
     for (const auto& def : Defs())
     {
-        if (name == def.jsonName)
+        if (name == def.jsonName || std::ranges::find(def.formerJsonNames, name) != def.formerJsonNames.end())
             return def.type;
     }
     return std::nullopt;

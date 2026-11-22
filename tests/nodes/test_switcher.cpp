@@ -49,8 +49,8 @@ TEST_CASE("switcher: always one free input after the last wired one, never renum
 {
     test::NodeScene scene;
     const std::string switcher = scene.Add(NodeType::Switcher);
-    const std::string a = scene.Add(NodeType::Preset);
-    const std::string b = scene.Add(NodeType::Preset);
+    const std::string a = scene.Add(NodeType::MilkdropPreset);
+    const std::string b = scene.Add(NodeType::MilkdropPreset);
     auto count = [&] { return model::InputCount(scene.Node(switcher)); };
     model::Connect(scene.Graph(), a, switcher, 0);
     CHECK(count() == 2);
@@ -93,7 +93,7 @@ TEST_CASE("switcher: can't be fed by a switcher of its own kind, even further up
           std::vector<std::string>{"A Preset switcher can't be fed by another Preset switcher."});
 
     // A Video switcher further up, through a preset, is fine.
-    const std::string preset = scene.Add(NodeType::Preset);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string videos = scene.Add(NodeType::Switcher, VideoKind);
     model::Connect(scene.Graph(), scene.Add(NodeType::VideoSource), videos, 0);
     model::Connect(scene.Graph(), videos, preset, 0);
@@ -126,8 +126,8 @@ TEST_CASE("switcher: the plan follows the selected input, else the first wired o
 {
     test::NodeScene scene;
     const std::string switcher = scene.Add(NodeType::Switcher);
-    const std::string a = scene.Add(NodeType::Preset, [](model::Node& n) { model::ParamsOf<model::PresetParams>(n).path = "/a.milk"; });
-    const std::string b = scene.Add(NodeType::Preset, [](model::Node& n) { model::ParamsOf<model::PresetParams>(n).path = "/b.milk"; });
+    const std::string a = scene.Add(NodeType::MilkdropPreset, [](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = "/a.milk"; });
+    const std::string b = scene.Add(NodeType::MilkdropPreset, [](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = "/b.milk"; });
     model::Connect(scene.Graph(), switcher, "viewport", 0);
     model::Connect(scene.Graph(), a, switcher, 1);
     model::Connect(scene.Graph(), b, switcher, 2);
@@ -141,7 +141,7 @@ TEST_CASE("switcher: on the canvas, numbered inputs with the free one marked", "
 {
     test::NodeScene scene;
     const std::string switcher = scene.Add(NodeType::Switcher);
-    model::Connect(scene.Graph(), scene.Add(NodeType::Preset), switcher, 0);
+    model::Connect(scene.Graph(), scene.Add(NodeType::MilkdropPreset), switcher, 0);
     test::FakeNodeContext context(scene);
     CHECK(app::NodeTitle(scene.Node(switcher), context) == "Preset switcher");
     CHECK(app::NodeInputs(scene.Node(switcher), context) ==

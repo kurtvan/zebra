@@ -472,7 +472,7 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
             const int item = std::clamp(state.engine->LiveItem(), 0, static_cast<int>(presets.size()) - 1);
             for (const auto& node : graph.nodes)
             {
-                if (node.type == model::NodeType::Preset && model::ParamsOf<model::PresetParams>(node).path == presets[static_cast<size_t>(item)])
+                if (node.type == model::NodeType::MilkdropPreset && model::ParamsOf<model::MilkdropPresetParams>(node).path == presets[static_cast<size_t>(item)])
                 {
                     m_livePresetNode = node.id;
                     break;
@@ -572,8 +572,8 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
         if (auto file = ChooseFile("Choose a preset", {"milk"}))
         {
             const auto path = *file;
-            AddNodeAt(actions, sceneIndex, model::NodeType::Preset, m_addAt,
-                      [&](model::Node& node) { model::ParamsOf<model::PresetParams>(node).path = path; });
+            AddNodeAt(actions, sceneIndex, model::NodeType::MilkdropPreset, m_addAt,
+                      [&](model::Node& node) { model::ParamsOf<model::MilkdropPresetParams>(node).path = path; });
         }
     }
 
@@ -1111,16 +1111,16 @@ void GraphEditor::HandleDrop(ShellState& state, AppActions& actions, int scene, 
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPresetDragPayload))
     {
         const std::filesystem::path path = static_cast<const char*>(payload->Data);
-        if (target != nullptr && target->type == model::NodeType::Preset)
+        if (target != nullptr && target->type == model::NodeType::MilkdropPreset)
         {
             const std::string id = target->id;
-            auto errors = actions.EditGraph(scene, [&](model::Graph& g) { model::ParamsOf<model::PresetParams>(*g.Find(id)).path = path; }, "Replace Preset");
+            auto errors = actions.EditGraph(scene, [&](model::Graph& g) { model::ParamsOf<model::MilkdropPresetParams>(*g.Find(id)).path = path; }, "Replace Milkdrop Preset");
             if (!errors.empty())
                 ShowErrors(std::move(errors));
         }
         else
         {
-            AddNodeAt(actions, scene, model::NodeType::Preset, m_mouseCanvas, [&](model::Node& node) { model::ParamsOf<model::PresetParams>(node).path = path; });
+            AddNodeAt(actions, scene, model::NodeType::MilkdropPreset, m_mouseCanvas, [&](model::Node& node) { model::ParamsOf<model::MilkdropPresetParams>(node).path = path; });
         }
     }
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kVideoDragPayload))
@@ -1159,8 +1159,8 @@ void GraphEditor::DropFiles(ShellState& state, AppActions& actions, int scene, c
         std::string id;
         if (Lower(file.extension().string()) == ".milk")
         {
-            id = model::AddNode(graph, model::NodeType::Preset, at.x, at.y);
-            model::ParamsOf<model::PresetParams>(*graph.Find(id)).path = file;
+            id = model::AddNode(graph, model::NodeType::MilkdropPreset, at.x, at.y);
+            model::ParamsOf<model::MilkdropPresetParams>(*graph.Find(id)).path = file;
         }
         else if (IsVideoFile(file))
         {

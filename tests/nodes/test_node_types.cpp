@@ -81,6 +81,11 @@ TEST_CASE("every node type has its own names, a unique show-file name, and its o
         INFO(def.displayName);
         CHECK(std::string(def.displayName).size() > 0);
         CHECK(jsonNames.insert(def.jsonName).second);
+        for (const char* former : def.formerJsonNames)
+        {
+            CHECK(jsonNames.insert(former).second);
+            CHECK(model::NodeTypeFromJson(former) == type);
+        }
         CHECK(prefixes.insert(def.idPrefix).second);
         CHECK(settings.insert(def.defaults.index()).second);
         CHECK(model::NodeTypeFromJson(def.jsonName) == type);

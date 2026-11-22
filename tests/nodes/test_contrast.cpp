@@ -67,7 +67,7 @@ TEST_CASE("contrast: saved as \"contrast\" and read back", "[node:contrast]")
 TEST_CASE("contrast: compiles to a contrast pass with its value", "[node:contrast]")
 {
     test::NodeScene scene;
-    const std::string preset = scene.Add(NodeType::Preset, [](model::Node& n) { model::ParamsOf<model::PresetParams>(n).path = "/p.milk"; });
+    const std::string preset = scene.Add(NodeType::MilkdropPreset, [](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = "/p.milk"; });
     const std::string video = scene.Add(NodeType::VideoSource);
     const std::string contrast = scene.Add(NodeType::Contrast, [](model::Node& n) { model::ParamsOf<model::ContrastParams>(n).contrast = 2.f; });
     model::Connect(scene.Graph(), preset, "viewport", 0);

@@ -1004,9 +1004,9 @@ void Shell::DrawSetup(ShellState& state, AppActions& actions)
 void Shell::PutPreset(model::Performance& edited, int index, const std::filesystem::path& preset) const
 {
     auto& scene = edited.scenes[static_cast<size_t>(index)];
-    if (model::Node* node = scene.graph.Find(m_graph.SelectedNode(scene.id)); node != nullptr && node->type == model::NodeType::Preset)
+    if (model::Node* node = scene.graph.Find(m_graph.SelectedNode(scene.id)); node != nullptr && node->type == model::NodeType::MilkdropPreset)
     {
-        model::ParamsOf<model::PresetParams>(*node).path = preset;
+        model::ParamsOf<model::MilkdropPresetParams>(*node).path = preset;
         scene.Refresh();
         return;
     }

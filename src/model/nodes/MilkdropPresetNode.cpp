@@ -12,17 +12,20 @@ namespace {
 constexpr const char* kInputNames[] = {"feedback", "beforeComposite", "onTop", "texture"};
 static_assert(std::size(kInputNames) == kPresetInputs);
 
+constexpr const char* kFormerJsonNames[] = {"preset"};
+
 } // namespace
 
 /// A MilkDrop preset: video inputs into its layers (and textures), and its finished frame as output.
-auto PresetDef() -> NodeDef
+auto MilkdropPresetDef() -> NodeDef
 {
     NodeDef def;
-    def.type = NodeType::Preset;
-    def.jsonName = "preset";
-    def.idPrefix = "preset";
-    def.displayName = "Preset";
-    def.defaults = PresetParams{};
+    def.type = NodeType::MilkdropPreset;
+    def.jsonName = "milkdropPreset";
+    def.formerJsonNames = kFormerJsonNames;
+    def.idPrefix = "milkdrop";
+    def.displayName = "Milkdrop preset";
+    def.defaults = MilkdropPresetParams{};
     def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Frame; };
     def.inputCount = [](const Node&) { return kPresetInputs; };
     def.inputKind = [](const Node&, int) { return PortKind::Video; };
@@ -43,14 +46,14 @@ auto PresetDef() -> NodeDef
                                            " different sources."});
     };
     def.checkInShow = [](const Performance&, const Node& node, std::vector<ShowProblem>& problems) {
-        if (ParamsOf<PresetParams>(node).path.empty())
+        if (ParamsOf<MilkdropPresetParams>(node).path.empty())
             problems.push_back({false, "no preset file chosen"});
     };
-    def.write = [](const Node& node, nlohmann::json& object) { object["path"] = ParamsOf<PresetParams>(node).path.string(); };
+    def.write = [](const Node& node, nlohmann::json& object) { object["path"] = ParamsOf<MilkdropPresetParams>(node).path.string(); };
     def.read = [](const nlohmann::json& object, Node& node, const std::string& path, std::vector<Issue>& issues) {
         std::string presetPath;
         ReadField(object, "path", presetPath, path, issues);
-        ParamsOf<PresetParams>(node).path = presetPath;
+        ParamsOf<MilkdropPresetParams>(node).path = presetPath;
     };
     return def;
 }

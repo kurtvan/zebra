@@ -57,7 +57,7 @@ TEST_CASE("luma gate: saved with threshold, softness and invert, and read back",
 TEST_CASE("luma gate: compiles to a gate pass carrying all three settings", "[node:luma-gate]")
 {
     test::NodeScene scene;
-    const std::string preset = scene.Add(NodeType::Preset);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
     const std::string gate = scene.Add(NodeType::LumaGate, [](model::Node& n) { model::ParamsOf<LumaGateParams>(n) = {0.4f, 0.1f, true}; });
     model::Connect(scene.Graph(), preset, "viewport", 0);

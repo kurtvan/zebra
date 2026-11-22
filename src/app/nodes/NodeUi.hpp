@@ -212,8 +212,8 @@ auto VideoSourceUi() -> NodeUi;
 auto ContrastUi() -> NodeUi;
 auto SaturationUi() -> NodeUi;
 auto LumaGateUi() -> NodeUi;
-auto MixUi() -> NodeUi;
-auto PresetUi() -> NodeUi;
+auto OpacityUi() -> NodeUi;
+auto MilkdropPresetUi() -> NodeUi;
 auto SwitcherUi() -> NodeUi;
 auto ViewportUi() -> NodeUi;
 

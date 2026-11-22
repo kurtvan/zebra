@@ -45,10 +45,10 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
     if (viewport == nullptr)
         return plan;
     const Node* preset = ThroughSwitchers(graph, graph.Upstream(viewport->id, 0), selection);
-    if (preset == nullptr || preset->type != NodeType::Preset)
+    if (preset == nullptr || preset->type != NodeType::MilkdropPreset)
         return plan;
     plan.presetNode = preset->id;
-    plan.presetPath = model::ParamsOf<model::PresetParams>(*preset).path;
+    plan.presetPath = model::ParamsOf<model::MilkdropPresetParams>(*preset).path;
 
     // Each wired video input, in input order (texture inputs by name).
     std::vector<const model::Wire*> inputs;

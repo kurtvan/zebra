@@ -1,4 +1,4 @@
-// The Preset node: model/nodes/PresetNode.cpp, app/nodes/PresetNode.cpp.
+// The Milkdrop preset node ("preset" in older show files): model/nodes/MilkdropPresetNode.cpp, app/nodes/MilkdropPresetNode.cpp.
 
 #include "nodes/NodeTestKit.hpp"
 
@@ -18,24 +18,24 @@ auto Layer(PresetLayer layer) -> int
 
 auto WithPath(std::string path)
 {
-    return [path](model::Node& n) { model::ParamsOf<model::PresetParams>(n).path = path; };
+    return [path](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = path; };
 }
 
 auto PathOf(const model::Node& node) -> std::filesystem::path
 {
-    return model::ParamsOf<model::PresetParams>(node).path;
+    return model::ParamsOf<model::MilkdropPresetParams>(node).path;
 }
 
 } // namespace
 
-TEST_CASE("preset: video into its three layers and its textures, its picture out", "[node:preset]")
+TEST_CASE("milkdrop preset: video into its three layers and its textures, its picture out", "[node:milkdrop-preset]")
 {
-    const auto& def = model::Def(NodeType::Preset);
+    const auto& def = model::Def(NodeType::MilkdropPreset);
     CHECK(def.textureInput == Layer(PresetLayer::Texture));
     CHECK(def.inputNames.size() == static_cast<size_t>(model::kPresetInputs));
     test::NodeScene scene;
-    const auto& node = scene.Node(scene.Add(NodeType::Preset));
-    CHECK(node.id == "preset-1");
+    const auto& node = scene.Node(scene.Add(NodeType::MilkdropPreset));
+    CHECK(node.id == "milkdrop-1");
     CHECK(PathOf(node).empty());
     CHECK(model::OutputKind(node) == model::PortKind::Frame);
     CHECK(model::InputCount(node) == model::kPresetInputs);
@@ -43,10 +43,10 @@ TEST_CASE("preset: video into its three layers and its textures, its picture out
         CHECK(model::InputKind(node, input) == model::PortKind::Video);
 }
 
-TEST_CASE("preset: texture inputs need a texture name, and only they have one", "[node:preset]")
+TEST_CASE("milkdrop preset: texture inputs need a texture name, and only they have one", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string preset = scene.Add(NodeType::Preset);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
     CHECK(model::ConnectErrors(scene.Graph(), video, preset, Layer(PresetLayer::Texture), "noise_lq").empty());
     CHECK(test::Messages(model::ConnectErrors(scene.Graph(), video, preset, Layer(PresetLayer::Texture))) ==
@@ -55,10 +55,10 @@ TEST_CASE("preset: texture inputs need a texture name, and only they have one", 
           std::vector<std::string>{"Only texture inputs have a texture name."});
 }
 
-TEST_CASE("preset: shows one video at a time", "[node:preset]")
+TEST_CASE("milkdrop preset: shows one video at a time", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string preset = scene.Add(NodeType::Preset);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string a = scene.Add(NodeType::VideoSource);
     const std::string b = scene.Add(NodeType::VideoSource);
     const std::string contrast = scene.Add(NodeType::Contrast);
@@ -71,10 +71,10 @@ TEST_CASE("preset: shows one video at a time", "[node:preset]")
           std::vector<std::string>{"A preset can show only one video at a time, but its inputs come from 2 different sources."});
 }
 
-TEST_CASE("preset: saved with its path; wires into it by layer name", "[node:preset]")
+TEST_CASE("milkdrop preset: saved with its path; wires into it by layer name", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    auto& node = scene.Node(scene.Add(NodeType::Preset, WithPath("/presets/a b.milk")));
+    auto& node = scene.Node(scene.Add(NodeType::MilkdropPreset, WithPath("/presets/a b.milk")));
     CHECK(test::RoundTrip(node) == node);
 
     const std::string preset = node.id;
@@ -94,21 +94,21 @@ TEST_CASE("preset: saved with its path; wires into it by layer name", "[node:pre
     CHECK(loaded.performance.scenes[0].graph == scene.Graph());
 }
 
-TEST_CASE("preset: a show file needs its file chosen", "[node:preset]")
+TEST_CASE("milkdrop preset: a show file needs its file chosen", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
     std::vector<model::ShowProblem> problems;
-    model::Def(NodeType::Preset).checkInShow(scene.performance, scene.Node(scene.Add(NodeType::Preset)), problems);
+    model::Def(NodeType::MilkdropPreset).checkInShow(scene.performance, scene.Node(scene.Add(NodeType::MilkdropPreset)), problems);
     CHECK(problems == std::vector<model::ShowProblem>{{false, "no preset file chosen"}});
     problems.clear();
-    model::Def(NodeType::Preset).checkInShow(scene.performance, scene.Node(scene.Add(NodeType::Preset, WithPath("/p.milk"))), problems);
+    model::Def(NodeType::MilkdropPreset).checkInShow(scene.performance, scene.Node(scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"))), problems);
     CHECK(problems.empty());
 }
 
-TEST_CASE("preset: the plan has one branch per wired input, in input order", "[node:preset]")
+TEST_CASE("milkdrop preset: the plan has one branch per wired input, in input order", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string preset = scene.Add(NodeType::Preset, WithPath("/p.milk"));
+    const std::string preset = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
     const std::string video = scene.Add(NodeType::VideoSource);
     model::Connect(scene.Graph(), preset, "viewport", 0);
     model::Connect(scene.Graph(), video, preset, Layer(PresetLayer::Texture), "b");
@@ -123,21 +123,21 @@ TEST_CASE("preset: the plan has one branch per wired input, in input order", "[n
     CHECK(plan.branches[2].textureName == "b");
 }
 
-TEST_CASE("preset: titled by its file", "[node:preset]")
+TEST_CASE("milkdrop preset: titled by its file", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
     test::FakeNodeContext context(scene);
-    CHECK(app::NodeTitle(scene.Node(scene.Add(NodeType::Preset)), context) == "Preset (none chosen)");
-    CHECK(app::NodeTitle(scene.Node(scene.Add(NodeType::Preset, WithPath("/x/Martin - Liquid.milk"))), context) == "Martin - Liquid");
+    CHECK(app::NodeTitle(scene.Node(scene.Add(NodeType::MilkdropPreset)), context) == "Milkdrop preset (none chosen)");
+    CHECK(app::NodeTitle(scene.Node(scene.Add(NodeType::MilkdropPreset, WithPath("/x/Martin - Liquid.milk"))), context) == "Martin - Liquid");
 }
 
-TEST_CASE("preset: its dot says chosen, found, ready, or on screen", "[node:preset]")
+TEST_CASE("milkdrop preset: its dot says chosen, found, ready, or on screen", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string id = scene.Add(NodeType::Preset, WithPath("/p.milk"));
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
     test::FakeNodeContext context(scene);
     auto status = [&] { return app::NodeStatusOf(scene.Node(id), context); };
-    CHECK(app::NodeStatusOf(scene.Node(scene.Add(NodeType::Preset)), context).state == app::NodeState::Empty);
+    CHECK(app::NodeStatusOf(scene.Node(scene.Add(NodeType::MilkdropPreset)), context).state == app::NodeState::Empty);
     CHECK(status() == app::NodeStatus{app::NodeState::Missing, "File not found: /p.milk"});
     context.files = {"/p.milk"};
     CHECK(status().state == app::NodeState::Idle);
@@ -147,10 +147,10 @@ TEST_CASE("preset: its dot says chosen, found, ready, or on screen", "[node:pres
     CHECK(status().state == app::NodeState::Live);
 }
 
-TEST_CASE("preset: an input row per layer and per texture, keeping wired textures it no longer has", "[node:preset]")
+TEST_CASE("milkdrop preset: an input row per layer and per texture, keeping wired textures it no longer has", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string id = scene.Add(NodeType::Preset, WithPath("/p.milk"));
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
     const std::string video = scene.Add(NodeType::VideoSource);
     model::Connect(scene.Graph(), video, id, Layer(PresetLayer::Texture), "gone");
     test::FakeNodeContext context(scene);
@@ -167,10 +167,10 @@ TEST_CASE("preset: an input row per layer and per texture, keeping wired texture
     CHECK(context.inputRows == inputs);
 }
 
-TEST_CASE("preset: Choose... changes the file in one step; cancelling changes nothing", "[node:preset]")
+TEST_CASE("milkdrop preset: Choose... changes the file in one step; cancelling changes nothing", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string id = scene.Add(NodeType::Preset, WithPath("/p.milk"));
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
     test::FakeNodeContext context(scene);
     test::HeadlessUi ui;
     ui.Frame(context, id);
@@ -183,13 +183,13 @@ TEST_CASE("preset: Choose... changes the file in one step; cancelling changes no
     context.chosenFile = std::filesystem::path("/q.milk");
     ui.Click(context, id, choose);
     CHECK(PathOf(scene.Node(id)) == "/q.milk");
-    CHECK(context.LastEdit() == "Change Preset");
+    CHECK(context.LastEdit() == "Change Milkdrop Preset");
 }
 
-TEST_CASE("preset: Reveal shows the file, but not when it's missing", "[node:preset]")
+TEST_CASE("milkdrop preset: Reveal shows the file, but not when it's missing", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string id = scene.Add(NodeType::Preset, WithPath("/p.milk"));
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
     test::FakeNodeContext context(scene);
     test::HeadlessUi ui;
     ui.Frame(context, id);
@@ -201,10 +201,10 @@ TEST_CASE("preset: Reveal shows the file, but not when it's missing", "[node:pre
     CHECK(context.revealed == std::vector<std::filesystem::path>{"/p.milk"});
 }
 
-TEST_CASE("preset: the star shows for library presets and toggles the favourite", "[node:preset]")
+TEST_CASE("milkdrop preset: the star shows for library presets and toggles the favourite", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string id = scene.Add(NodeType::Preset, WithPath("/p.milk"));
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
     test::FakeNodeContext context(scene);
     context.files = {"/p.milk"};
     test::HeadlessUi ui;
@@ -216,12 +216,12 @@ TEST_CASE("preset: the star shows for library presets and toggles the favourite"
     CHECK(context.toggledFavourites == std::vector<std::string>{"/p.milk"});
 }
 
-TEST_CASE("preset: the frame time shows only on the live preset, and the missing note only when missing", "[node:preset]")
+TEST_CASE("milkdrop preset: the frame time shows only on the live preset, and the missing note only when missing", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;
-    const std::string id = scene.Add(NodeType::Preset, WithPath("/p.milk"));
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
     test::FakeNodeContext context(scene);
-    const auto texts = test::ControlsOf(NodeType::Preset, app::Control::Kind::Text);
+    const auto texts = test::ControlsOf(NodeType::MilkdropPreset, app::Control::Kind::Text);
     REQUIRE(texts.size() == 1);
     CHECK(texts[0]->warning);
     CHECK(texts[0]->text(scene.Node(id), context) == "File not found.");
@@ -235,10 +235,25 @@ TEST_CASE("preset: the frame time shows only on the live preset, and the missing
     CHECK(context.edits.empty());
 }
 
-TEST_CASE("preset: \"Preset...\" in the Add menu asks for a file", "[node:preset]")
+TEST_CASE("milkdrop preset: \"Milkdrop preset...\" in the Add menu asks for a file", "[node:milkdrop-preset]")
 {
-    const auto& items = app::Ui(NodeType::Preset).addItems;
+    const auto& items = app::Ui(NodeType::MilkdropPreset).addItems;
     REQUIRE(items.size() == 1);
-    CHECK(std::string(items[0].label) == "Preset...");
+    CHECK(std::string(items[0].label) == "Milkdrop preset...");
     CHECK(items[0].chooseFile);
+}
+
+TEST_CASE("milkdrop preset: older show files call it \"preset\"; they open, and save it as \"milkdropPreset\"", "[node:milkdrop-preset]")
+{
+    const auto loaded = model::ParsePerformance(R"({"version": 3, "scenes": [{"id": "a", "midi": {"cc20Value": 0}, "graph": {
+        "nodes": [{"id": "p", "type": "preset", "path": "/x.milk"}, {"id": "v", "type": "viewport"}, {"id": "m", "type": "mix", "opacity": 0.4}],
+        "wires": [{"from": "p", "to": "v", "input": 0}, {"from": "m", "to": "p", "input": "feedback"}]}}]})");
+    REQUIRE(loaded.ok);
+    const auto& graph = loaded.performance.scenes[0].graph;
+    REQUIRE(graph.Find("p") != nullptr);
+    CHECK(graph.Find("p")->type == NodeType::MilkdropPreset);
+    CHECK(PathOf(*graph.Find("p")) == "/x.milk");
+    const std::string saved = model::SerializePerformance(loaded.performance);
+    CHECK(saved.find("\"milkdropPreset\"") != std::string::npos);
+    CHECK(saved.find("\"type\": \"preset\"") == std::string::npos);
 }

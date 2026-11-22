@@ -4,8 +4,8 @@ set(GV_NODE_TESTS
     nodes/test_contrast.cpp
     nodes/test_saturation.cpp
     nodes/test_luma_gate.cpp
-    nodes/test_mix.cpp
-    nodes/test_preset.cpp
+    nodes/test_opacity.cpp
+    nodes/test_milkdrop_preset.cpp
     nodes/test_switcher.cpp
     nodes/test_viewport.cpp)
 
