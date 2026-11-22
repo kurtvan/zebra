@@ -120,7 +120,7 @@ auto TryEditGraph(Document& document, int scene, const std::function<void(Graph&
     Performance edited = current;
     auto& graph = edited.scenes[static_cast<size_t>(scene)].graph;
     edit(graph);
-    NormalizeSwitcherInputs(graph);
+    FollowWires(graph);
     auto errors = ValidateGraph(graph);
     if (errors.empty())
         document.Edit(std::move(edited), std::move(label), std::move(coalesceKey));
@@ -136,14 +136,14 @@ auto ScenePresets(const Graph& graph) -> std::vector<std::string>
     const Node* top = viewport != nullptr ? graph.Upstream(viewport->id, 0) : nullptr;
     if (top == nullptr)
         return {};
-    if (top->type == NodeType::Preset)
+    if (top->type == NodeType::MilkdropPreset)
         return {top->id};
     std::vector<std::string> presets;
     if (top->type == NodeType::Switcher)
     {
         for (int i = 0; i < ParamsOf<SwitcherParams>(*top).inputCount; ++i)
         {
-            if (const Node* input = graph.Upstream(top->id, i); input != nullptr && input->type == NodeType::Preset)
+            if (const Node* input = graph.Upstream(top->id, i); input != nullptr && input->type == NodeType::MilkdropPreset)
                 presets.push_back(input->id);
         }
     }
@@ -164,14 +164,14 @@ auto ReplacePreset(Performance& performance, int index, int item, const std::fil
         // Unfinished: a new preset node into the viewport.
         const Node* viewport = graph.Viewport();
         const std::string viewportId = viewport != nullptr ? viewport->id : AddNode(graph, NodeType::Viewport, 400.0f, 0.0f);
-        const std::string preset = AddNode(graph, NodeType::Preset, 100.0f, 0.0f);
-        ParamsOf<PresetParams>(*graph.Find(preset)).path = presetPath;
+        const std::string preset = AddNode(graph, NodeType::MilkdropPreset, 100.0f, 0.0f);
+        ParamsOf<MilkdropPresetParams>(*graph.Find(preset)).path = presetPath;
         Connect(graph, preset, viewportId, 0);
         scene.Refresh();
         return 0;
     }
     item = presets.size() > 1 ? std::clamp(item, 0, static_cast<int>(presets.size()) - 1) : 0;
-    ParamsOf<PresetParams>(*graph.Find(presets[static_cast<size_t>(item)])).path = presetPath;
+    ParamsOf<MilkdropPresetParams>(*graph.Find(presets[static_cast<size_t>(item)])).path = presetPath;
     scene.Refresh();
     return item;
 }
@@ -223,7 +223,7 @@ auto AssignVideo(Performance& performance, int index, const std::string& videoId
         std::string previous = source;
         const float y = graph.Find(preset)->y; // the chain on the preset's row, ending left of it
         float x = graph.Find(preset)->x - 900.0f;
-        for (NodeType type : {NodeType::Contrast, NodeType::Saturation, NodeType::LumaGate, NodeType::Mix})
+        for (NodeType type : {NodeType::Contrast, NodeType::Saturation, NodeType::LumaGate, NodeType::Opacity})
         {
             const std::string id = AddNode(graph, type, x, y);
             if (type == NodeType::LumaGate)

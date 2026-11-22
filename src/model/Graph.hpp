@@ -47,11 +47,12 @@ enum class NodeType
     Contrast,
     Saturation,
     LumaGate,
-    Mix,
-    Preset,
+    Opacity,
+    MilkdropPreset,
     Switcher,
     Viewport
 };
+constexpr int kNodeTypeCount = 8; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
 
 /// What travels along a wire: a video picture, or a preset's finished frame.
 enum class PortKind
@@ -94,15 +95,15 @@ struct LumaGateParams
     bool invert{false};
     auto operator==(const LumaGateParams&) const -> bool = default;
 };
-struct MixParams
+struct OpacityParams
 {
     float opacity{1.0f}; //!< 0..1
-    auto operator==(const MixParams&) const -> bool = default;
+    auto operator==(const OpacityParams&) const -> bool = default;
 };
-struct PresetParams
+struct MilkdropPresetParams
 {
     std::filesystem::path path;
-    auto operator==(const PresetParams&) const -> bool = default;
+    auto operator==(const MilkdropPresetParams&) const -> bool = default;
 };
 struct SwitcherParams
 {
@@ -111,7 +112,7 @@ struct SwitcherParams
     double intervalSeconds{30.0}; //!< Unit Seconds: kMinPlaylistInterval..kMaxPlaylistInterval.
     int intervalCount{4};         //!< Units Beats/Bars: 1..kMaxPlaylistCount, changing on bar lines.
     bool shuffle{false};          //!< Random order, never the same input twice in a row.
-    int inputCount{1};            //!< Always ends with one empty input (NormalizeSwitcherInputs).
+    int inputCount{1};            //!< Always ends with one empty input (FollowWires).
     auto operator==(const SwitcherParams&) const -> bool = default;
 };
 struct ViewportParams
@@ -119,7 +120,7 @@ struct ViewportParams
     auto operator==(const ViewportParams&) const -> bool = default;
 };
 
-using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, MixParams, PresetParams,
+using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, OpacityParams, MilkdropPresetParams,
                                 SwitcherParams, ViewportParams>;
 
 struct Node
@@ -173,6 +174,8 @@ auto ParamsOf(Node& node) -> Params&
     return std::get<Params>(node.params);
 }
 
+// Shorthands for the node type's definition (model/nodes/NodeDef.hpp), which has the rest.
+
 /// Default params for a node type.
 auto DefaultParams(NodeType type) -> NodeParams;
 /// Short id prefix and display name, e.g. "gate" / "Luma gate".
@@ -186,7 +189,7 @@ auto InputCount(const Node& node) -> int;
 /// The kind input `input` of `node` takes, or nullopt if out of range.
 auto InputKind(const Node& node, int input) -> std::optional<PortKind>;
 
-/// True for Contrast, Saturation, LumaGate and Mix: one Video input, one Video output.
+/// True for Contrast, Saturation, LumaGate and Opacity: one Video input, one Video output.
 auto IsEffect(NodeType type) -> bool;
 
 // --- Validation ----------------------------------------------------------------------------------
@@ -215,9 +218,12 @@ auto RemoveNode(Graph& graph, const std::string& id) -> bool;
 auto Connect(Graph& graph, const std::string& from, const std::string& to, int input, const std::string& textureName = {}) -> bool;
 /// Removes the wire into `to`'s input. Returns false if there was none.
 auto Disconnect(Graph& graph, const std::string& to, int input, const std::string& textureName = {}) -> bool;
-/// Keeps exactly one empty input after the last wired one of every switcher (inputs are never renumbered).
-void NormalizeSwitcherInputs(Graph& graph);
-/// Every error wiring `from` into `to`'s input would cause (Connect on a copy, then NormalizeSwitcherInputs and
+/// Updates every node's settings that follow its wires (NodeDef::followWires): a switcher keeps exactly one
+/// empty input after its last wired one (inputs are never renumbered), and takes the kind of its wires.
+void FollowWires(Graph& graph);
+/// True if `node`'s ports take either kind until something is wired to it (an unwired switcher).
+auto TakesAnyKind(const Graph& graph, const Node& node) -> bool;
+/// Every error wiring `from` into `to`'s input would cause (Connect on a copy, then FollowWires and
 /// ValidateGraph), or none if the wire can be made. For an already valid graph, these are the wire's errors only.
 auto ConnectErrors(const Graph& graph, const std::string& from, const std::string& to, int input, const std::string& textureName = {})
     -> std::vector<GraphError>;

@@ -132,7 +132,7 @@ auto ReplacePreset(Performance& performance, int index, int item, const std::fil
 
 /// Gives scene `index` pool video `videoId`: a new input of its Video switcher if it has one, else its video
 /// source plays it (as a file). A scene without video gets a source with a look chain (Contrast -> Saturation
-/// -> Luma gate -> Mix) into every preset's Feedback input. Returns false if `index` is out of range.
+/// -> Luma gate -> Opacity) into every preset's Feedback input. Returns false if `index` is out of range.
 auto AssignVideo(Performance& performance, int index, const std::string& videoId) -> bool;
 
 /// The id of the pool video for `file`, adding it (start 0, speed 1) if it isn't in the pool yet.

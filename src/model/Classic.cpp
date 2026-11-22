@@ -15,7 +15,7 @@ constexpr float kVideoSwitcherX = 320.0f;
 constexpr float kContrastX = 600.0f;
 constexpr float kSaturationX = 820.0f;
 constexpr float kGateX = 1040.0f;
-constexpr float kMixX = 1260.0f;
+constexpr float kOpacityX = 1260.0f;
 constexpr float kPresetX = 1500.0f;
 constexpr float kFrameSwitcherX = 1800.0f;
 constexpr float kViewportX = 2080.0f;
@@ -51,7 +51,7 @@ void AddChain(Graph& graph, const std::string& root, const std::string& preset, 
     const auto contrast = Add(graph, NodeType::Contrast, kContrastX, y, ContrastParams{look.contrast});
     const auto saturation = Add(graph, NodeType::Saturation, kSaturationX, y, SaturationParams{look.saturation});
     const auto gate = Add(graph, NodeType::LumaGate, kGateX, y, LumaGateParams{look.lumaMin, softness, invert});
-    const auto mix = Add(graph, NodeType::Mix, kMixX, y, MixParams{look.mix});
+    const auto mix = Add(graph, NodeType::Opacity, kOpacityX, y, OpacityParams{look.mix});
     Connect(graph, root, contrast, 0);
     Connect(graph, contrast, saturation, 0);
     Connect(graph, saturation, gate, 0);
@@ -80,7 +80,7 @@ auto ReadChain(const Graph& graph, const Node* last) -> Chain
     return chain;
 }
 
-/// The look a classic chain carries (Contrast -> Saturation -> Luma gate -> Mix), or nullopt for any other chain.
+/// The look a classic chain carries (Contrast -> Saturation -> Luma gate -> Opacity), or nullopt for any other chain.
 struct ChainLook
 {
     VideoLook look;
@@ -92,7 +92,7 @@ auto LookOf(const Chain& chain) -> std::optional<ChainLook>
 {
     const auto& e = chain.effects;
     if (e.size() != 4 || e[0]->type != NodeType::Contrast || e[1]->type != NodeType::Saturation || e[2]->type != NodeType::LumaGate ||
-        e[3]->type != NodeType::Mix)
+        e[3]->type != NodeType::Opacity)
         return std::nullopt;
     ChainLook result;
     result.look.contrast = ParamsOf<ContrastParams>(*e[0]).contrast;
@@ -101,7 +101,7 @@ auto LookOf(const Chain& chain) -> std::optional<ChainLook>
     result.look.lumaMin = gate.threshold;
     result.softness = gate.softness;
     result.invert = gate.invert;
-    result.look.mix = ParamsOf<MixParams>(*e[3]).opacity;
+    result.look.mix = ParamsOf<OpacityParams>(*e[3]).opacity;
     return result;
 }
 
@@ -186,7 +186,7 @@ auto GraphFromClassic(const ClassicScene& classic) -> Graph
     for (size_t i = 0; i < presets.size(); ++i)
     {
         const float blockStart = y;
-        const std::string preset = Add(graph, NodeType::Preset, kPresetX, y, PresetParams{presets[i]});
+        const std::string preset = Add(graph, NodeType::MilkdropPreset, kPresetX, y, MilkdropPresetParams{presets[i]});
         presetIds.push_back(preset);
         if (video)
         {
@@ -231,7 +231,7 @@ auto ClassicFromGraph(const Graph& graph) -> std::optional<ClassicScene>
 
     // The presets: one, or a Frame switcher's.
     std::vector<const Node*> presets;
-    if (top->type == NodeType::Preset)
+    if (top->type == NodeType::MilkdropPreset)
     {
         presets.push_back(top);
     }
@@ -243,7 +243,7 @@ auto ClassicFromGraph(const Graph& graph) -> std::optional<ClassicScene>
             const Node* input = graph.Upstream(top->id, i);
             if (input == nullptr)
                 continue;
-            if (input->type != NodeType::Preset)
+            if (input->type != NodeType::MilkdropPreset)
                 return std::nullopt;
             presets.push_back(input);
         }
@@ -253,7 +253,7 @@ auto ClassicFromGraph(const Graph& graph) -> std::optional<ClassicScene>
         scene.playlist.intervalCount = params.intervalCount;
         scene.playlist.shuffle = params.shuffle;
         for (const Node* preset : presets)
-            scene.playlist.presets.push_back(ParamsOf<PresetParams>(*preset).path);
+            scene.playlist.presets.push_back(ParamsOf<MilkdropPresetParams>(*preset).path);
         if (presets.empty())
             return scene;
     }
@@ -315,7 +315,7 @@ auto ClassicFromGraph(const Graph& graph) -> std::optional<ClassicScene>
     }
     else
     {
-        scene.presetPath = ParamsOf<PresetParams>(*presets.front()).path;
+        scene.presetPath = ParamsOf<MilkdropPresetParams>(*presets.front()).path;
     }
     if (withVideo == 0)
         return scene;
@@ -374,10 +374,10 @@ auto RuntimeViewFromGraph(const Graph& graph) -> ClassicScene
         return scene;
 
     std::vector<const Node*> presets;
-    if (top->type == NodeType::Preset)
+    if (top->type == NodeType::MilkdropPreset)
     {
         presets.push_back(top);
-        scene.presetPath = ParamsOf<PresetParams>(*top).path;
+        scene.presetPath = ParamsOf<MilkdropPresetParams>(*top).path;
     }
     else if (top->type == NodeType::Switcher)
     {
@@ -385,7 +385,7 @@ auto RuntimeViewFromGraph(const Graph& graph) -> ClassicScene
         for (int i = 0; i < params.inputCount; ++i)
         {
             const Node* input = graph.Upstream(top->id, i);
-            if (input != nullptr && input->type == NodeType::Preset)
+            if (input != nullptr && input->type == NodeType::MilkdropPreset)
                 presets.push_back(input);
         }
         if (presets.empty())
@@ -396,7 +396,7 @@ auto RuntimeViewFromGraph(const Graph& graph) -> ClassicScene
         scene.playlist.intervalCount = params.intervalCount;
         scene.playlist.shuffle = params.shuffle;
         for (const Node* preset : presets)
-            scene.playlist.presets.push_back(ParamsOf<PresetParams>(*preset).path);
+            scene.playlist.presets.push_back(ParamsOf<MilkdropPresetParams>(*preset).path);
         scene.playlist.looks.assign(presets.size(), VideoLook{});
         scene.presetPath = scene.playlist.presets.front();
     }

@@ -1089,7 +1089,7 @@ private:
             for (auto& wire : graph.wires)
             {
                 const auto* node = graph.Find(wire.toNode);
-                if (node == nullptr || node->type != gv::model::NodeType::Preset || wire.toInput != static_cast<int>(PresetLayer::Feedback))
+                if (node == nullptr || node->type != gv::model::NodeType::MilkdropPreset || wire.toInput != static_cast<int>(PresetLayer::Feedback))
                     continue;
                 if (!texture)
                 {
@@ -1103,7 +1103,7 @@ private:
                 std::string name = layer.size() > 8 ? layer.substr(8) : std::string();
                 if (name.empty())
                 {
-                    const auto textures = gv::library::PresetTextures(gv::model::ParamsOf<gv::model::PresetParams>(*node).path);
+                    const auto textures = gv::library::PresetTextures(gv::model::ParamsOf<gv::model::MilkdropPresetParams>(*node).path);
                     if (textures.empty())
                         continue;
                     name = textures.front();
@@ -1136,7 +1136,7 @@ private:
         for (auto& wire : scene.graph.wires)
         {
             const auto* to = scene.graph.Find(wire.toNode);
-            if (to == nullptr || to->type != gv::model::NodeType::Preset)
+            if (to == nullptr || to->type != gv::model::NodeType::MilkdropPreset)
                 continue; // switcher inputs use the same numbers
             if (detach && wire.toInput == static_cast<int>(PresetLayer::Texture))
             {
@@ -1188,7 +1188,7 @@ private:
         };
         auto isPreset = [&](const std::string& id) {
             const Node* node = graph.Find(id);
-            return node != nullptr && node->type == NodeType::Preset;
+            return node != nullptr && node->type == NodeType::MilkdropPreset;
         };
         std::string what = "nothing to do";
         std::vector<GraphError> errors;
@@ -1227,9 +1227,9 @@ private:
         {
             for (const auto& node : graph.nodes)
             {
-                if (node.type != NodeType::Preset)
+                if (node.type != NodeType::MilkdropPreset)
                     continue;
-                const auto textures = gv::library::PresetTextures(ParamsOf<PresetParams>(node).path);
+                const auto textures = gv::library::PresetTextures(ParamsOf<MilkdropPresetParams>(node).path);
                 const auto chain = firstWire([&](const Wire& w) { return w.toNode == node.id && isEffect(w.fromNode); });
                 if (textures.empty() || !chain)
                     continue;
@@ -1309,11 +1309,11 @@ private:
                         gv::model::AssignVideo(edited, live, edited.videos.front().id);
                     for (auto& node : graph.nodes)
                     {
-                        if (node.type == gv::model::NodeType::Mix)
-                            gv::model::ParamsOf<gv::model::MixParams>(node).opacity = 0.3f;
+                        if (node.type == gv::model::NodeType::Opacity)
+                            gv::model::ParamsOf<gv::model::OpacityParams>(node).opacity = 0.3f;
                     }
-                    Edit(std::move(edited), "Change Mix", {});
-                    GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's mix");
+                    Edit(std::move(edited), "Change Opacity", {});
+                    GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's opacity");
                 }
                 break;
             case 3:

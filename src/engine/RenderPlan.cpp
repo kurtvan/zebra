@@ -36,21 +36,6 @@ auto ThroughSwitchers(const Graph& graph, const Node* node, const SwitcherSelect
     return node;
 }
 
-auto PassFor(const Node& node) -> EffectPass
-{
-    switch (node.type)
-    {
-    case NodeType::Contrast: return {EffectPass::Type::Contrast, model::ParamsOf<model::ContrastParams>(node).contrast, 0.0f, false};
-    case NodeType::Saturation: return {EffectPass::Type::Saturation, model::ParamsOf<model::SaturationParams>(node).saturation, 0.0f, false};
-    case NodeType::LumaGate:
-    {
-        const auto& gate = model::ParamsOf<model::LumaGateParams>(node);
-        return {EffectPass::Type::LumaGate, gate.threshold, gate.softness, gate.invert};
-    }
-    default: return {EffectPass::Type::Mix, model::ParamsOf<model::MixParams>(node).opacity, 0.0f, false};
-    }
-}
-
 } // namespace
 
 auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> RenderPlan
@@ -60,10 +45,10 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
     if (viewport == nullptr)
         return plan;
     const Node* preset = ThroughSwitchers(graph, graph.Upstream(viewport->id, 0), selection);
-    if (preset == nullptr || preset->type != NodeType::Preset)
+    if (preset == nullptr || preset->type != NodeType::MilkdropPreset)
         return plan;
     plan.presetNode = preset->id;
-    plan.presetPath = model::ParamsOf<model::PresetParams>(*preset).path;
+    plan.presetPath = model::ParamsOf<model::MilkdropPresetParams>(*preset).path;
 
     // Each wired video input, in input order (texture inputs by name).
     std::vector<const model::Wire*> inputs;
@@ -85,7 +70,7 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
         {
             if (model::IsEffect(node->type))
             {
-                branch.passes.push_back(PassFor(*node));
+                branch.passes.push_back(model::Def(node->type).pass(*node));
                 node = graph.Upstream(node->id, 0);
             }
             else if (node->type == NodeType::Switcher)

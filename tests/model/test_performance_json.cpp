@@ -116,7 +116,7 @@ TEST_CASE("format 3 files name preset inputs and keep switcher inputs stable")
     CHECK(text.find("\"input\": \"onTop\"") != std::string::npos);
     CHECK(text.find("\"kind\": \"frame\"") != std::string::npos);
     CHECK(text.find("\"type\": \"lumaGate\"") != std::string::npos);
-    CHECK(text.find("\"preset\"") != std::string::npos);
+    CHECK(text.find("\"milkdropPreset\"") != std::string::npos);
     CHECK(text.find("\"playlist\"") == std::string::npos); // no format 2 fields
     CHECK(SerializePerformance(ParsePerformance(text).performance) == text); // stable
 }
@@ -219,7 +219,7 @@ TEST_CASE("validation rules")
     SECTION("empty id and preset path")
     {
         auto scene = MakeScene("", 0);
-        ParamsOf<PresetParams>(NodeOf(scene, NodeType::Preset)).path.clear();
+        ParamsOf<MilkdropPresetParams>(NodeOf(scene, NodeType::MilkdropPreset)).path.clear();
         performance.scenes = {scene};
         const auto issues = Validate(performance);
         CHECK(HasIssueAt(issues, "/scenes/0/id"));
@@ -238,7 +238,7 @@ TEST_CASE("validation rules")
     {
         performance.videos = {PoolVideo{"v", "", "/v.mp4"}};
         auto scene = MakeScene("a", 0, WithVideo("/a.milk", "v"));
-        ParamsOf<MixParams>(NodeOf(scene, NodeType::Mix)).opacity = 1.5f;
+        ParamsOf<OpacityParams>(NodeOf(scene, NodeType::Opacity)).opacity = 1.5f;
         ParamsOf<LumaGateParams>(NodeOf(scene, NodeType::LumaGate)).threshold = -0.1f;
         ParamsOf<LumaGateParams>(NodeOf(scene, NodeType::LumaGate)).softness = 2.f;
         ParamsOf<ContrastParams>(NodeOf(scene, NodeType::Contrast)).contrast = 150.f;
@@ -302,7 +302,7 @@ TEST_CASE("nodes with nothing chosen yet save and open again, with a warning eac
     Performance performance;
     performance.scenes = {MakeScene("a", 0)};
     Graph& graph = performance.scenes[0].graph;
-    const std::string preset = AddNode(graph, NodeType::Preset, 0.f, 0.f);
+    const std::string preset = AddNode(graph, NodeType::MilkdropPreset, 0.f, 0.f);
     const std::string video = AddNode(graph, NodeType::VideoSource, 0.f, 200.f);
     REQUIRE(Validate(performance).size() == 2);
 

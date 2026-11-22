@@ -39,10 +39,10 @@ auto FormatTwoBranches(const nlohmann::json& scene, int item) -> std::vector<Vid
     }
     const bool invert = video.value("invertLuma", false);
     auto passes = [&](float softness) -> std::vector<EffectPass> {
-        return {{EffectPass::Type::Contrast, look.value("contrast", 1.0f), 0.0f, false},
-                {EffectPass::Type::Saturation, look.value("saturation", 1.0f), 0.0f, false},
-                {EffectPass::Type::LumaGate, look.value("lumaMin", 0.0f), softness, invert},
-                {EffectPass::Type::Mix, look.value("mix", 1.0f), 0.0f, false}};
+        return {{NodeType::Contrast, look.value("contrast", 1.0f), 0.0f, false},
+                {NodeType::Saturation, look.value("saturation", 1.0f), 0.0f, false},
+                {NodeType::LumaGate, look.value("lumaMin", 0.0f), softness, invert},
+                {NodeType::Opacity, look.value("mix", 1.0f), 0.0f, false}};
     };
     std::vector<VideoBranch> branches{{passes(0.1f), PresetLayer::Feedback, {}}};
     if (look.value("overlay", false))
@@ -131,10 +131,10 @@ TEST_CASE("plans follow switcher selections and carry each branch's effects in o
     REQUIRE(second.branches.size() == 2);
     CHECK(second.branches[0].layer == PresetLayer::Feedback);
     CHECK(second.branches[1].layer == PresetLayer::OnTop);
-    const std::vector<EffectPass> onTop = {{EffectPass::Type::Contrast, 3.0f, 0, false},
-                                           {EffectPass::Type::Saturation, 0.0f, 0, false},
-                                           {EffectPass::Type::LumaGate, 0.2f, 0.4f, true},
-                                           {EffectPass::Type::Mix, 0.8f, 0, false}};
+    const std::vector<EffectPass> onTop = {{NodeType::Contrast, 3.0f, 0, false},
+                                           {NodeType::Saturation, 0.0f, 0, false},
+                                           {NodeType::LumaGate, 0.2f, 0.4f, true},
+                                           {NodeType::Opacity, 0.8f, 0, false}};
     CHECK(second.branches[1].passes == onTop);
 
     // The Video switcher's selection picks the source.
@@ -160,9 +160,9 @@ TEST_CASE("unfinished graphs compile to nothing")
     CHECK(CompilePlan(graph) == RenderPlan{});
 
     // A chain without a source carries no video.
-    const auto preset = AddNode(graph, NodeType::Preset, 0, 0);
+    const auto preset = AddNode(graph, NodeType::MilkdropPreset, 0, 0);
     Connect(graph, preset, "viewport", 0);
-    const auto mix = AddNode(graph, NodeType::Mix, 0, 0);
+    const auto mix = AddNode(graph, NodeType::Opacity, 0, 0);
     Connect(graph, mix, preset, 0);
     const auto plan = CompilePlan(graph);
     CHECK(plan.presetNode == preset);
@@ -173,7 +173,7 @@ TEST_CASE("every preset input compiles to a branch, texture inputs by name")
 {
     Graph graph;
     AddNode(graph, NodeType::Viewport, 0, 0);
-    const auto preset = AddNode(graph, NodeType::Preset, 0, 0);
+    const auto preset = AddNode(graph, NodeType::MilkdropPreset, 0, 0);
     REQUIRE(Connect(graph, preset, "viewport", 0));
     const auto source = AddNode(graph, NodeType::VideoSource, 0, 0);
     // Fan-out: one source into the feedback, before-composite and on-top inputs and two textures.
@@ -195,5 +195,5 @@ TEST_CASE("every preset input compiles to a branch, texture inputs by name")
     CHECK(plan.branches[3].passes.empty());
     CHECK(plan.branches[4].textureName == "worms");
     REQUIRE(plan.branches[4].passes.size() == 1);
-    CHECK(plan.branches[4].passes[0].type == EffectPass::Type::Contrast);
+    CHECK(plan.branches[4].passes[0].type == NodeType::Contrast);
 }

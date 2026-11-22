@@ -81,7 +81,7 @@ struct ClassicScene
 constexpr float kFeedbackGateSoftness = 0.1f;
 
 /// The graph that plays a classic scene exactly as before (product doc, "Existing shows"):
-/// - each preset gets a look chain (Contrast -> Saturation -> Luma gate -> Mix) into its Feedback input, and a
+/// - each preset gets a look chain (Contrast -> Saturation -> Luma gate -> Opacity) into its Feedback input, and a
 ///   second chain into On top when its look has the overlay;
 /// - a preset playlist becomes a Frame switcher, one preset per input;
 /// - a video playlist (file sources) becomes a Video switcher of video sources, shared by every chain.
