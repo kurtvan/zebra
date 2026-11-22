@@ -26,7 +26,7 @@ constexpr auto CycleStart(long long pulses, long long grid) -> long long
     return pulses - line <= tolerance ? line : line + grid;
 }
 
-/// How late a beat/bar playlist may still switch after its bar line (the next entry wasn't ready on
+/// How late a beat/bar switcher may still switch after its bar line (the next entry wasn't ready on
 /// the line). Later than this, it waits for the next bar line.
 constexpr long long kLateSwitchPulses = kPulsesPerBeat / 4;
 
@@ -36,7 +36,7 @@ constexpr auto NextBarLine(long long pulses) -> long long
     return (pulses + kPulsesPerBar - 1) / kPulsesPerBar * kPulsesPerBar;
 }
 
-/// When a beat/bar playlist switches next: `interval` pulses after `line`, rounded up to a bar line, so
+/// When a beat/bar switcher switches next: `interval` pulses after `line`, rounded up to a bar line, so
 /// presets only change on bars (every 6 beats becomes every 2 bars).
 constexpr auto NextSwitch(long long line, long long interval) -> long long
 {

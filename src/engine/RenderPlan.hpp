@@ -50,8 +50,8 @@ using SwitcherSelection = std::map<std::string, int>;
 /// (model::ValidateGraph); unfinished parts compile to nothing.
 auto CompilePlan(const model::Graph& graph, const SwitcherSelection& selection = {}) -> RenderPlan;
 
-/// The selection that passes the `item`-th wired input of the switcher feeding the viewport (classic
-/// playlist entry `item`). Empty when there's no such switcher.
+/// The selection that passes the `item`-th wired input of the switcher feeding the viewport
+/// (Scene::presetEntries entry `item`). Empty when there's no such switcher.
 auto SelectionForItem(const model::Graph& graph, int item) -> SwitcherSelection;
 
 } // namespace gv::engine

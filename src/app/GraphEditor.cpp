@@ -104,15 +104,33 @@ public:
     {
         return !m_editor.m_livePresetNode.empty() && node.id == m_editor.m_livePresetNode;
     }
+    auto IsLiveVideo(const model::Node& node) const -> bool override
+    {
+        return !m_editor.m_liveVideoNode.empty() && node.id == m_editor.m_liveVideoNode;
+    }
+    auto SwitcherState(const model::Node& node) const -> std::optional<SwitcherNow> override
+    {
+        if (m_state.engine == nullptr)
+            return std::nullopt;
+        const auto info = m_state.engine->Switcher(m_scene, node.id);
+        if (!info)
+            return std::nullopt;
+        return SwitcherNow{info->passing, info->next, info->secondsToNext, info->beatsToNext, info->waitingForClock};
+    }
+    void JumpSwitcher(const model::Node& node, int input) override
+    {
+        m_actions.JumpSwitcher(m_scene, node.id, input);
+    }
     auto SceneReady() const -> bool override
     {
         return m_state.engine != nullptr && m_state.engine->Scene(m_scene).state == engine::ScenePool::State::Ready;
     }
     auto VideoState() const -> std::optional<std::pair<bool, std::string>> override
     {
-        if (m_state.video == nullptr)
+        if (m_state.video == nullptr || m_state.engine == nullptr)
             return std::nullopt;
-        const auto state = m_state.video->StateFor(m_scene);
+        const auto source = m_state.engine->VideoSourceOf(m_scene);
+        const auto state = source ? m_state.video->StateOf(*source) : std::nullopt;
         if (!state)
             return std::nullopt;
         return std::pair<bool, std::string>{*state == io::VideoState::Live, std::string("Video: ") + io::ToString(*state)};
@@ -209,14 +227,16 @@ public:
         return servers;
     }
 
-    void InputRow(const model::Node& node, const InputSpec& spec) override
+    auto InputRow(const model::Node& node, const InputSpec& spec) -> bool override
     {
         const float height = ImGui::GetTextLineHeight() + 4.f;
         m_editor.DrawPin(node, false, &spec, spec.kind, height);
         ImGui::SameLine(0.f, 6.f);
         const bool accepts = m_editor.Accepts(*m_editor.m_graph, GraphEditor::Pin{node.id, false, spec.input, spec.texture, spec.kind});
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.f);
-        ImGui::TextColored(accepts ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : kDim, "%s", spec.label.c_str());
+        const ImVec4 color = !accepts ? kDim : spec.passing ? kAccent : ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        ImGui::TextColored(color, "%s", spec.label.c_str());
+        return ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
     }
     void OpenPopup(const model::Node& node, int kind) override
     {
@@ -463,23 +483,13 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     m_bodyTooltip.clear();
     m_openNodePopup = false;
 
-    // The preset node on screen.
+    // The preset node and video source node on screen.
     m_livePresetNode.clear();
+    m_liveVideoNode.clear();
     if (state.engine != nullptr && state.engine->LiveScene() == sceneIndex)
     {
-        const auto presets = scene.Presets();
-        if (!presets.empty())
-        {
-            const int item = std::clamp(state.engine->LiveItem(), 0, static_cast<int>(presets.size()) - 1);
-            for (const auto& node : graph.nodes)
-            {
-                if (node.type == model::NodeType::MilkdropPreset && model::ParamsOf<model::MilkdropPresetParams>(node).path == presets[static_cast<size_t>(item)])
-                {
-                    m_livePresetNode = node.id;
-                    break;
-                }
-            }
-        }
+        m_livePresetNode = state.engine->LivePlan().presetNode;
+        m_liveVideoNode = state.engine->LivePlan().sourceNode;
     }
 
     // Nodes named by the errors on show, or by the refused wire hovered last frame, get a red outline.

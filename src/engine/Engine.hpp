@@ -3,7 +3,9 @@
 #include "engine/BeatGrid.hpp"
 #include "engine/BeatHit.hpp"
 #include "engine/Lane.hpp"
+#include "engine/RenderPlan.hpp"
 #include "engine/ScenePool.hpp"
+#include "engine/SwitcherClock.hpp"
 #include "model/Performance.hpp"
 
 #include <SDL.h>
@@ -17,17 +19,44 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace gv::engine {
 
-/// Supplies the current video frame of a scene (implemented by the app, which owns the video sources).
+/// A video the engine shows, and whether it loops there (its video source node's setting).
+struct VideoUse
+{
+    model::VideoSource source;
+    bool loop{true};
+
+    auto operator==(const VideoUse&) const -> bool = default;
+};
+
+/// What the video sources should do this frame. The engine works it out from the scenes and their
+/// switchers, and hands it to the VideoProvider at the start of every Tick.
+struct VideoNeeds
+{
+    /// Playing: the outgoing scene of a handover, a pending trigger's scene, then the live scene (so the
+    /// live scene's loop setting wins for a video they share).
+    std::vector<VideoUse> onScreen;
+    /// The live scene's next video (a video switcher's next input): waiting paused at its start point.
+    std::optional<model::VideoSource> upcoming;
+    /// A video switcher moved on to these this frame (or jumped to them): each plays from its start point.
+    std::vector<model::VideoSource> switchedTo;
+    /// The first video of the scenes around the live one: paused, with a frame kept ready for a cut.
+    std::vector<model::VideoSource> nearby;
+};
+
+/// Supplies video frames (implemented by the app, which owns the video sources).
 class VideoProvider
 {
 public:
     virtual ~VideoProvider() = default;
-    virtual auto FrameFor(int scene) -> VideoFrame = 0;
+    /// Once per Tick, before any FrameFor.
+    virtual void BeginFrame(const VideoNeeds& needs) = 0;
+    virtual auto FrameFor(const model::VideoSource& source) -> VideoFrame = 0;
 };
 
 /// Playback engine: lanes, the scene pool, PCM fan-out and the presented frame.
@@ -45,10 +74,20 @@ public:
         double droppedFraction{-1.0}; //!< Share of live ticks without a new frame; -1 until live for a second.
         bool heavy{false};   //!< frameMs over the 60 fps budget.
         std::string error;   //!< Load error, if the preset failed.
-        int playlistItem{-1};          //!< Live playlist scenes: the entry showing.
-        double secondsToNextItem{-1.0}; //!< Live playlist scenes counting seconds: time until the next entry.
-        double beatsToNextItem{-1.0};   //!< Live playlist scenes counting beats/bars: beats until the next entry.
-        bool waitingForClock{false};    //!< Live playlist scene counting beats/bars, but the MIDI clock isn't running.
+        int playlistItem{-1};          //!< Live scenes switching presets: the entry showing (Scene::presetEntries).
+        double secondsToNextItem{-1.0}; //!< Live, switching presets every so many seconds: time until the next one.
+        double beatsToNextItem{-1.0};   //!< Live, switching presets on beats/bars: beats until the next one.
+        bool waitingForClock{false};    //!< Live, switching presets on beats/bars, but the MIDI clock isn't running.
+    };
+
+    /// A switcher of the live scene, as it's running.
+    struct SwitcherInfo
+    {
+        int passing{-1};              //!< The input passing now.
+        int next{-1};                 //!< The input coming next, or -1.
+        double secondsToNext{-1.0};   //!< Counting seconds: time until it moves on.
+        double beatsToNext{-1.0};     //!< Counting beats/bars: beats until it moves on.
+        bool waitingForClock{false};  //!< Counting beats/bars, but the MIDI clock isn't running.
     };
 
     struct Stats
@@ -90,11 +129,15 @@ public:
     /// Requests scene `index` (into the loaded performance) to go live.
     void Trigger(int index);
 
-    /// Goes live on entry `item` of playlist scene `index` (cutting within the live scene, or entering
-    /// another scene there); the playlist carries on cycling from that entry.
+    /// Goes live on entry `item` (Scene::presetEntries) of scene `index`, which switches presets (cutting
+    /// within the live scene, or entering another scene there); its switcher carries on from that entry.
     void TriggerItem(int index, int item);
 
-    /// The MIDI clock, for playlists that count beats or bars. Call every frame before Tick().
+    /// Jumps video switcher `switcherId` of the live scene `index` to `input`: that video from its start
+    /// point, and a whole interval before the next. Preset switchers jump with TriggerItem.
+    void JumpVideo(int index, const std::string& switcherId, int input);
+
+    /// The MIDI clock, for switchers that count beats or bars. Call every frame before Tick().
     void SetClock(const ClockInput& clock)
     {
         m_clock = clock;
@@ -149,11 +192,20 @@ public:
     {
         return m_pool.LiveScene();
     }
-    /// The playlist entry on screen in the live scene (0 for a single-preset scene).
+    /// The preset entry on screen in the live scene (0 for a scene without a preset switcher).
     auto LiveItem() const -> int
     {
         return m_pool.LiveItem();
     }
+    /// What the live scene draws now: its preset node, video source node and branches. Empty with no live scene.
+    auto LivePlan() const -> const RenderPlan&
+    {
+        return m_livePlan;
+    }
+    /// Switcher `switcherId` of scene `index`, if that's the live scene.
+    auto Switcher(int index, const std::string& switcherId) const -> std::optional<SwitcherInfo>;
+    /// The video scene `index` shows: the live scene's now, any other's when it starts. Nullopt: no video.
+    auto VideoSourceOf(int index) const -> std::optional<model::VideoSource>;
     auto PendingScene() const -> int
     {
         return m_pool.PendingScene();
@@ -176,28 +228,36 @@ private:
     void HandleEvent(const LaneEvent& event);
     void QueueWarm(int scene, const std::string& path, int excludeLane);
     void FinishHandover();
-    void UpdatePlaylist();
-    auto PickNextItem(const model::Scene& scene, int current) -> int;
-    static auto PlanFor(const model::Scene& scene, int item) -> LanePlan; //!< For playlist entry `item`.
+    void UpdateSwitchers();
+    void UpdatePresetSwitcher(const model::Scene& scene, int index, SwitcherClock::Clock::time_point now);
+    auto UpdateVideoSwitchers(const model::Scene& scene, SwitcherClock::Clock::time_point now) -> bool;
+    /// Which input each switcher of scene `index` passes for preset entry `item`: the live scene's video
+    /// switchers as they're running, every other's first wired input.
+    auto SelectionFor(int index, const model::Scene& scene, int item) const -> SwitcherSelection;
+    auto PlanFor(int index, const model::Scene& scene, int item) const -> LanePlan;
+    void RefreshLivePlans();
+    auto Needs() const -> VideoNeeds;
     auto CurrentPreset(int scene) const -> std::filesystem::path;
     void CreatePresentTargets();
 
     std::vector<std::unique_ptr<Lane>> m_lanes;
     VideoProvider* m_videoProvider{nullptr};
 
-    /// The live playlist scene's cycle.
-    struct PlaylistState
+    /// The live scene's switchers: one clock each, by switcher node id. Every switcher starts over when
+    /// the scene is entered.
+    struct LiveSwitchers
     {
         int scene{-1};
-        InstanceId liveInstance{0};
-        int item{0};
-        int nextItem{-1};
-        std::chrono::steady_clock::time_point switchAt{}; //!< Unit seconds.
-        bool songGrid{false};      //!< Units beats/bars: counting on Ableton's song position (else since entry).
-        long long switchPulse{-1}; //!< Units beats/bars: the pulse to switch at; -1 until the clock runs.
-        long long lastPulse{0};
+        InstanceId presetInstance{0}; //!< The live instance the preset switcher's clock follows.
+        int preparedInput{-1};        //!< The preset switcher's input prepared as the next entry.
+        std::map<std::string, SwitcherClock> clocks;
     };
-    PlaylistState m_playlist;
+    LiveSwitchers m_switchers;
+    bool m_videoJumped{false};               //!< JumpVideo since the last UpdateSwitchers.
+    RenderPlan m_livePlan;                   //!< For the live scene's current selection.
+    std::optional<model::VideoSource> m_upcoming;
+    std::vector<model::VideoSource> m_switchedTo;
+    std::vector<RenderPlan> m_entryPlans;    //!< Per scene: what it shows when it starts.
     std::mt19937 m_random{std::random_device{}()};
     ClockInput m_clock;
     BeatHitClock m_beatHitClock;
@@ -220,6 +280,7 @@ private:
         int lane{-1};
         InstanceId instance{0};
         int scene{-1};
+        std::optional<VideoUse> video; //!< The video it was showing.
     };
     LaneInstance m_handover;        //!< Outgoing live instance, still rendering until the new one has a frame.
     LaneInstance m_handoverRelease; //!< Set while executing an Activate's commands.

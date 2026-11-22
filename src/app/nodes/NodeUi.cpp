@@ -75,7 +75,13 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
     {
         case Control::Kind::Inputs:
             for (const auto& spec : NodeInputs(node, context))
-                context.InputRow(node, spec);
+            {
+                const bool doubleClicked = context.InputRow(node, spec);
+                if (!spec.tooltip.empty())
+                    context.Tooltip(spec.tooltip.c_str());
+                if (doubleClicked && Ui(node.type).inputDoubleClicked != nullptr)
+                    Ui(node.type).inputDoubleClicked(node, spec.input, context);
+            }
             break;
         case Control::Kind::Slider:
         {

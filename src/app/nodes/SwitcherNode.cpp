@@ -2,6 +2,9 @@
 
 #include "model/nodes/NodeDef.hpp"
 
+#include <cmath>
+#include <cstdio>
+
 namespace gv::app::nodes {
 
 namespace {
@@ -9,6 +12,19 @@ namespace {
 using model::SwitcherParams;
 
 constexpr const char* kUnits[] = {"seconds", "beats", "bars"}; // by IntervalUnit
+
+/// ", 12 s" / ", 3 beats" until the passing input moves on; ", waiting for the MIDI clock".
+auto Countdown(const SwitcherNow& now) -> std::string
+{
+    char text[48] = "";
+    if (now.waitingForClock)
+        std::snprintf(text, sizeof(text), ", waiting for the MIDI clock");
+    else if (now.secondsToNext >= 0.0)
+        std::snprintf(text, sizeof(text), ", %.0f s", std::ceil(now.secondsToNext));
+    else if (now.beatsToNext >= 0.0)
+        std::snprintf(text, sizeof(text), ", %.0f %s", std::ceil(now.beatsToNext), std::ceil(now.beatsToNext) == 1.0 ? "beat" : "beats");
+    return text;
+}
 
 auto CountsSeconds(const model::Node& node) -> bool
 {
@@ -24,16 +40,42 @@ auto SwitcherUi() -> NodeUi
     ui.width = 220.f;
     ui.header = ImVec4(0.50f, 0.37f, 0.16f, 0.60f);
     ui.menuGroup = 2;
-    // One row per input, and whether it's free: the last one always is (FollowWires).
+    // One row per input, and whether it's free: the last one always is (FollowWires). While the scene is
+    // live, the input passing is highlighted with the time until it moves on, and the next one is marked.
+    // Double-clicking a wired input switches to it.
     ui.inputs = [](const model::Node& node, NodeContext& context) {
         const auto& params = model::ParamsOf<SwitcherParams>(node);
+        const auto now = context.SwitcherState(node);
+        const bool presets = params.kind == model::PortKind::Frame;
         std::vector<InputSpec> inputs;
         for (int i = 0; i < params.inputCount; ++i)
         {
-            const bool wired = context.SceneGraph().WireInto(node.id, i) != nullptr;
-            inputs.push_back({i, {}, params.kind, std::to_string(i + 1) + (wired ? "" : "  (free)")});
+            InputSpec spec{i, {}, params.kind, std::to_string(i + 1)};
+            if (context.SceneGraph().WireInto(node.id, i) == nullptr)
+            {
+                spec.label += "  (free)";
+            }
+            else
+            {
+                if (now && now->passing == i)
+                {
+                    spec.passing = true;
+                    spec.label += "  passing" + Countdown(*now);
+                }
+                else if (now && now->next == i)
+                {
+                    spec.label += "  next";
+                }
+                if (presets || context.Live())
+                    spec.tooltip = presets ? "Double-click to go live on this preset now." : "Double-click to switch to this video now.";
+            }
+            inputs.push_back(std::move(spec));
         }
         return inputs;
+    };
+    ui.inputDoubleClicked = [](const model::Node& node, int input, NodeContext& context) {
+        if (context.SceneGraph().WireInto(node.id, input) != nullptr)
+            context.JumpSwitcher(node, input);
     };
 
     Control seconds;

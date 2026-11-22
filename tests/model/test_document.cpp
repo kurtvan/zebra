@@ -2,6 +2,8 @@
 
 #include "TestScenes.hpp"
 
+#include "model/ClassicView.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 using namespace gv::model;
@@ -149,10 +151,10 @@ TEST_CASE("replacing a scene's preset, or the playlist entry on screen")
     performance.scenes[2] = MakeScene("s2", 2, classic);
     CHECK(ReplacePreset(performance, 2, 1, "/new.milk") == 1);
     const auto& scene = performance.scenes[2];
-    CHECK(scene.classic.playlist.presets == std::vector<std::filesystem::path>{"/a.milk", "/new.milk", "/c.milk"});
-    CHECK(scene.LookFor(1).mix == 0.2f); // looks stay with their entries
+    CHECK(gv::test::Classic(scene).playlist.presets == std::vector<std::filesystem::path>{"/a.milk", "/new.milk", "/c.milk"});
+    CHECK(gv::test::LookFor(scene, 1).mix == 0.2f); // looks stay with their entries
     CHECK(ReplacePreset(performance, 2, 9, "/last.milk") == 2);
-    CHECK(scene.classic.playlist.presets[2] == "/last.milk");
+    CHECK(gv::test::Classic(scene).playlist.presets[2] == "/last.milk");
 }
 
 TEST_CASE("assigning a video: joins a video playlist, replaces the video, or adds one")
@@ -164,17 +166,17 @@ TEST_CASE("assigning a video: joins a video playlist, replaces the video, or add
     performance.scenes[2] = MakeScene("s2", 2, gv::test::WithVideo("/p.milk", "a", VideoLook{0.4f}));
 
     CHECK(AssignVideo(performance, 0, "x")); // no video yet: a source and a default look chain
-    CHECK(performance.scenes[0].classic.video.enabled);
-    CHECK(performance.scenes[0].classic.video.source.videoId == "x");
-    CHECK(performance.scenes[0].LookFor(0) == VideoLook{});
+    CHECK(gv::test::Classic(performance.scenes[0]).video.enabled);
+    CHECK(gv::test::Classic(performance.scenes[0]).video.source.videoId == "x");
+    CHECK(gv::test::LookFor(performance.scenes[0], 0) == VideoLook{});
     CHECK(ValidateGraph(performance.scenes[0].graph).empty());
 
     CHECK(AssignVideo(performance, 1, "y"));
-    CHECK(performance.scenes[1].classic.video.playlist.videos == std::vector<std::string>{"a", "y"});
+    CHECK(gv::test::Classic(performance.scenes[1]).video.playlist.videos == std::vector<std::string>{"a", "y"});
 
     CHECK(AssignVideo(performance, 2, "z"));
-    CHECK(performance.scenes[2].classic.video.source.videoId == "z");
-    CHECK(performance.scenes[2].LookFor(0).mix == 0.4f); // the look stays
+    CHECK(gv::test::Classic(performance.scenes[2]).video.source.videoId == "z");
+    CHECK(gv::test::LookFor(performance.scenes[2], 0).mix == 0.4f); // the look stays
     CHECK_FALSE(AssignVideo(performance, 3, "x"));
 }
 

@@ -201,8 +201,55 @@ TEST_CASE("switcher: on the canvas, numbered inputs with the free one marked", "
     model::Connect(scene.Graph(), scene.Add(NodeType::MilkdropPreset), switcher, 0);
     test::FakeNodeContext context(scene);
     CHECK(app::NodeTitle(scene.Node(switcher), context) == "Switcher");
-    CHECK(app::NodeInputs(scene.Node(switcher), context) ==
-          std::vector<app::InputSpec>{{0, {}, model::PortKind::Frame, "1"}, {1, {}, model::PortKind::Frame, "2  (free)"}});
+    const auto inputs = app::NodeInputs(scene.Node(switcher), context);
+    REQUIRE(inputs.size() == 2);
+    CHECK(inputs[0] == app::InputSpec{0, {}, model::PortKind::Frame, "1", false, "Double-click to go live on this preset now."});
+    CHECK(inputs[1] == app::InputSpec{1, {}, model::PortKind::Frame, "2  (free)"});
+}
+
+TEST_CASE("switcher: live, the input passing shows how long it has left, and the next one is marked", "[node:switcher]")
+{
+    test::NodeScene scene;
+    const std::string switcher = scene.Add(NodeType::Switcher);
+    for (int i = 0; i < 3; ++i)
+        model::Connect(scene.Graph(), scene.Add(NodeType::MilkdropPreset), switcher, i);
+    test::FakeNodeContext context(scene);
+    context.live = true;
+    auto labels = [&] {
+        std::vector<std::string> result;
+        for (const auto& spec : app::NodeInputs(scene.Node(switcher), context))
+            result.push_back(spec.label);
+        return result;
+    };
+    context.switchers[switcher] = {1, 2, 11.2, -1.0, false};
+    CHECK(labels() == std::vector<std::string>{"1", "2  passing, 12 s", "3  next", "4  (free)"});
+    CHECK(app::NodeInputs(scene.Node(switcher), context)[1].passing);
+    CHECK_FALSE(app::NodeInputs(scene.Node(switcher), context)[0].passing);
+    context.switchers[switcher] = {0, 1, -1.0, 1.0, false};
+    CHECK(labels()[0] == "1  passing, 1 beat");
+    context.switchers[switcher] = {0, 1, -1.0, 6.5, false};
+    CHECK(labels()[0] == "1  passing, 7 beats");
+    context.switchers[switcher] = {2, -1, -1.0, -1.0, true};
+    CHECK(labels()[2] == "3  passing, waiting for the MIDI clock");
+}
+
+TEST_CASE("switcher: double-clicking a wired input switches to it; a free one does nothing", "[node:switcher]")
+{
+    test::NodeScene scene;
+    const std::string switcher = scene.Add(NodeType::Switcher);
+    model::Connect(scene.Graph(), scene.Add(NodeType::VideoSource), switcher, 0);
+    model::Connect(scene.Graph(), scene.Add(NodeType::VideoSource), switcher, 1);
+    test::FakeNodeContext context(scene);
+
+    // A video switcher only offers it while its scene is live.
+    CHECK(app::NodeInputs(scene.Node(switcher), context)[1].tooltip.empty());
+    context.live = true;
+    CHECK(app::NodeInputs(scene.Node(switcher), context)[1].tooltip == "Double-click to switch to this video now.");
+
+    context.doubleClickedInputs = {1, 2}; // input 2 is the free one
+    test::HeadlessUi ui;
+    ui.Frame(context, switcher);
+    CHECK(context.jumps == std::vector<std::pair<std::string, int>>{{switcher, 1}});
 }
 
 TEST_CASE("switcher: seconds get a seconds slider, beats and bars a count; both stay in range", "[node:switcher]")

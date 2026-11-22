@@ -16,9 +16,11 @@ add_executable(gv_tests
     model/test_performance_json.cpp
     model/test_document.cpp
     model/test_graph.cpp
+    model/ClassicView.cpp
+    model/ClassicView.hpp
     io/test_midi_decode.cpp
     engine/test_scene_pool.cpp
-    engine/test_cycle_timer.cpp
+    engine/test_switcher_clock.cpp
     engine/test_beat_hit.cpp
     engine/test_render_plan.cpp
     library/test_library.cpp

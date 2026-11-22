@@ -45,7 +45,7 @@ auto ScenePool::Trigger(int scene) -> std::vector<PoolCommand>
         return commands;
     }
 
-    // The most recent trigger wins over a pending jump to a playlist entry.
+    // The most recent trigger wins over a pending jump to a preset entry.
     if (m_jump)
     {
         m_jump = false;
@@ -242,7 +242,7 @@ auto ScenePool::TriggerItem(int scene, int item) -> std::vector<PoolCommand>
 auto ScenePool::ClearItem() -> std::vector<PoolCommand>
 {
     if (m_jump)
-        return {}; // a jump is cancelled by a trigger, not by playlist housekeeping
+        return {}; // a jump is cancelled by a trigger, not by the preset switcher's housekeeping
     std::vector<PoolCommand> commands;
     if (auto it = m_instances.find(m_itemInstance); it != m_instances.end())
     {
@@ -398,7 +398,7 @@ void ScenePool::Rebalance(std::vector<PoolCommand>& commands)
         m_itemInstance = 0;
     }
 
-    // Release instances outside the window (never the live one or the pending trigger), and stray playlist entries.
+    // Release instances outside the window (never the live one or the pending trigger), and stray preset entries.
     for (auto it = m_instances.begin(); it != m_instances.end();)
     {
         const auto& instance = it->second;

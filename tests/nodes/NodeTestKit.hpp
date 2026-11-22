@@ -83,8 +83,11 @@ public:
     // What the test says the app looks like.
     bool live{false};
     std::string livePreset;
+    std::string liveVideo;
     bool ready{false};
     std::optional<std::pair<bool, std::string>> videoState;
+    std::map<std::string, app::SwitcherNow> switchers;    //!< Running switchers, by node id.
+    std::set<int> doubleClickedInputs;                    //!< Input rows whose label is double-clicked.
     std::optional<std::pair<double, bool>> frameTime;
     std::set<std::string> files;                          //!< Paths that exist.
     std::map<std::string, std::vector<std::string>> textures; //!< By preset path.
@@ -97,6 +100,7 @@ public:
     std::vector<std::vector<model::GraphError>> refused;
     int endedEdits{0};
     std::vector<app::InputSpec> inputRows;
+    std::vector<std::pair<std::string, int>> jumps;       //!< JumpSwitcher calls: node id, input.
     std::vector<int> popups;
     std::vector<std::string> tooltips;
     std::vector<std::string> fileDialogs;
@@ -119,6 +123,20 @@ public:
     auto IsLivePreset(const model::Node& node) const -> bool override
     {
         return node.id == livePreset;
+    }
+    auto IsLiveVideo(const model::Node& node) const -> bool override
+    {
+        return node.id == liveVideo;
+    }
+    auto SwitcherState(const model::Node& node) const -> std::optional<app::SwitcherNow> override
+    {
+        if (auto it = switchers.find(node.id); it != switchers.end())
+            return it->second;
+        return std::nullopt;
+    }
+    void JumpSwitcher(const model::Node& node, int input) override
+    {
+        jumps.emplace_back(node.id, input);
     }
     auto SceneReady() const -> bool override
     {
@@ -194,11 +212,12 @@ public:
         return servers;
     }
 
-    void InputRow(const model::Node&, const app::InputSpec& spec) override
+    auto InputRow(const model::Node&, const app::InputSpec& spec) -> bool override
     {
         inputRows.push_back(spec);
         if (ImGui::GetCurrentContext() != nullptr)
             ImGui::TextUnformatted(spec.label.c_str());
+        return doubleClickedInputs.count(spec.input) > 0;
     }
     void OpenPopup(const model::Node&, int kind) override
     {

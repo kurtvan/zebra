@@ -31,7 +31,7 @@ struct PoolCommand
     int lane{-1};
     InstanceId instance{0};
     bool priority{false}; //!< Prepare: run before other queued work on that lane.
-    int item{0};          //!< Prepare: which of the scene's presets (playlist entry); 0 for ordinary scenes.
+    int item{0};          //!< Prepare: which of the scene's preset entries (Scene::presetEntries); 0 for a scene without a preset switcher.
 };
 
 /// Decides which scenes are prepared on which lane, and when the live scene switches.
@@ -83,8 +83,8 @@ public:
     auto Remap(int sceneCount, const std::vector<int>& oldToNew, const std::vector<bool>& unusable,
                const std::vector<bool>& presetChanged) -> std::vector<PoolCommand>;
 
-    // --- Playlist scenes ---------------------------------------------------------------------
-    // The live scene's next playlist entry is prepared as an extra instance and swapped in when its
+    // --- Scenes with a preset switcher ------------------------------------------------------
+    // The live scene's next preset entry is prepared as an extra instance and swapped in when its
     // time comes. Any other scene is always prepared at entry 0 (every entry starts at the top).
 
     /// Prepares entry `item` of the live scene `scene` as the next one (replacing a previous next-entry instance).
@@ -93,10 +93,10 @@ public:
     /// Makes the prepared next-entry instance live (it must be ready). Releases the outgoing instance.
     auto ActivateItem(InstanceId instance) -> std::vector<PoolCommand>;
 
-    /// Drops the prepared next-entry instance, if any (e.g. the playlist was edited). Not a pending jump.
+    /// Drops the prepared next-entry instance, if any (e.g. the switcher was edited). Not a pending jump.
     auto ClearItem() -> std::vector<PoolCommand>;
 
-    /// Goes live on entry `item` of playlist scene `scene` (the live one or another): prepared with
+    /// Goes live on preset entry `item` of scene `scene` (the live one or another): prepared with
     /// priority as the next-entry instance and activated as soon as it's ready. A later trigger cancels it.
     /// Entry 0 of a scene that isn't live is an ordinary Trigger.
     auto TriggerItem(int scene, int item) -> std::vector<PoolCommand>;
@@ -171,7 +171,7 @@ private:
     InstanceId m_liveInstance{0};
     int m_pending{-1};
     int m_liveItem{0};
-    InstanceId m_itemInstance{0}; //!< The live playlist scene's next entry, or 0.
+    InstanceId m_itemInstance{0}; //!< The live scene's next preset entry, or 0.
     bool m_jump{false};           //!< m_itemInstance is a TriggerItem target: activate it when ready.
 };
 

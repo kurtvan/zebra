@@ -1,5 +1,6 @@
 #pragma once
 
+#include "model/LegacyScene.hpp"
 #include "model/Performance.hpp"
 
 #include <string>
