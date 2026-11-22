@@ -110,7 +110,7 @@ TEST_CASE("validation reports every broken rule")
         Connect(graph, inner, outer, 0);
         Connect(graph, "milkdrop-1", inner, 0);
         Connect(graph, outer, "viewport", 0);
-        CHECK(Has(ValidateGraph(graph), "can't be fed by another Preset switcher"));
+        CHECK(Has(ValidateGraph(graph), "can't be fed by another switcher of the same kind"));
 
         // A Video switcher upstream of a Frame switcher is fine.
         Graph mixed = Basic();

@@ -259,7 +259,7 @@ auto RemoveNode(Graph& graph, const std::string& id) -> bool
         return false;
     graph.nodes.erase(it);
     std::erase_if(graph.wires, [&](const Wire& wire) { return wire.fromNode == id || wire.toNode == id; });
-    NormalizeSwitcherInputs(graph);
+    FollowWires(graph);
     return true;
 }
 
@@ -269,7 +269,7 @@ auto Connect(Graph& graph, const std::string& from, const std::string& to, int i
         return false;
     Disconnect(graph, to, input, textureName);
     graph.wires.push_back({from, to, input, textureName});
-    NormalizeSwitcherInputs(graph);
+    FollowWires(graph);
     return true;
 }
 
@@ -279,7 +279,7 @@ auto ConnectErrors(const Graph& graph, const std::string& from, const std::strin
     Graph trial = graph;
     if (!Connect(trial, from, to, input, textureName))
         return {{"", "That node isn't there any more."}};
-    NormalizeSwitcherInputs(trial);
+    FollowWires(trial);
     return ValidateGraph(trial);
 }
 
@@ -289,24 +289,23 @@ auto Disconnect(Graph& graph, const std::string& to, int input, const std::strin
     std::erase_if(graph.wires, [&](const Wire& wire) { return wire.toNode == to && wire.toInput == input && wire.textureName == textureName; });
     if (graph.wires.size() == before)
         return false;
-    NormalizeSwitcherInputs(graph);
+    FollowWires(graph);
     return true;
 }
 
-void NormalizeSwitcherInputs(Graph& graph)
+void FollowWires(Graph& graph)
 {
     for (auto& node : graph.nodes)
     {
-        if (node.type != NodeType::Switcher)
-            continue;
-        int last = -1;
-        for (const auto& wire : graph.wires)
-        {
-            if (wire.toNode == node.id)
-                last = std::max(last, wire.toInput);
-        }
-        std::get<SwitcherParams>(node.params).inputCount = last + 2;
+        if (const auto follow = Def(node.type).followWires; follow != nullptr)
+            follow(graph, node);
     }
+}
+
+auto TakesAnyKind(const Graph& graph, const Node& node) -> bool
+{
+    return Def(node.type).anyKindWhenUnwired &&
+           std::none_of(graph.wires.begin(), graph.wires.end(), [&](const Wire& wire) { return wire.fromNode == node.id || wire.toNode == node.id; });
 }
 
 auto PresetsOf(const Graph& graph) -> std::vector<std::filesystem::path>

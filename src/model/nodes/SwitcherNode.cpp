@@ -1,13 +1,16 @@
 #include "model/nodes/NodeDef.hpp"
 #include "model/nodes/NodeJson.hpp"
 
+#include <algorithm>
 #include <map>
 #include <set>
 
 namespace gv::model::nodes {
 
-/// Passes one of its inputs at a time, moving on every interval: presets' pictures (a Preset switcher) or
-/// videos (a Video switcher). It always has one empty input after its last wired one (NormalizeSwitcherInputs).
+/// Passes one of its inputs at a time, moving on every interval. One kind of switcher for everything: it
+/// switches whatever is wired into it, videos or Milkdrop presets' pictures. With no wires it takes either;
+/// the first wire decides its kind (followWires), and all its inputs and its output then have that kind.
+/// It always has one empty input after its last wired one.
 auto SwitcherDef() -> NodeDef
 {
     NodeDef def;
@@ -19,8 +22,36 @@ auto SwitcherDef() -> NodeDef
     def.output = [](const Node& node) -> std::optional<PortKind> { return ParamsOf<SwitcherParams>(node).kind; };
     def.inputCount = [](const Node& node) { return ParamsOf<SwitcherParams>(node).inputCount; };
     def.inputKind = [](const Node& node, int) { return ParamsOf<SwitcherParams>(node).kind; };
-    def.label = [](const Node& node) -> std::string {
-        return ParamsOf<SwitcherParams>(node).kind == PortKind::Video ? "Video switcher" : "Preset switcher";
+    def.anyKindWhenUnwired = true;
+    def.followWires = [](const Graph& graph, Node& node) {
+        auto* params = std::get_if<SwitcherParams>(&node.params);
+        if (params == nullptr)
+            return; // wrong settings: ValidateGraph reports it
+        // Its kind: the one all its wires agree on (what comes in, and what its output feeds). If they
+        // disagree, it keeps its kind, so the error is on the wire that doesn't fit. Unwired, it keeps the
+        // kind it had and takes either.
+        int last = -1;
+        std::set<PortKind> kinds;
+        for (const auto& wire : graph.wires)
+        {
+            std::optional<PortKind> kind;
+            if (wire.toNode == node.id)
+            {
+                last = std::max(last, wire.toInput);
+                if (const Node* from = graph.Find(wire.fromNode); from != nullptr && from != &node)
+                    kind = OutputKind(*from);
+            }
+            else if (wire.fromNode == node.id)
+            {
+                if (const Node* to = graph.Find(wire.toNode); to != nullptr && to != &node)
+                    kind = InputKind(*to, wire.toInput);
+            }
+            if (kind)
+                kinds.insert(*kind);
+        }
+        params->inputCount = last + 2;
+        if (kinds.size() == 1)
+            params->kind = *kinds.begin();
     };
     def.checkParams = [](const Node& node, std::vector<GraphError>& errors) {
         const auto& params = ParamsOf<SwitcherParams>(node);
@@ -48,7 +79,7 @@ auto SwitcherDef() -> NodeDef
             const Node* other = graph.Find(id);
             if (other != nullptr && other->type == NodeType::Switcher && ParamsOf<SwitcherParams>(*other).kind == kind)
             {
-                errors.push_back({node.id, "A " + Label(node) + " can't be fed by another " + Label(node) + "."});
+                errors.push_back({node.id, "A switcher can't be fed by another switcher of the same kind."});
                 return;
             }
             for (const auto& next : upstream[id])

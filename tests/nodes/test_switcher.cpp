@@ -1,4 +1,4 @@
-// The Switcher node (Preset and Video switchers): model/nodes/SwitcherNode.cpp, app/nodes/SwitcherNode.cpp.
+// The Switcher node (switches videos or Milkdrop presets, whichever is wired into it): model/nodes/SwitcherNode.cpp, app/nodes/SwitcherNode.cpp.
 
 #include "nodes/NodeTestKit.hpp"
 
@@ -23,7 +23,7 @@ auto VideoKind(model::Node& node)
 
 } // namespace
 
-TEST_CASE("switcher: a Preset switcher by default, every 30 seconds, in order, with one free input", "[node:switcher]")
+TEST_CASE("switcher: every 30 seconds, in order, with one free input, taking either kind", "[node:switcher]")
 {
     test::NodeScene scene;
     const auto& node = scene.Node(scene.Add(NodeType::Switcher));
@@ -33,16 +33,73 @@ TEST_CASE("switcher: a Preset switcher by default, every 30 seconds, in order, w
     CHECK(Params(node).intervalSeconds == 30.0);
     CHECK_FALSE(Params(node).shuffle);
     CHECK(model::InputCount(node) == 1);
-    CHECK(model::Label(node) == "Preset switcher");
+    CHECK(model::Label(node) == "Switcher");
+    CHECK(model::TakesAnyKind(scene.Graph(), node));
 }
 
 TEST_CASE("switcher: its kind sets what it takes and gives", "[node:switcher]")
 {
     test::NodeScene scene;
     auto& node = scene.Node(scene.Add(NodeType::Switcher, VideoKind));
-    CHECK(model::Label(node) == "Video switcher");
+    CHECK(model::Label(node) == "Switcher");
     CHECK(model::OutputKind(node) == model::PortKind::Video);
     CHECK(model::InputKind(node, 0) == model::PortKind::Video);
+}
+
+TEST_CASE("switcher: unwired, it takes either kind; the first wire decides", "[node:switcher]")
+{
+    test::NodeScene scene;
+    const std::string switcher = scene.Add(NodeType::Switcher);
+    const std::string video = scene.Add(NodeType::VideoSource);
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
+    const std::string opacity = scene.Add(NodeType::Opacity);
+    auto kind = [&] { return Params(scene.Node(switcher)).kind; };
+
+    // Either kind can go in, or its output can feed either kind.
+    CHECK(model::ConnectErrors(scene.Graph(), video, switcher, 0).empty());
+    CHECK(model::ConnectErrors(scene.Graph(), preset, switcher, 0).empty());
+    CHECK(model::ConnectErrors(scene.Graph(), switcher, "viewport", 0).empty());
+    CHECK(model::ConnectErrors(scene.Graph(), switcher, opacity, 0).empty());
+
+    // Wiring video in makes it a video switcher: it no longer takes presets or feeds the viewport.
+    model::Connect(scene.Graph(), video, switcher, 0);
+    CHECK(kind() == model::PortKind::Video);
+    CHECK_FALSE(model::TakesAnyKind(scene.Graph(), scene.Node(switcher)));
+    CHECK(test::Messages(model::ConnectErrors(scene.Graph(), preset, switcher, 1)) ==
+          std::vector<std::string>{"This input of the Switcher takes video, not a preset's picture."});
+    CHECK_FALSE(model::ConnectErrors(scene.Graph(), switcher, "viewport", 0).empty());
+    CHECK(model::ConnectErrors(scene.Graph(), switcher, opacity, 0).empty());
+
+    // Unwired again, it takes either kind again.
+    model::Disconnect(scene.Graph(), switcher, 0);
+    CHECK(model::TakesAnyKind(scene.Graph(), scene.Node(switcher)));
+    model::Connect(scene.Graph(), preset, switcher, 0);
+    CHECK(kind() == model::PortKind::Frame);
+}
+
+TEST_CASE("switcher: wired from its output first, it takes the kind of what it feeds", "[node:switcher]")
+{
+    test::NodeScene scene;
+    const std::string frames = scene.Add(NodeType::Switcher, VideoKind); // overridden by its wire
+    model::Connect(scene.Graph(), frames, "viewport", 0);
+    CHECK(Params(scene.Node(frames)).kind == model::PortKind::Frame);
+    const std::string videos = scene.Add(NodeType::Switcher);
+    model::Connect(scene.Graph(), videos, scene.Add(NodeType::MilkdropPreset), 0);
+    CHECK(Params(scene.Node(videos)).kind == model::PortKind::Video);
+    CHECK(model::ValidateGraph(scene.Graph()).empty());
+}
+
+TEST_CASE("switcher: a show file's kind gives way to its wires", "[node:switcher]")
+{
+    // Saved as a video switcher, but wired between presets and the viewport: it opens as what its wires say.
+    const auto loaded = model::ParsePerformance(R"({"version": 3, "scenes": [{"id": "a", "midi": {"cc20Value": 0}, "graph": {
+        "nodes": [{"id": "s", "type": "switcher", "kind": "video"}, {"id": "p", "type": "milkdropPreset", "path": "/x.milk"},
+                  {"id": "v", "type": "viewport"}],
+        "wires": [{"from": "s", "to": "v", "input": 0}, {"from": "p", "to": "s", "input": 0}]}}]})");
+    REQUIRE(loaded.ok);
+    const auto& graph = loaded.performance.scenes[0].graph;
+    CHECK(graph.wires.size() == 2);
+    CHECK(Params(*graph.Find("s")).kind == model::PortKind::Frame);
 }
 
 TEST_CASE("switcher: always one free input after the last wired one, never renumbered", "[node:switcher]")
@@ -70,7 +127,7 @@ TEST_CASE("switcher: interval and input limits", "[node:switcher]")
     };
     CHECK(test::ParamErrors(NodeType::Switcher, with([](auto& p) { p.intervalSeconds = 1.0; })).empty());
     CHECK(test::ParamErrors(NodeType::Switcher, with([](auto& p) { p.intervalSeconds = 0.5; })) ==
-          std::vector<std::string>{"Preset switcher: the interval must be between 1 and 3600 seconds."});
+          std::vector<std::string>{"Switcher: the interval must be between 1 and 3600 seconds."});
     // Counting beats, the seconds don't matter, the count does.
     CHECK(test::ParamErrors(NodeType::Switcher, with([](auto& p) {
               p.unit = IntervalUnit::Beats;
@@ -79,9 +136,9 @@ TEST_CASE("switcher: interval and input limits", "[node:switcher]")
     CHECK(test::ParamErrors(NodeType::Switcher, with([](auto& p) {
               p.unit = IntervalUnit::Bars;
               p.intervalCount = 0;
-          })) == std::vector<std::string>{"Preset switcher: the interval must be between 1 and 256."});
+          })) == std::vector<std::string>{"Switcher: the interval must be between 1 and 256."});
     CHECK(test::ParamErrors(NodeType::Switcher, with([](auto& p) { p.inputCount = model::kMaxPlaylistCount + 2; })) ==
-          std::vector<std::string>{"Preset switcher: it can have at most 256 inputs."});
+          std::vector<std::string>{"Switcher: it can have at most 256 inputs."});
 }
 
 TEST_CASE("switcher: can't be fed by a switcher of its own kind, even further up", "[node:switcher]")
@@ -90,9 +147,9 @@ TEST_CASE("switcher: can't be fed by a switcher of its own kind, even further up
     const std::string top = scene.Add(NodeType::Switcher);
     const std::string inner = scene.Add(NodeType::Switcher);
     CHECK(test::Messages(model::ConnectErrors(scene.Graph(), inner, top, 0)) ==
-          std::vector<std::string>{"A Preset switcher can't be fed by another Preset switcher."});
+          std::vector<std::string>{"A switcher can't be fed by another switcher of the same kind."});
 
-    // A Video switcher further up, through a preset, is fine.
+    // A video switcher further up, through a preset, is fine.
     const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string videos = scene.Add(NodeType::Switcher, VideoKind);
     model::Connect(scene.Graph(), scene.Add(NodeType::VideoSource), videos, 0);
@@ -143,7 +200,7 @@ TEST_CASE("switcher: on the canvas, numbered inputs with the free one marked", "
     const std::string switcher = scene.Add(NodeType::Switcher);
     model::Connect(scene.Graph(), scene.Add(NodeType::MilkdropPreset), switcher, 0);
     test::FakeNodeContext context(scene);
-    CHECK(app::NodeTitle(scene.Node(switcher), context) == "Preset switcher");
+    CHECK(app::NodeTitle(scene.Node(switcher), context) == "Switcher");
     CHECK(app::NodeInputs(scene.Node(switcher), context) ==
           std::vector<app::InputSpec>{{0, {}, model::PortKind::Frame, "1"}, {1, {}, model::PortKind::Frame, "2  (free)"}});
 }
@@ -203,15 +260,11 @@ TEST_CASE("switcher: Shuffle on and off", "[node:switcher]")
     CHECK(context.LastEdit() == "Play in Order");
 }
 
-TEST_CASE("switcher: the Add menu has a Preset and a Video switcher", "[node:switcher]")
+TEST_CASE("switcher: the Add menu has one Switcher, for either kind", "[node:switcher]")
 {
     const auto& items = app::Ui(NodeType::Switcher).addItems;
-    REQUIRE(items.size() == 2);
-    CHECK(std::string(items[0].label) == "Preset switcher");
-    CHECK(std::string(items[1].label) == "Video switcher");
-    model::Node node;
-    node.type = NodeType::Switcher;
-    node.params = SwitcherParams{};
-    items[1].configure(node);
-    CHECK(Params(node).kind == model::PortKind::Video);
+    REQUIRE(items.size() == 1);
+    CHECK(std::string(items[0].label) == "Switcher");
+    CHECK(items[0].configure == nullptr);
+    CHECK(std::string(items[0].tooltip) == "Switches videos or Milkdrop presets: whichever you wire into it first.");
 }

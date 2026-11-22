@@ -446,7 +446,7 @@ auto ParsePerformance(const std::string& text) -> LoadResult
     for (size_t i = 0; i < performance.scenes.size(); ++i)
     {
         auto& graph = performance.scenes[i].graph;
-        NormalizeSwitcherInputs(graph);
+        FollowWires(graph);
         const auto errors = ValidateGraph(graph);
         if (!errors.empty() && !graph.wires.empty())
         {
@@ -455,7 +455,7 @@ auto ParsePerformance(const std::string& text) -> LoadResult
                 result.issues.push_back(Warning(paths[i] + "/graph", NodeLabel(error) + error.message));
             result.issues.push_back(Warning(paths[i] + "/graph", "the scene's wires were removed so it can load; rewire it on the node canvas"));
             graph.wires.clear();
-            NormalizeSwitcherInputs(graph);
+            FollowWires(graph);
         }
         performance.scenes[i].Refresh();
     }

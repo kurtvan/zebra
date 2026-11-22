@@ -120,7 +120,7 @@ auto TryEditGraph(Document& document, int scene, const std::function<void(Graph&
     Performance edited = current;
     auto& graph = edited.scenes[static_cast<size_t>(scene)].graph;
     edit(graph);
-    NormalizeSwitcherInputs(graph);
+    FollowWires(graph);
     auto errors = ValidateGraph(graph);
     if (errors.empty())
         document.Edit(std::move(edited), std::move(label), std::move(coalesceKey));

@@ -60,8 +60,14 @@ struct NodeDef
     PortKind (*inputKind)(const Node&, int input){nullptr};   //!< For 0 <= input < inputCount.
     int textureInput{-1}; //!< The input whose wires are keyed by texture name (Wire::textureName); -1: none.
     std::span<const char* const> inputNames; //!< Names for inputs in show files, by index; empty: numbers.
+    /// With no wires, its ports take either kind: the first wire connected decides (a switcher). The canvas
+    /// draws such ports in a neutral colour.
+    bool anyKindWhenUnwired{false};
+    /// Settings that follow the node's wires (a switcher's input count and kind). FollowWires runs it after
+    /// every wire change and on load, so the node's settings and its wires never disagree.
+    void (*followWires)(const Graph&, Node&){nullptr};
 
-    /// "Video switcher": how errors and the canvas name this node. Null: displayName.
+    /// "Video file": how errors and the canvas name this node. Null: displayName.
     std::string (*label)(const Node&){nullptr};
 
     // Validation (ValidateGraph). Messages are written for the artist and start with the node's Label().
@@ -93,7 +99,7 @@ auto NodeDefs() -> std::span<const NodeDef>;
 /// The type whose jsonName, or one of its formerJsonNames, is `name`.
 auto NodeTypeFromJson(std::string_view name) -> std::optional<NodeType>;
 
-/// How errors and the canvas name `node` ("Video switcher").
+/// How errors and the canvas name `node` ("Video file").
 auto Label(const Node& node) -> std::string;
 
 /// Records "<Label>: <what> must be between <range>." unless low <= value <= high.

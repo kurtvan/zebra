@@ -24,7 +24,7 @@ auto SwitcherUi() -> NodeUi
     ui.width = 220.f;
     ui.header = ImVec4(0.50f, 0.37f, 0.16f, 0.60f);
     ui.menuGroup = 2;
-    // One row per input, and whether it's free: the last one always is (NormalizeSwitcherInputs).
+    // One row per input, and whether it's free: the last one always is (FollowWires).
     ui.inputs = [](const model::Node& node, NodeContext& context) {
         const auto& params = model::ParamsOf<SwitcherParams>(node);
         std::vector<InputSpec> inputs;
@@ -83,10 +83,7 @@ auto SwitcherUi() -> NodeUi
     shuffle.tooltip = "Off: top to bottom. On: random order, never the same input twice in a row.";
 
     ui.controls = {seconds, count, unit, shuffle, {Control::Kind::Inputs}};
-    ui.addItems = {
-        {"Preset switcher"},
-        {"Video switcher", [](model::Node& node) { model::ParamsOf<SwitcherParams>(node).kind = model::PortKind::Video; }},
-    };
+    ui.addItems = {{"Switcher", nullptr, "Switches videos or Milkdrop presets: whichever you wire into it first."}};
     return ui;
 }
 

@@ -22,6 +22,7 @@ namespace {
 
 const ImVec4 kVideoWire{0.42f, 0.64f, 0.98f, 1.f};
 const ImVec4 kFrameWire{0.96f, 0.62f, 0.30f, 1.f};
+const ImVec4 kAnyKindPin{0.70f, 0.70f, 0.70f, 1.f}; //!< An unwired switcher's ports: either kind.
 constexpr float kCompactZoom = 0.75f; //!< Below this zoom, nodes show only their title bar (N4.3).
 constexpr float kPinSize = 12.f;
 constexpr float kArrowWidth = 14.f;
@@ -773,7 +774,8 @@ void GraphEditor::DrawPin(const model::Node& node, bool output, const InputSpec*
     ed::PinRect(ImVec2(center.x - 7.f, center.y - 7.f), ImVec2(center.x + 7.f, center.y + 7.f));
     ed::EndPin();
 
-    const ImU32 color = ImGui::GetColorU32(Faded(KindColor(kind), accepts ? 1.f : 0.25f));
+    const ImVec4 base = model::TakesAnyKind(*m_graph, node) ? kAnyKindPin : KindColor(kind);
+    const ImU32 color = ImGui::GetColorU32(Faded(base, accepts ? 1.f : 0.25f));
     ImDrawList* draw = ImGui::GetWindowDrawList();
     if (connected)
         draw->AddCircleFilled(center, 5.f, color);
@@ -833,7 +835,7 @@ void GraphEditor::HandleCreate(ShellState& /*state*/, AppActions& actions, int s
             m_moving = *wire;
             m_dragGraph = graph;
             model::Disconnect(*m_dragGraph, wire->toNode, wire->toInput, wire->textureName);
-            model::NormalizeSwitcherInputs(*m_dragGraph);
+            model::FollowWires(*m_dragGraph);
             if (auto source = m_pins.find(OutputKey(wire->fromNode)); source != m_pins.end())
                 m_dragStart = source->second;
             HandleMove(actions, scene, overPin ? target : nullptr);
