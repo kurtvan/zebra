@@ -255,6 +255,7 @@ private:
     LiveSwitchers m_switchers;
     bool m_videoJumped{false};               //!< JumpVideo since the last UpdateSwitchers.
     RenderPlan m_livePlan;                   //!< For the live scene's current selection.
+    std::optional<VideoUse> m_liveVideo;     //!< The video m_livePlan shows (kept for a handover).
     std::optional<model::VideoSource> m_upcoming;
     std::vector<model::VideoSource> m_switchedTo;
     std::vector<RenderPlan> m_entryPlans;    //!< Per scene: what it shows when it starts.

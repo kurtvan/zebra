@@ -198,6 +198,7 @@ void Engine::LoadPerformance(const model::Performance& performance)
 
     m_switchers = {};
     m_livePlan = {};
+    m_liveVideo.reset();
     m_entryPlans.clear();
     for (const auto& scene : m_performance.scenes)
         m_entryPlans.push_back(CompilePlan(scene.graph, SelectionForItem(scene.graph, 0)));
@@ -662,8 +663,8 @@ void Engine::Execute(std::vector<PoolCommand> commands)
                 if (command.instance == m_liveInstance)
                 {
                     // The scene being left: it keeps rendering until the next one's first frame is presented.
-                    const auto& scene = m_performance.scenes[static_cast<size_t>(command.scene)];
-                    m_handoverRelease = {command.lane, command.instance, command.scene, VideoOf(scene, m_livePlan)};
+                    // (The scene itself may be gone: deleted while live.)
+                    m_handoverRelease = {command.lane, command.instance, command.scene, m_liveVideo};
                     break;
                 }
                 lane.Release(command.instance);
@@ -753,6 +754,7 @@ void Engine::UpdateSwitchers()
             Execute(m_pool.ClearItem());
         m_switchers = {};
         m_livePlan = {};
+        m_liveVideo.reset();
         return;
     }
     const auto& scene = m_performance.scenes[static_cast<size_t>(live)];
@@ -774,6 +776,7 @@ void Engine::UpdateSwitchers()
     // instance of the scene gets the new plan, and the new video plays from its start point.
     const auto before = m_livePlan;
     m_livePlan = CompilePlan(scene.graph, SelectionFor(live, scene, m_pool.LiveItem()));
+    m_liveVideo = VideoOf(scene, m_livePlan);
     if (jumped || moved)
     {
         RefreshLivePlans();
@@ -904,11 +907,8 @@ auto Engine::Needs() const -> VideoNeeds
             needs.onScreen.push_back(*video);
     }
     const int live = m_pool.LiveScene();
-    if (live >= 0 && live == m_switchers.scene)
-    {
-        if (auto video = VideoOf(m_performance.scenes[static_cast<size_t>(live)], m_livePlan))
-            needs.onScreen.push_back(*video);
-    }
+    if (live >= 0 && live == m_switchers.scene && m_liveVideo)
+        needs.onScreen.push_back(*m_liveVideo);
     needs.upcoming = m_upcoming;
     needs.switchedTo = m_switchedTo;
     const int anchor = std::max(live, 0);
