@@ -1,0 +1,940 @@
+{
+  "name": "Govtech November 6th Burdock Music Hall",
+  "scenes": [
+    {
+      "id": "2h-intro",
+      "midi": {
+        "cc20Value": 0
+      },
+      "name": "Two hearts intro",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Geometric/Cube/Martin - QBikal - Surface Turbulence IIz3 (by hakanh mash-up).milk"
+      },
+      "video": {
+        "contrast": 1.0,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 1.0,
+        "mix": 0.8799999952316284,
+        "overlay": false,
+        "restartOnEnter": true,
+        "saturation": 1.0,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "2h-intro-hearts"
+        }
+      }
+    },
+    {
+      "id": "2h-intro-13",
+      "midi": {
+        "cc20Value": 1
+      },
+      "name": "Two hearts intro copy",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Geometric/Cube/Martin - QBikal - Surface Turbulence IIz3 (by hakanh mash-up).milk"
+      },
+      "video": {
+        "contrast": 1.0,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.0,
+        "mix": 1.0,
+        "overlay": false,
+        "restartOnEnter": true,
+        "saturation": 1.0,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "big-heart"
+        }
+      }
+    },
+    {
+      "beatHit": {
+        "enabled": false,
+        "every": "beat",
+        "sound": "snare",
+        "strength": 0.5
+      },
+      "id": "2h-drop2-14",
+      "midi": {
+        "cc20Value": 2
+      },
+      "name": "Two hearts drop 2 copy",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Blobby/LuxXx - LavaBlobz.milk"
+      },
+      "video": {
+        "contrast": 100.0,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 1.0,
+        "mix": 0.41999998688697815,
+        "overlay": true,
+        "restartOnEnter": false,
+        "saturation": 1.809999942779541,
+        "softness": 1.0,
+        "source": {
+          "type": "file",
+          "video": "moving-hearts"
+        }
+      }
+    },
+    {
+      "id": "2h-drop2",
+      "midi": {
+        "cc20Value": 3
+      },
+      "name": "Two hearts drop 2",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Waveform/Spectrum/suksma - n19 3 layer overlap opt 3 flx nz+ loqo yes joe rogan, chimps are crazy, but what about bonobos.milk"
+      },
+      "video": {
+        "contrast": 1.190000057220459,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.2800000011920929,
+        "mix": 1.0,
+        "overlay": false,
+        "restartOnEnter": false,
+        "saturation": 2.0,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "moving-hearts"
+        }
+      }
+    },
+    {
+      "id": "2h-drop2-14-15",
+      "midi": {
+        "cc20Value": 4
+      },
+      "name": "Two hearts drop 2 copy copy",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Blobby/martin - mucus cervix - geiss crossfire shaders.milk"
+      },
+      "video": {
+        "contrast": 100.0,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 1.0,
+        "mix": 0.5699999928474426,
+        "overlay": false,
+        "restartOnEnter": false,
+        "saturation": 2.0,
+        "softness": 1.0,
+        "source": {
+          "type": "file",
+          "video": "moving-hearts"
+        }
+      }
+    },
+    {
+      "id": "2h-drop2-14-15-16",
+      "midi": {
+        "cc20Value": 5
+      },
+      "name": "Two hearts drop 2 copy copy copy",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Blobby/suksma - deep in you two rows.milk"
+      },
+      "video": {
+        "contrast": 100.0,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 1.0,
+        "mix": 0.25999999046325684,
+        "overlay": false,
+        "restartOnEnter": false,
+        "saturation": 2.0,
+        "softness": 1.0,
+        "source": {
+          "type": "file",
+          "video": "moving-hearts"
+        }
+      }
+    },
+    {
+      "id": "2h-drop2-14-15-16-17",
+      "midi": {
+        "cc20Value": 6
+      },
+      "name": "Two hearts drop 2 copy copy copy copy",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Sparkle/Explosions/suksma - kun weit - chumps.milk"
+      },
+      "video": {
+        "contrast": 7.460000038146973,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.6200000047683716,
+        "mix": 0.8100000023841858,
+        "overlay": true,
+        "restartOnEnter": false,
+        "saturation": 0.8999999761581421,
+        "softness": 1.0,
+        "source": {
+          "type": "file",
+          "video": "moving-hearts"
+        }
+      }
+    },
+    {
+      "id": "2h-drop",
+      "midi": {
+        "cc20Value": 7
+      },
+      "name": "Two hearts drop 1",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Reaction/Cloudy/Halfbreak - Noise-volume Negative.milk"
+      },
+      "video": {
+        "contrast": 1.0,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.0,
+        "mix": 1.0,
+        "overlay": false,
+        "restartOnEnter": true,
+        "saturation": 1.0,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "2h-reveal"
+        }
+      }
+    },
+    {
+      "id": "2h-drop4",
+      "midi": {
+        "cc20Value": 8
+      },
+      "name": "Two hearts drop 4",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Supernova/Orbits/EoS - Apocalypse C.milk"
+      },
+      "video": {
+        "contrast": 1.0,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.05999999865889549,
+        "mix": 1.0,
+        "overlay": true,
+        "restartOnEnter": false,
+        "saturation": 2.0,
+        "softness": 0.6499999761581421,
+        "source": {
+          "type": "file",
+          "video": "2h-reveal"
+        }
+      }
+    },
+    {
+      "beatHit": {
+        "enabled": true,
+        "every": "beat",
+        "sound": "snare",
+        "strength": 0.019999999552965164
+      },
+      "id": "2h-drop5",
+      "midi": {
+        "cc20Value": 9
+      },
+      "name": "Two hearts drop 5",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Blobby Mirror/AdamFX 2 Geiss - Mash-Up Sphere Xibit Graffiti Warp me Tydye3.milk"
+      },
+      "video": {
+        "contrast": 66.0,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.18000000715255737,
+        "mix": 1.0,
+        "overlay": true,
+        "restartOnEnter": false,
+        "saturation": 1.0,
+        "softness": 0.3799999952316284,
+        "source": {
+          "type": "file",
+          "video": "2h-reveal"
+        }
+      }
+    },
+    {
+      "id": "scene-14",
+      "midi": {
+        "cc20Value": 10
+      },
+      "name": "Midnight Sun",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Reaction/Liquid Simmering/suksma - g-aber 80rs m-a w-a wp-cope jstf c-xxx+ - brown's gas.milk"
+      },
+      "video": {
+        "contrast": 0.8999999761581421,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.44999998807907104,
+        "mix": 0.17000000178813934,
+        "overlay": true,
+        "playlist": {
+          "enabled": true,
+          "intervalCount": 8,
+          "intervalSeconds": 10.0,
+          "intervalUnit": "bars",
+          "shuffle": false,
+          "videos": [
+            "img-1670",
+            "img-1672",
+            "img-1665",
+            "img-1673",
+            "img-1674"
+          ]
+        },
+        "restartOnEnter": true,
+        "saturation": 0.0,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "2h-intro-hearts"
+        }
+      }
+    },
+    {
+      "beatHit": {
+        "enabled": true,
+        "every": "beat",
+        "sound": "burst",
+        "strength": 1.0
+      },
+      "id": "scene-14-16",
+      "midi": {
+        "cc20Value": 11
+      },
+      "name": "The Soup",
+      "playlist": {
+        "enabled": true,
+        "intervalCount": 8,
+        "intervalSeconds": 30.0,
+        "intervalUnit": "bars",
+        "presets": [
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.36000001430511475,
+              "mix": 1.0,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Fractal/Lattice/va ultramix - 11.milk"
+          },
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.36000001430511475,
+              "mix": 1.0,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Sparkle/Explosions/fleekus flokus - violent and insane homicidal air molecules - beat code experiment2 gss.milk"
+          },
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.36000001430511475,
+              "mix": 1.0,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Sparkle/Explosions/hexcollie, ti@n, suksma, zylot, orb, martin n flexi - blarffff roams drugs = stretch time wave packet.milk"
+          },
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.36000001430511475,
+              "mix": 1.0,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Sparkle/Explosions/suksma - chernobyl pie for dessert - raemaex reael aestaete brokaer.milk"
+          },
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.9100000262260437,
+              "mix": 1.0,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Sparkle/Explosions/suksma - chernobyl pie for dessert - swami back bite jadedolojyst2.milk"
+          },
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.36000001430511475,
+              "mix": 1.0,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Comet Mirror/Tripgnosis - Photontrap.milk"
+          },
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.36000001430511475,
+              "mix": 1.0,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Comet/suksma - EoS + Phat - chasers 09 sentinel - mash0000 - she flies and dies against the wall of pain - np incomplete girlfriend.milk"
+          },
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.36000001430511475,
+              "mix": 1.0,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Glowsticks Fast/Mig_004.milk"
+          },
+          {
+            "look": {
+              "contrast": 100.0,
+              "lumaMin": 1.0,
+              "mix": 0.5799999833106995,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Supernova/Radiate/suksma - unending bending.milk"
+          },
+          {
+            "look": {
+              "contrast": 2.8499999046325684,
+              "lumaMin": 0.20000000298023224,
+              "mix": 0.5199999809265137,
+              "overlay": false,
+              "saturation": 0.8399999737739563,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Waveform/Wire Flat Double/drugsincombat (phosphene series)  (2).milk"
+          }
+        ],
+        "shuffle": false
+      },
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Fractal/Lattice/va ultramix - 11.milk"
+      },
+      "video": {
+        "contrast": 2.8499999046325684,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 0.36000001430511475,
+        "mix": 1.0,
+        "overlay": false,
+        "playlist": {
+          "enabled": true,
+          "intervalCount": 8,
+          "intervalSeconds": 10.0,
+          "intervalUnit": "bars",
+          "shuffle": false,
+          "videos": [
+            "img-1670",
+            "img-1672",
+            "img-1665",
+            "img-1673",
+            "img-1674"
+          ]
+        },
+        "restartOnEnter": true,
+        "saturation": 0.8399999737739563,
+        "softness": 0.0,
+        "source": {
+          "appName": "",
+          "serverName": "",
+          "type": "syphon"
+        }
+      }
+    },
+    {
+      "id": "scene-9",
+      "midi": {
+        "cc20Value": 12
+      },
+      "name": "Spirit Level 1",
+      "playlist": {
+        "enabled": false,
+        "intervalCount": 8,
+        "intervalSeconds": 30.0,
+        "intervalUnit": "bars",
+        "presets": [
+          {
+            "look": {
+              "contrast": 100.0,
+              "lumaMin": 0.5099999904632568,
+              "mix": 1.0,
+              "overlay": true,
+              "saturation": 0.0,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Particles/Crystal/extreme paranoia and fear unleash in spontaneous suicide flails - slapping the elite roam3.milk"
+          }
+        ],
+        "shuffle": false
+      },
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Particles/Crystal/extreme paranoia and fear unleash in spontaneous suicide flails - slapping the elite roam3.milk"
+      },
+      "video": {
+        "contrast": 100.0,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 0.23999999463558197,
+        "mix": 1.0,
+        "overlay": true,
+        "restartOnEnter": true,
+        "saturation": 0.9800000190734863,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "spirit-level-2"
+        }
+      }
+    },
+    {
+      "id": "cip-1",
+      "midi": {
+        "cc20Value": 13
+      },
+      "name": "Cave in Prague 1",
+      "playlist": {
+        "enabled": true,
+        "intervalCount": 8,
+        "intervalSeconds": 30.0,
+        "intervalUnit": "bars",
+        "presets": [
+          {
+            "look": {
+              "contrast": 1.5099999904632568,
+              "lumaMin": 0.17000000178813934,
+              "mix": 1.0,
+              "overlay": true,
+              "saturation": 1.7699999809265137,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Blobby/suksma - assheadish lice.milk"
+          },
+          {
+            "look": {
+              "contrast": 13.0,
+              "lumaMin": 0.36000001430511475,
+              "mix": 1.0,
+              "overlay": true,
+              "saturation": 0.9900000095367432,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Comet/EoS + Phat - chasers 11 sentinel C (Jelly V3).milk"
+          },
+          {
+            "look": {
+              "contrast": 13.0,
+              "lumaMin": 1.0,
+              "mix": 0.47999998927116394,
+              "overlay": true,
+              "saturation": 0.9900000095367432,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Particles/Grid/suksma - fuck alltec auto in orem, but then thanks too nz+.milk"
+          },
+          {
+            "look": {
+              "contrast": 1.5099999904632568,
+              "lumaMin": 0.10000000149011612,
+              "mix": 1.0,
+              "overlay": true,
+              "saturation": 1.7699999809265137,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Particles/Orbit/skipper skipper kiss me hard - thank god for martin nitorami - tgfmn3 spotwelding woman labor nz+.milk"
+          }
+        ],
+        "shuffle": false
+      },
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Dancer/Blobby Mirror/LuxXx - Done For the Night ii.milk"
+      },
+      "video": {
+        "contrast": 1.1699999570846558,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 0.38999998569488525,
+        "mix": 1.0,
+        "overlay": true,
+        "restartOnEnter": true,
+        "saturation": 2.0,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "cave-in-prague-2"
+        }
+      }
+    },
+    {
+      "id": "scene-11",
+      "midi": {
+        "cc20Value": 14
+      },
+      "name": "Catalyzing 1",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Reaction/Dunes/shifter + flexi - liquid circuitry from the fractalism hive nz+ --- Isosceles edit4.milk"
+      },
+      "video": {
+        "contrast": 1.7300000190734863,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 0.4300000071525574,
+        "mix": 0.6499999761581421,
+        "overlay": false,
+        "playlist": {
+          "enabled": false,
+          "intervalCount": 4,
+          "intervalSeconds": 30.0,
+          "intervalUnit": "seconds",
+          "shuffle": false,
+          "videos": [
+            "c0038"
+          ]
+        },
+        "restartOnEnter": true,
+        "saturation": 0.9700000286102295,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "c0038"
+        }
+      }
+    },
+    {
+      "id": "scene-13",
+      "midi": {
+        "cc20Value": 15
+      },
+      "name": "Beginning of Big Danger",
+      "playlist": {
+        "enabled": true,
+        "intervalCount": 4,
+        "intervalSeconds": 30.0,
+        "intervalUnit": "seconds",
+        "presets": [
+          {
+            "look": {
+              "contrast": 36.0,
+              "lumaMin": 0.03999999910593033,
+              "mix": 1.0,
+              "overlay": true,
+              "saturation": 0.75,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Reaction/Liquid Blobby/f wen blew my wallet - how to beat nothingness into omninmi-submission-potence.milk"
+          },
+          {
+            "look": {
+              "contrast": 100.0,
+              "lumaMin": 0.9399999976158142,
+              "mix": 1.0,
+              "overlay": true,
+              "saturation": 0.0,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Particles/Grid/Rovastar - VooV's Naked Movement.milk"
+          },
+          {
+            "look": {
+              "contrast": 100.0,
+              "lumaMin": 0.5,
+              "mix": 1.0,
+              "overlay": true,
+              "saturation": 0.0,
+              "softness": 0.0
+            },
+            "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Particles/Grid/suksma - justifying horrible acts by far worse acts, though only drempt.milk"
+          }
+        ],
+        "shuffle": false
+      },
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Reaction/Liquid Blobby/f wen blew my wallet - how to beat nothingness into omninmi-submission-potence.milk"
+      },
+      "video": {
+        "contrast": 36.0,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.46000000834465027,
+        "mix": 1.0,
+        "overlay": true,
+        "restartOnEnter": true,
+        "saturation": 0.75,
+        "softness": 0.0,
+        "source": {
+          "appName": "",
+          "serverName": "",
+          "type": "syphon"
+        }
+      }
+    },
+    {
+      "id": "scene-10",
+      "midi": {
+        "cc20Value": 16
+      },
+      "name": "If Only 1",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Particles/Orbit/skipper skipper kiss me hard - thank god for martin nitorami - tgfmn3 spotwelding woman labor.milk"
+      },
+      "video": {
+        "contrast": 10.0,
+        "enabled": true,
+        "invertLuma": true,
+        "loop": true,
+        "lumaMin": 0.7599999904632568,
+        "mix": 1.0,
+        "overlay": true,
+        "playlist": {
+          "enabled": false,
+          "intervalCount": 4,
+          "intervalSeconds": 30.0,
+          "intervalUnit": "seconds",
+          "shuffle": false,
+          "videos": [
+            "if-only-herds-1"
+          ]
+        },
+        "restartOnEnter": true,
+        "saturation": 0.5299999713897705,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "if-only-herds-2"
+        }
+      }
+    },
+    {
+      "beatHit": {
+        "enabled": true,
+        "every": "beat",
+        "sound": "snare",
+        "strength": 0.019999999552965164
+      },
+      "id": "scene-10-18",
+      "midi": {
+        "cc20Value": 17
+      },
+      "name": "If Only Outro",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Sparkle/Explosions/Goody + martin - crystal palace - Schizotoxin - The Wild Iris Bloom - mess2 nz+ crockeries vitherphorque.milk"
+      },
+      "video": {
+        "contrast": 100.0,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.7400000095367432,
+        "mix": 1.0,
+        "overlay": true,
+        "playlist": {
+          "enabled": false,
+          "intervalCount": 4,
+          "intervalSeconds": 30.0,
+          "intervalUnit": "seconds",
+          "shuffle": false,
+          "videos": [
+            "if-only-herds-1"
+          ]
+        },
+        "restartOnEnter": true,
+        "saturation": 2.0,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "2h-reveal"
+        }
+      }
+    },
+    {
+      "beatHit": {
+        "enabled": true,
+        "every": "beat",
+        "sound": "snare",
+        "strength": 0.5699999928474426
+      },
+      "id": "scene-10-18-19",
+      "midi": {
+        "cc20Value": 18
+      },
+      "name": "If Only Outro copy",
+      "preset": {
+        "path": "/Users/kurt/projects/visualizers/libprojectM-4.1.4/presets/milk/Particles/Points Fast/suksma - log smell via gandalf pipeweed taint.milk"
+      },
+      "video": {
+        "contrast": 0.6299999952316284,
+        "enabled": true,
+        "invertLuma": false,
+        "loop": true,
+        "lumaMin": 0.05999999865889549,
+        "mix": 1.0,
+        "overlay": false,
+        "playlist": {
+          "enabled": false,
+          "intervalCount": 4,
+          "intervalSeconds": 30.0,
+          "intervalUnit": "seconds",
+          "shuffle": false,
+          "videos": [
+            "if-only-herds-1"
+          ]
+        },
+        "restartOnEnter": true,
+        "saturation": 0.6000000238418579,
+        "softness": 0.0,
+        "source": {
+          "type": "file",
+          "video": "big-heart"
+        }
+      }
+    }
+  ],
+  "version": 2,
+  "videos": [
+    {
+      "fit": "fill",
+      "id": "2h-intro-hearts",
+      "path": "/Users/kurt/Movies/govtech-visuals/2H-intro-hearts.mp4",
+      "speed": 2.6500000953674316,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "2h-reveal",
+      "path": "/Users/kurt/Movies/govtech-visuals/2H-reveal.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "stretch",
+      "id": "if-only-marmot",
+      "path": "/Users/kurt/Movies/govtech-visuals/if-only-marmot.mov",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "c0038",
+      "name": "sauble beach",
+      "path": "/Users/kurt/Pictures/photos/2026/Clips/C0038.MP4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "img-1665",
+      "name": "ms-1",
+      "path": "/Users/kurt/Movies/govtech-visuals/midnight-sun/IMG_1665.MOV",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "img-1670",
+      "name": "ms-2",
+      "path": "/Users/kurt/Movies/govtech-visuals/midnight-sun/IMG_1670.MOV",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "img-1672",
+      "name": "ms-3",
+      "path": "/Users/kurt/Movies/govtech-visuals/midnight-sun/IMG_1672.MOV",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "img-1673",
+      "name": "ms-4",
+      "path": "/Users/kurt/Movies/govtech-visuals/midnight-sun/IMG_1673.MOV",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "img-1674",
+      "name": "ms-5",
+      "path": "/Users/kurt/Movies/govtech-visuals/midnight-sun/IMG_1674.MOV",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "big-heart",
+      "path": "/Users/kurt/Movies/govtech-visuals/Big heart.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "moving-hearts",
+      "path": "/Users/kurt/Movies/govtech-visuals/moving hearts.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "if-only-herds-2",
+      "path": "/Users/kurt/Movies/govtech-visuals/if-only-herds-2.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "cave-in-prague-2",
+      "path": "/Users/kurt/Movies/govtech-visuals/cave-in-prague-2.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    },
+    {
+      "fit": "fill",
+      "id": "spirit-level-2",
+      "path": "/Users/kurt/Movies/govtech-visuals/spirit-level-2.mp4",
+      "speed": 1.0,
+      "startSeconds": 0.0
+    }
+  ]
+}

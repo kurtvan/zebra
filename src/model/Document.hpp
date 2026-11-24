@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -97,13 +98,19 @@ private:
     uint64_t m_revision{0};
 };
 
+/// The one gate for graph edits: applies `edit` to a copy of scene `scene`'s graph and validates it. If it's
+/// valid, commits it as one undo step (coalescing like Document::Edit) and returns no errors. Otherwise changes
+/// nothing and returns every error, so the editor can show them all.
+auto TryEditGraph(Document& document, int scene, const std::function<void(Graph&)>& edit, std::string label,
+                  std::string coalesceKey = {}) -> std::vector<GraphError>;
+
 // --- Edits: pure functions on a performance ------------------------------------------------------
 
 /// A scene id not used in `performance`, like "scene-7".
 auto UniqueSceneId(const Performance& performance, const std::string& base = "scene") -> std::string;
 
-/// Inserts a new scene after `after` (or at the end when out of range). Returns its index, or -1 at the
-/// 128-scene limit. The new scene gets a unique id and the lowest free CC 20 value.
+/// Inserts a new scene after `after` (or at the end when out of range): a preset node wired into the viewport.
+/// Returns its index, or -1 at the 128-scene limit. The new scene gets a unique id and the lowest free CC 20 value.
 auto AddScene(Performance& performance, int after, const std::filesystem::path& presetPath) -> int;
 
 /// Inserts a copy of scene `index` right after it (new id and CC value). Returns its index, or -1.
@@ -118,13 +125,14 @@ auto MoveScene(Performance& performance, int from, int to) -> bool;
 /// Gives every scene the CC 20 value of its position in the list (0, 1, 2, ...). Returns how many changed.
 auto RenumberCc20(Performance& performance) -> int;
 
-/// Puts `presetPath` in scene `index`: in place of playlist entry `item` for a playlist scene (clamped to
-/// its entries), else as the scene's preset. Returns the entry replaced (0 for a single-preset scene), or -1
-/// if `index` is out of range.
+/// Puts `presetPath` in scene `index`'s preset node: the one on input `item` of its preset switcher (counting
+/// wired inputs, clamped), else the one wired into the viewport. Returns the entry replaced (0 without a
+/// switcher), or -1 if `index` is out of range.
 auto ReplacePreset(Performance& performance, int index, int item, const std::filesystem::path& presetPath) -> int;
 
-/// Gives scene `index` pool video `videoId` (turning its video on as a file source): added to the end of its
-/// video playlist if it has one turned on, else as its video. Returns false if `index` is out of range.
+/// Gives scene `index` pool video `videoId`: a new input of its Video switcher if it has one, else its video
+/// source plays it (as a file). A scene without video gets a source with a look chain (Contrast -> Saturation
+/// -> Luma gate -> Opacity) into every preset's Feedback input. Returns false if `index` is out of range.
 auto AssignVideo(Performance& performance, int index, const std::string& videoId) -> bool;
 
 /// The id of the pool video for `file`, adding it (start 0, speed 1) if it isn't in the pool yet.

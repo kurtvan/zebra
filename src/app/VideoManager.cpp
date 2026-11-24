@@ -1,6 +1,7 @@
 #include "app/VideoManager.hpp"
 
 #include "common/log.hpp"
+#include "engine/RenderPlan.hpp"
 
 #include <set>
 
@@ -10,8 +11,6 @@ namespace {
 
 constexpr const char* kLogCategory = "video";
 constexpr long long kFenceLifetimeFrames = 8; //!< Lanes wait on a fence within a frame or two; keep a margin.
-constexpr int kWarmBehind = 1; //!< Matches the scene pool window, so upcoming videos have a frame ready.
-constexpr int kWarmAhead = 3;
 
 auto FileKey(const std::string& videoId) -> std::string
 {
@@ -32,23 +31,6 @@ auto ToIo(model::VideoFit fit) -> io::VideoFit
     return io::VideoFit::Fill;
 }
 
-/// The sources a scene shows: its pool videos that exist (several for a video playlist), or its Syphon server.
-auto KeysFor(const model::Performance& performance, const model::Scene& scene) -> std::vector<std::string>
-{
-    if (!scene.video.enabled)
-        return {};
-    const auto& source = scene.video.source;
-    if (source.type == model::VideoSourceType::Syphon)
-        return {"syphon:" + source.appName + "\n" + source.serverName};
-    std::vector<std::string> keys;
-    for (const auto& id : scene.VideoIds())
-    {
-        if (performance.FindVideo(id) != nullptr)
-            keys.push_back(FileKey(id));
-    }
-    return keys;
-}
-
 } // namespace
 
 VideoManager::~VideoManager()
@@ -62,20 +44,21 @@ void VideoManager::Clear()
         glDeleteSync(fence);
     m_fences.clear();
     m_sources.clear();
-    m_scenes.clear();
+}
+
+auto VideoManager::KeyOf(const model::VideoSource& source) -> std::string
+{
+    if (source.type == model::VideoSourceType::Syphon)
+        return "syphon:" + source.appName + "\n" + source.serverName;
+    return source.videoId.empty() ? std::string() : FileKey(source.videoId);
 }
 
 void VideoManager::Load(const model::Performance& performance)
 {
-    // Keep sources that are still used (so an edit doesn't restart a playing video); create new ones; drop the rest.
-    // Every pool video gets a player, so the Videos panel can show its length and scenes switching to it
-    // carry on from where it was.
-    // A scene keeps its place in its video playlist through edits, as long as the video on screen is still in it.
-    std::map<std::string, SceneVideos> previous;
-    for (size_t i = 0; i < m_performance.scenes.size() && i < m_scenes.size(); ++i)
-        previous[m_performance.scenes[i].id] = m_scenes[i];
+    // Keep sources that are still used (so an edit doesn't restart a playing video); create new ones; drop
+    // the rest. Every pool video gets a player, so the Videos panel can show its length and scenes switching
+    // to it carry on from where it was.
     m_performance = performance;
-    m_scenes.clear();
     std::map<std::string, SourceEntry> sources;
     auto keep = [&](const std::string& key) {
         if (auto existing = m_sources.find(key); existing != m_sources.end())
@@ -102,31 +85,26 @@ void VideoManager::Load(const model::Performance& performance)
     }
     for (const auto& scene : m_performance.scenes)
     {
-        SceneVideos videos;
-        videos.keys = KeysFor(m_performance, scene);
-        if (auto old = previous.find(scene.id); old != previous.end() && old->second.Key() != nullptr)
+        for (const auto& node : scene.graph.nodes)
         {
-            const auto now = std::find(videos.keys.begin(), videos.keys.end(), *old->second.Key());
-            if (old->second.keys == videos.keys)
-                videos = old->second;
-            else if (now != videos.keys.end())
-                videos.item = static_cast<size_t>(now - videos.keys.begin()); // the next one is planned again
+            if (node.type != model::NodeType::VideoSource)
+                continue;
+            const auto& source = model::ParamsOf<model::VideoSourceParams>(node).source;
+            if (source.type != model::VideoSourceType::Syphon)
+                continue;
+            const std::string key = KeyOf(source);
+            if (sources.count(key) > 0 || keep(key))
+                continue;
+            SourceEntry entry;
+            entry.source = io::CreateSyphonVideoSource(source.appName, source.serverName);
+            sources.emplace(key, std::move(entry));
         }
-        m_scenes.push_back(videos);
-        if (scene.video.source.type != model::VideoSourceType::Syphon || videos.keys.empty())
-            continue;
-        const std::string& key = videos.keys.front();
-        if (sources.count(key) > 0 || keep(key))
-            continue;
-        SourceEntry entry;
-        entry.source = io::CreateSyphonVideoSource(scene.video.source.appName, scene.video.source.serverName);
-        sources.emplace(key, std::move(entry));
     }
     m_sources = std::move(sources);
     GV_LOG_INFO(kLogCategory, "%zu video source(s) for %zu scenes", m_sources.size(), m_performance.scenes.size());
 }
 
-void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene, const engine::ClockInput& clock)
+void VideoManager::BeginFrame(const engine::VideoNeeds& needs)
 {
     m_frame++;
     while (!m_fences.empty() && m_fences.front().first < m_frame - kFenceLifetimeFrames)
@@ -135,105 +113,58 @@ void VideoManager::BeginFrame(int liveScene, int pendingScene, int handoverScene
         m_fences.pop_front();
     }
 
-    // Only videos on screen play (the live scene, a pending out-of-order trigger and the outgoing scene of
-    // a handover), so a video that isn't showing keeps its place for the next scene that uses it. Videos
-    // of the scenes around the live one stay paused but keep their current frame converted, so a cut to
-    // them shows video straight away.
-    auto keyOf = [&](int scene) -> const std::string* {
-        if (scene < 0 || scene >= static_cast<int>(m_scenes.size()))
-            return nullptr;
-        return m_scenes[static_cast<size_t>(scene)].Key();
-    };
-    auto onScreenKeys = [&] {
-        std::set<std::string> keys;
-        for (int scene : {liveScene, pendingScene, handoverScene})
+    std::set<std::string> playing;
+    for (const auto& use : needs.onScreen)
+        playing.insert(KeyOf(use.source));
+
+    // Switched to: each plays from its start point. The one waiting there is ready; any other (it was on
+    // screen when it was planned, so it couldn't wait) jumps there now.
+    for (const auto& source : needs.switchedTo)
+    {
+        const std::string key = KeyOf(source);
+        SourceEntry* entry = Find(source);
+        if (entry != nullptr && !(key == m_upcoming && m_upcomingReady))
+            entry->source->Restart();
+        if (entry != nullptr)
+            GV_LOG_INFO(kLogCategory, "video switcher: now on %s", entry->source->Describe().c_str());
+        if (key == m_upcoming)
+            m_upcoming.clear();
+    }
+
+    // The next video waits at its start point, paused, unless it's on screen right now.
+    const std::string upcoming = needs.upcoming ? KeyOf(*needs.upcoming) : std::string();
+    if (upcoming != m_upcoming)
+    {
+        m_upcoming = upcoming;
+        m_upcomingReady = false;
+        if (SourceEntry* entry = needs.upcoming ? Find(*needs.upcoming) : nullptr; entry != nullptr && playing.count(upcoming) == 0)
         {
-            if (const auto* key = keyOf(scene))
-                keys.insert(*key);
+            entry->source->Restart();
+            m_upcomingReady = true;
         }
-        return keys;
-    };
-
-    // Scenes that left the screen go back to their first video, for the next time they're triggered.
-    for (int scene = 0; scene < static_cast<int>(m_scenes.size()); ++scene)
-    {
-        auto& videos = m_scenes[static_cast<size_t>(scene)];
-        if (scene != liveScene && scene != pendingScene && scene != handoverScene && (videos.item != 0 || videos.next >= 0))
-            videos = SceneVideos{videos.keys};
     }
-    if (liveScene >= 0 && liveScene < static_cast<int>(m_scenes.size()))
-        CycleVideos(liveScene, onScreenKeys(), clock);
 
-    const std::set<std::string> playing = onScreenKeys();
+    // Only videos on screen play, so a video that isn't showing keeps its place for the next scene that
+    // uses it. A shared video loops or not as the scene showing it says; the live scene comes last and wins.
     for (auto& [key, entry] : m_sources)
-    {
         entry.source->SetActive(playing.count(key) > 0);
-    }
-    // A shared video loops or not as the scene showing it says; the live scene wins over the others.
-    for (int scene : {handoverScene, pendingScene, liveScene})
+    for (const auto& use : needs.onScreen)
     {
-        if (const auto* key = keyOf(scene))
-            m_sources[*key].source->SetLoop(m_performance.scenes[static_cast<size_t>(scene)].video.loop);
+        if (SourceEntry* entry = Find(use.source))
+            entry->source->SetLoop(use.loop);
     }
-    const int anchor = liveScene >= 0 ? liveScene : 0;
-    for (int scene = anchor - kWarmBehind; scene <= anchor + kWarmAhead; ++scene)
-    {
-        if (const auto* key = keyOf(scene); key != nullptr && playing.count(*key) == 0)
-            UpdateEntry(m_sources[*key]);
-    }
-    // The live video playlist's next video: its first frame converted, ready for the cut.
-    if (liveScene >= 0 && liveScene < static_cast<int>(m_scenes.size()))
-    {
-        const auto& videos = m_scenes[static_cast<size_t>(liveScene)];
-        if (videos.next >= 0 && videos.nextReady)
-            UpdateEntry(m_sources[videos.keys[static_cast<size_t>(videos.next)]]);
-    }
-}
 
-void VideoManager::CycleVideos(int liveScene, const std::set<std::string>& onScreen, const engine::ClockInput& clock)
-{
-    const auto& scene = m_performance.scenes[static_cast<size_t>(liveScene)];
-    auto& videos = m_scenes[static_cast<size_t>(liveScene)];
-    const auto now = engine::CycleTimer::Clock::now();
-    if (scene.id != m_cycleScene)
+    // The videos of the scenes around the live one, and the next video, stay paused but keep their current
+    // frame converted, so a cut to them shows video straight away.
+    for (const auto& source : needs.nearby)
     {
-        m_cycleScene = scene.id;
-        m_timer.Restart(now);
+        if (SourceEntry* entry = Find(source); entry != nullptr && playing.count(KeyOf(source)) == 0)
+            UpdateEntry(*entry);
     }
-    if (!scene.IsVideoPlaylist() || videos.keys.size() < 2)
-        return;
-    if (videos.next < 0)
-        PlanNext(videos, scene, onScreen);
-
-    const auto& playlist = scene.video.playlist;
-    if (videos.next < 0 || !m_timer.Tick({playlist.unit, playlist.intervalSeconds, playlist.intervalCount}, now, clock))
-        return;
-    // Each video plays from its start point. One that couldn't wait there (it was on screen) jumps now.
-    auto& next = m_sources[videos.keys[static_cast<size_t>(videos.next)]];
-    if (!videos.nextReady)
-        next.source->Restart();
-    videos.item = static_cast<size_t>(videos.next);
-    videos.next = -1;
-    videos.nextReady = false;
-    GV_LOG_INFO(kLogCategory, "video playlist: scene %d (%s) now on video %zu of %zu: %s", liveScene, scene.DisplayName().c_str(), videos.item + 1,
-                videos.keys.size(), next.source->Describe().c_str());
-    std::set<std::string> nowOnScreen = onScreen;
-    nowOnScreen.insert(*videos.Key());
-    PlanNext(videos, scene, nowOnScreen);
-}
-
-void VideoManager::PlanNext(SceneVideos& videos, const model::Scene& scene, const std::set<std::string>& onScreen)
-{
-    videos.next = engine::NextEntry(static_cast<int>(videos.item), static_cast<int>(videos.keys.size()), scene.video.playlist.shuffle, m_random);
-    videos.nextReady = false;
-    if (videos.next < 0)
-        return;
-    // Wait at the start point, paused, unless it's on screen right now (then it jumps at the change).
-    const std::string& key = videos.keys[static_cast<size_t>(videos.next)];
-    if (onScreen.count(key) == 0)
+    if (needs.upcoming && m_upcomingReady)
     {
-        m_sources[key].source->Restart();
-        videos.nextReady = true;
+        if (SourceEntry* entry = Find(*needs.upcoming))
+            UpdateEntry(*entry);
     }
 }
 
@@ -250,34 +181,29 @@ void VideoManager::SetCanvasSize(int width, int height)
     }
 }
 
-void VideoManager::OnTrigger(int scene, int liveScene)
+void VideoManager::OnTrigger(int scene, int item, int liveScene)
 {
     if (scene == liveScene || scene < 0 || scene >= static_cast<int>(m_performance.scenes.size()))
         return;
-    // A scene starts on its first video.
-    auto& videos = m_scenes[static_cast<size_t>(scene)];
-    videos = SceneVideos{videos.keys};
-    if (!m_performance.scenes[static_cast<size_t>(scene)].video.restartOnEnter)
+    // The video the scene starts with, from its start point if its source node says so.
+    const auto& graph = m_performance.scenes[static_cast<size_t>(scene)].graph;
+    const auto plan = engine::CompilePlan(graph, engine::SelectionForItem(graph, item));
+    const model::Node* node = plan.sourceNode.empty() ? nullptr : graph.Find(plan.sourceNode);
+    if (node == nullptr || !model::ParamsOf<model::VideoSourceParams>(*node).restartOnEnter)
         return;
-    if (auto* entry = EntryFor(scene))
-    {
+    if (SourceEntry* entry = Find(plan.source))
         entry->source->Restart();
-    }
 }
 
-auto VideoManager::FrameFor(int scene) -> engine::VideoFrame
+auto VideoManager::FrameFor(const model::VideoSource& source) -> engine::VideoFrame
 {
-    SourceEntry* entry = EntryFor(scene);
-    if (entry == nullptr)
-    {
-        return {};
-    }
-    return UpdateEntry(*entry);
+    SourceEntry* entry = Find(source);
+    return entry == nullptr ? engine::VideoFrame{} : UpdateEntry(*entry);
 }
 
 auto VideoManager::UpdateEntry(SourceEntry& entry) -> engine::VideoFrame
 {
-    // Several scenes (live + handover) may share a source: convert once per frame.
+    // Several lanes (live + handover) may share a source: convert once per frame.
     if (entry.updatedFrame != m_frame)
     {
         entry.updatedFrame = m_frame;
@@ -294,23 +220,16 @@ auto VideoManager::UpdateEntry(SourceEntry& entry) -> engine::VideoFrame
     return entry.frame;
 }
 
-auto VideoManager::StateFor(int scene) const -> std::optional<io::VideoState>
+auto VideoManager::StateOf(const model::VideoSource& source) const -> std::optional<io::VideoState>
 {
-    if (const auto* entry = EntryFor(scene))
+    if (const auto* entry = Find(source))
         return entry->source->State();
     return std::nullopt;
 }
 
-auto VideoManager::VideoItemFor(int scene) const -> int
+auto VideoManager::Describe(const model::VideoSource& source) const -> std::string
 {
-    if (scene < 0 || scene >= static_cast<int>(m_scenes.size()))
-        return 0;
-    return static_cast<int>(m_scenes[static_cast<size_t>(scene)].item);
-}
-
-auto VideoManager::DescribeFor(int scene) const -> std::string
-{
-    if (const auto* entry = EntryFor(scene))
+    if (const auto* entry = Find(source))
         return entry->source->Describe();
     return {};
 }
@@ -335,17 +254,16 @@ auto VideoManager::StateOf(const std::string& videoId) const -> std::optional<io
     return it->second.source->State();
 }
 
-auto VideoManager::EntryFor(int scene) -> SourceEntry*
+auto VideoManager::Find(const model::VideoSource& source) -> SourceEntry*
 {
-    if (scene < 0 || scene >= static_cast<int>(m_scenes.size()) || m_scenes[static_cast<size_t>(scene)].Key() == nullptr)
-        return nullptr;
-    auto it = m_sources.find(*m_scenes[static_cast<size_t>(scene)].Key());
+    const std::string key = KeyOf(source);
+    auto it = key.empty() ? m_sources.end() : m_sources.find(key);
     return it == m_sources.end() ? nullptr : &it->second;
 }
 
-auto VideoManager::EntryFor(int scene) const -> const SourceEntry*
+auto VideoManager::Find(const model::VideoSource& source) const -> const SourceEntry*
 {
-    return const_cast<VideoManager*>(this)->EntryFor(scene);
+    return const_cast<VideoManager*>(this)->Find(source);
 }
 
 } // namespace gv::app

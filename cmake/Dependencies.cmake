@@ -63,3 +63,20 @@ if(NOT SYPHON_FRAMEWORK)
 endif()
 get_filename_component(SYPHON_FRAMEWORK_DIR "${SYPHON_FRAMEWORK}" DIRECTORY)
 message(STATUS "Syphon: ${SYPHON_FRAMEWORK}")
+
+# --- imgui-node-editor (the node canvas), develop branch, pinned to a commit: it has zoom, typed node state
+# and edit reports that the tagged releases lack. Chosen over imnodes in the N4.1 spike (imnodes can't zoom).
+FetchContent_Declare(imgui_node_editor
+    GIT_REPOSITORY https://github.com/thedmd/imgui-node-editor.git
+    GIT_TAG 27bcacec350a37db43e3afb8d37223237912577c)
+FetchContent_GetProperties(imgui_node_editor)
+if(NOT imgui_node_editor_POPULATED)
+    FetchContent_Populate(imgui_node_editor)
+endif()
+add_library(imgui_node_editor STATIC
+    ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor.cpp
+    ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor_api.cpp
+    ${imgui_node_editor_SOURCE_DIR}/imgui_canvas.cpp
+    ${imgui_node_editor_SOURCE_DIR}/crude_json.cpp)
+target_include_directories(imgui_node_editor SYSTEM PUBLIC ${imgui_node_editor_SOURCE_DIR})
+target_link_libraries(imgui_node_editor PUBLIC imgui)

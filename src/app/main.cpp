@@ -7,9 +7,11 @@
 #include "app/macos/Menu.hpp"
 #include "app/macos/Window.hpp"
 #include "library/Library.hpp"
+#include "library/PresetParsing.hpp"
 #include "model/Document.hpp"
 #include "thumbnails/ThumbnailService.hpp"
 #include "app_info.hpp"
+#include "common/FitRect.hpp"
 #include "common/SpscRingBuffer.hpp"
 #include "common/log.hpp"
 #include "common/paths.hpp"
@@ -28,10 +30,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <random>
 #include <set>
@@ -44,7 +48,33 @@ namespace {
 constexpr const char* kLogCategory = "app";
 constexpr int kLanes = 3;
 constexpr size_t kFrameHistory = 240;
+constexpr size_t kGpuWindowFrames = 60; //!< One second at 60 fps.
+constexpr int kGpuSettleFrames = 30;
 constexpr size_t kMaxMessages = 200;
+/// Smoke edits: sets every Saturation node feeding the `item`-th preset of a preset switcher (both of its
+/// classic look chains, so the scene stays classic-shaped).
+void SetEntrySaturation(gv::model::Graph& graph, int item, float saturation)
+{
+    const auto selection = gv::engine::SelectionForItem(graph, item);
+    if (selection.empty())
+        return;
+    const auto* preset = graph.Upstream(selection.begin()->first, selection.begin()->second);
+    if (preset == nullptr)
+        return;
+    for (const auto& wire : graph.wires)
+    {
+        if (wire.toNode != preset->id)
+            continue;
+        for (auto* node = graph.Find(wire.fromNode); node != nullptr && gv::model::IsEffect(node->type);)
+        {
+            if (node->type == gv::model::NodeType::Saturation)
+                gv::model::ParamsOf<gv::model::SaturationParams>(*node).saturation = saturation;
+            const auto* up = graph.Upstream(node->id, 0);
+            node = up != nullptr ? graph.Find(up->id) : nullptr;
+        }
+    }
+}
+
 constexpr int kMaxRenderWidth = 1920; //!< Keeps Retina screens at a 1080p-class render (the M1 budgets).
 constexpr size_t kMaxRecent = 10;
 constexpr int kRecoveryIntervalFrames = 60 * 30; //!< Write a recovery copy of unsaved changes every ~30 s.
@@ -67,6 +97,10 @@ struct Options
     std::filesystem::path smokeSnapshots; //!< If set, saves the output just before each cut as a BMP here.
     std::filesystem::path smokeEditorSnapshot; //!< If set, saves the editor window once as a BMP...
     double smokeEditorSnapshotAt{3.0};         //!< ...this many seconds in.
+    /// Moves every scene's feedback video into another preset input when the show opens: "before-composite",
+    /// "on-top", "texture" (each preset's first texture) or "texture:<name>". With --smoke-edits in texture modes, the
+    /// live scene's texture input is also detached and re-attached during each cut (live attach and detach).
+    std::string smokeLayer;
 };
 
 auto ParseOptions(int argc, char* argv[]) -> Options
@@ -100,6 +134,8 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.smokeEdits = true;
         else if (arg == "--smoke-no-editor")
             options.smokeNoEditor = true;
+        else if (arg == "--smoke-layer" && hasValue)
+            options.smokeLayer = argv[++i];
         else if (arg == "--smoke-cut-every" && hasValue)
             options.smokeCutSeconds = std::atof(argv[++i]);
         else if (arg.size() > 5 && arg.substr(arg.size() - 5) == ".json")
@@ -197,6 +233,8 @@ public:
             GV_LOG_ERROR(kLogCategory, "could not open performance %s", file.c_str());
             return;
         }
+        if (m_options.smoke && !m_options.smokeLayer.empty())
+            ApplySmokeLayer(result.performance);
         LoadDocument(gv::model::Document(std::move(result.performance), file));
         m_issues = result.issues;
         m_settings.lastPerformance = file;
@@ -243,6 +281,15 @@ public:
     void EndEdit() override
     {
         m_document.EndCoalescing();
+    }
+
+    auto EditGraph(int scene, const std::function<void(gv::model::Graph&)>& edit, const std::string& label, const std::string& coalesceKey)
+        -> std::vector<gv::model::GraphError> override
+    {
+        auto errors = gv::model::TryEditGraph(m_document, scene, edit, label, coalesceKey);
+        if (errors.empty())
+            SyncEngine();
+        return errors;
     }
 
     void Undo() override
@@ -358,19 +405,41 @@ public:
 
     void Trigger(int scene) override
     {
-        m_video.OnTrigger(scene, m_engine.LiveScene());
+        m_video.OnTrigger(scene, 0, m_engine.LiveScene());
         m_engine.Trigger(scene);
+    }
+
+    void JumpSwitcher(int scene, const std::string& switcherId, int input) override
+    {
+        const auto& scenes = m_document.Get().scenes;
+        if (scene < 0 || scene >= static_cast<int>(scenes.size()))
+            return;
+        const auto& target = scenes[static_cast<size_t>(scene)];
+        if (switcherId == target.presetSwitcher)
+        {
+            // A preset switcher's input is a preset entry: go live on it, as from the Scenes list.
+            if (const int entry = target.EntryOfInput(input); entry >= 0)
+                TriggerItem(scene, entry);
+            return;
+        }
+        m_engine.JumpVideo(scene, switcherId, input);
     }
 
     void TriggerItem(int scene, int item) override
     {
-        m_video.OnTrigger(scene, m_engine.LiveScene()); // only restarts when entering another scene
+        m_video.OnTrigger(scene, item, m_engine.LiveScene()); // only restarts when entering another scene
         m_engine.TriggerItem(scene, item);
     }
 
-    /// Renders at the native resolution of the screen the window is on, capped at kMaxRenderWidth wide.
+    /// Renders at the show's canvas size, or with Match screen at the native resolution of the screen the window
+    /// is on, capped at kMaxRenderWidth wide. Cheap when nothing changed.
     void UpdateRenderSize()
     {
+        if (const auto& canvas = m_document.Get().canvas; !canvas.matchScreen)
+        {
+            m_engine.SetRenderSize(canvas.width, canvas.height);
+            return;
+        }
         const int display = SDL_GetWindowDisplayIndex(m_editorWindow);
         SDL_DisplayMode mode{};
         if (display < 0 || SDL_GetDesktopDisplayMode(display, &mode) != 0)
@@ -461,6 +530,7 @@ public:
         m_selectedScene = m_document.Get().scenes.empty() ? -1 : 0;
         m_issues.clear();
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext); // video sources convert frames on this context
+        UpdateRenderSize(); // before preparing, so the lanes don't prepare at the old size
         m_video.Load(m_document.Get());
         m_engine.LoadPerformance(m_document.Get());
         m_syncedRevision = m_document.Revision();
@@ -473,6 +543,7 @@ public:
             return;
         m_syncedRevision = m_document.Revision();
         SDL_GL_MakeCurrent(m_editorWindow, m_editorContext);
+        UpdateRenderSize(); // the canvas may have been edited (or undone)
         m_video.Load(m_document.Get());
         m_engine.UpdatePerformance(m_document.Get());
         m_issues = gv::model::Validate(m_document.Get());
@@ -490,11 +561,14 @@ public:
             AddMessage("Not saved: fix the problems listed above first.");
             return;
         }
+        const auto backup = gv::model::BackupOlderFormat(file);
         if (auto error = gv::model::SavePerformance(m_document.Get(), file); !error.empty())
         {
             AddMessage("Could not save: " + error);
             return;
         }
+        if (!backup.empty())
+            AddMessage("Saved in the new format. The old file was kept as " + backup.filename().string() + " for older versions of the app.");
         m_document.MarkSaved(file);
         m_settings.lastPerformance = file;
         AddRecent(file);
@@ -613,7 +687,7 @@ public:
                     Redo();
                     break;
                 case MenuCommand::AddScene: {
-                    const auto preset = m_selectedScene >= 0 ? edited.scenes[static_cast<size_t>(m_selectedScene)].presetPath : std::filesystem::path();
+                    const auto preset = m_selectedScene >= 0 ? edited.scenes[static_cast<size_t>(m_selectedScene)].FirstPreset() : std::filesystem::path();
                     if (const int index = gv::model::AddScene(edited, m_selectedScene, preset); index >= 0)
                     {
                         Edit(std::move(edited), "Add Scene", {});
@@ -726,8 +800,7 @@ public:
         m_video.SetCanvasSize(m_engine.RenderWidth(), m_engine.RenderHeight());
         const auto midiClock = m_midi->Clock();
         const gv::engine::ClockInput clock{midiClock.receiving, midiClock.running, midiClock.positionKnown, midiClock.pulses, midiClock.totalPulses};
-        m_video.BeginFrame(m_engine.LiveScene(), m_engine.PendingScene(), m_engine.HandoverScene(), clock);
-        m_engine.SetClock(clock);
+        m_engine.SetClock(clock); // Tick moves the switchers on, then tells the video sources what to play
         m_engine.SetSampleRate(m_audio.SampleRate());
         m_engine.Tick(m_pcm.data(), samples / 2, m_settings.gain);
 
@@ -749,6 +822,7 @@ public:
         }
 
         RecordFrameInterval();
+        RecordLiveGpu();
         UpdateChrome();
         UpdateLibrary(frame);
         if (m_settingsDirty && frame % 60 == 0)
@@ -795,6 +869,7 @@ private:
         state.preview = presented;
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;
+        state.liveGpuMs = LiveGpuMs();
         shell.Draw(state, *this);
         m_document.ReleaseRetired();
 
@@ -847,14 +922,11 @@ private:
         {
             if (m_readFbo == 0)
                 glGenFramebuffers(1, &m_readFbo);
-            const float scale = std::min(static_cast<float>(width) / textureWidth, static_cast<float>(height) / textureHeight);
-            const int w = static_cast<int>(textureWidth * scale);
-            const int h = static_cast<int>(textureHeight * scale);
-            const int x = (width - w) / 2;
-            const int y = (height - h) / 2;
+            const gv::Rect fit = gv::FitRect(textureWidth, textureHeight, width, height);
             glBindFramebuffer(GL_READ_FRAMEBUFFER, m_readFbo);
             glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, presented, 0);
-            glBlitFramebuffer(0, 0, textureWidth, textureHeight, x, y, x + w, y + h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            glBlitFramebuffer(0, 0, textureWidth, textureHeight, fit.x, fit.y, fit.x + fit.width, fit.y + fit.height, GL_COLOR_BUFFER_BIT,
+                              GL_LINEAR);
             glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
         }
         SDL_GL_SwapWindow(m_editorWindow);
@@ -873,6 +945,41 @@ private:
                 m_slowFrames++;
         }
         m_lastFrame = now;
+    }
+
+    /// Samples the live lane's GPU time: a one-second average for the editor, and per-scene averages for smoke runs.
+    /// Skips the first half second after the live scene changes, while the new lane's timer average catches up.
+    void RecordLiveGpu()
+    {
+        const int live = m_engine.LiveScene();
+        const int lane = live >= 0 ? m_engine.Scene(live).lane : -1;
+        if (live != m_gpuScene)
+        {
+            m_gpuScene = live;
+            m_gpuSettle = kGpuSettleFrames;
+            m_gpuWindow.clear();
+        }
+        const auto stats = m_engine.GetStats();
+        if (lane < 0 || lane >= static_cast<int>(stats.laneGpuMs.size()) || m_gpuSettle-- > 0)
+            return;
+        const double ms = stats.laneGpuMs[static_cast<size_t>(lane)];
+        m_gpuWindow.push_back(ms);
+        if (m_gpuWindow.size() > kGpuWindowFrames)
+            m_gpuWindow.pop_front();
+        auto& total = m_gpuByScene[live];
+        total.first += ms;
+        total.second++;
+    }
+
+    /// The live lane's GPU ms over the last second, or -1 if not known.
+    auto LiveGpuMs() const -> double
+    {
+        if (m_gpuWindow.empty())
+            return -1.0;
+        double sum = 0.0;
+        for (double ms : m_gpuWindow)
+            sum += ms;
+        return sum / static_cast<double>(m_gpuWindow.size());
     }
 
     void PaceSmoke()
@@ -902,7 +1009,17 @@ private:
         if (m_options.smokeEdits)
         {
             SmokeEdits(elapsed);
+            // Held ticks in the half second after each canvas edit (the edit's own cost).
+            if (m_smokeCanvasEditAt >= 0.0 && elapsed >= m_smokeCanvasEditAt + 0.5)
+            {
+                const long long held = m_engine.GetStats().heldTicks - m_smokeCanvasHeldBefore;
+                m_smokeCanvasHeld += held;
+                GV_LOG_INFO(kLogCategory, "smoke edit (canvas): %lld held ticks in the 0.5 s after it", held);
+                m_smokeCanvasEditAt = -1.0;
+            }
         }
+        if (m_options.smokeEdits && m_options.smokeLayer.rfind("texture", 0) == 0)
+            SmokeToggleTexture(elapsed);
         if (m_options.smokeCrash && elapsed > 2.0)
         {
             auto edited = m_document.Get();
@@ -943,24 +1060,235 @@ private:
                         elapsed, m_smokeCuts, liveTicks, stats.presentedFrames, stats.heldTicks,
                         liveTicks > 0 ? 100.0 * stats.heldTicks / liveTicks : 0.0, stats.heldWaitingTicks, stats.heldNearCutTicks, stats.heldTicks - stats.heldWaitingTicks - stats.heldNearCutTicks,
                         m_slowFrames, stats.warmDone, stats.warmTotal);
+            GV_LOG_INFO(kLogCategory, "smoke: render size %dx%d (%s)", m_engine.RenderWidth(), m_engine.RenderHeight(),
+                        performance.canvas.matchScreen ? "match screen" : "show canvas");
             for (int i = 0; i < static_cast<int>(performance.scenes.size()); ++i)
             {
                 const auto info = m_engine.Scene(i);
                 const auto held = stats.heldByScene.count(i) ? stats.heldByScene.at(i) : 0;
-                const auto video = m_video.StateFor(i);
+                const auto source = m_engine.VideoSourceOf(i);
+                const auto video = source ? m_video.StateOf(*source) : std::nullopt;
                 char dropped[32] = "never live long enough";
                 if (info.droppedFraction >= 0.0)
                     std::snprintf(dropped, sizeof(dropped), "%.1f%% of its live frames", info.droppedFraction * 100.0);
-                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, held %lld (%s), video %s", i,
-                            performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", held,
+                char gpu[32] = "-";
+                if (auto it = m_gpuByScene.find(i); it != m_gpuByScene.end() && it->second.second > 0)
+                    std::snprintf(gpu, sizeof(gpu), "%.1f ms", it->second.first / static_cast<double>(it->second.second));
+                GV_LOG_INFO(kLogCategory, "smoke: scene %d %-10s %6.1f ms/frame%s, live GPU %s, held %lld (%s), video %s", i,
+                            performance.scenes[static_cast<size_t>(i)].id.c_str(), info.frameMs, info.heavy ? " (heavy)" : "", gpu, held,
                             dropped, video ? gv::io::ToString(*video) : "-");
             }
             const auto clock = m_midi->Clock();
             GV_LOG_INFO(kLogCategory, "smoke: MIDI clock %s, %.1f BPM, %s, position %s, source %s", clock.receiving ? "receiving" : "absent", clock.bpm,
                         clock.running ? "running" : "stopped", clock.positionKnown ? "known" : "unknown", clock.sourceName.c_str());
-            m_smokeOk = stats.presentedFrames > liveTicks / 2;
+            if (m_options.smokeEdits)
+                GV_LOG_INFO(kLogCategory, "smoke: canvas edits refused: %d, held ticks within 0.5 s after them: %lld", m_smokeCanvasRefusals, m_smokeCanvasHeld);
+            m_smokeOk = stats.presentedFrames > liveTicks / 2 && m_smokeCanvasRefusals == 0;
             m_smokeDone = true;
         }
+    }
+
+    /// --smoke-layer: rewires each scene's feedback video into the chosen preset input.
+    void ApplySmokeLayer(gv::model::Performance& performance)
+    {
+        using gv::model::PresetLayer;
+        const std::string& layer = m_options.smokeLayer;
+        const bool texture = layer == "texture" || layer.rfind("texture:", 0) == 0;
+        if (!texture && layer != "before-composite" && layer != "on-top")
+        {
+            GV_LOG_ERROR(kLogCategory, "smoke: unknown --smoke-layer \"%s\" (before-composite, on-top, texture or texture:<name>)", layer.c_str());
+            return;
+        }
+        for (auto& scene : performance.scenes)
+        {
+            auto& graph = scene.graph;
+            for (auto& wire : graph.wires)
+            {
+                const auto* node = graph.Find(wire.toNode);
+                if (node == nullptr || node->type != gv::model::NodeType::MilkdropPreset || wire.toInput != static_cast<int>(PresetLayer::Feedback))
+                    continue;
+                if (!texture)
+                {
+                    const auto input = layer == "on-top" ? PresetLayer::OnTop : PresetLayer::BeforeComposite;
+                    if (graph.WireInto(wire.toNode, static_cast<int>(input)) != nullptr)
+                        continue; // that input is taken (the overlay)
+                    wire.toInput = static_cast<int>(input);
+                    GV_LOG_INFO(kLogCategory, "smoke layer: scene %s: video into %s", scene.id.c_str(), layer.c_str());
+                    continue;
+                }
+                std::string name = layer.size() > 8 ? layer.substr(8) : std::string();
+                if (name.empty())
+                {
+                    const auto textures = gv::library::PresetTextures(gv::model::ParamsOf<gv::model::MilkdropPresetParams>(*node).path);
+                    if (textures.empty())
+                        continue;
+                    name = textures.front();
+                }
+                wire.toInput = static_cast<int>(PresetLayer::Texture);
+                wire.textureName = name;
+                GV_LOG_INFO(kLogCategory, "smoke layer: scene %s: video into texture \"%s\"", scene.id.c_str(), name.c_str());
+            }
+        }
+    }
+
+    /// --smoke-layer texture: a third of the way into each cut, the live scene's texture input is detached
+    /// (its video goes back to feedback); two thirds in, it's attached again.
+    void SmokeToggleTexture(double elapsed)
+    {
+        using gv::model::PresetLayer;
+        if (m_options.smokeCutSeconds <= 0)
+            return;
+        const double phase = std::fmod(elapsed, m_options.smokeCutSeconds) / m_options.smokeCutSeconds;
+        const int step = static_cast<int>(elapsed / m_options.smokeCutSeconds) * 3 + (phase < 1.0 / 3 ? 0 : phase < 2.0 / 3 ? 1 : 2);
+        if (step == m_smokeToggleStep || step % 3 == 0)
+            return;
+        m_smokeToggleStep = step;
+        const int live = m_engine.LiveScene();
+        if (live < 0)
+            return;
+        auto edited = m_document.Get();
+        auto& scene = edited.scenes[static_cast<size_t>(live)];
+        const bool detach = step % 3 == 1;
+        for (auto& wire : scene.graph.wires)
+        {
+            const auto* to = scene.graph.Find(wire.toNode);
+            if (to == nullptr || to->type != gv::model::NodeType::MilkdropPreset)
+                continue; // switcher inputs use the same numbers
+            if (detach && wire.toInput == static_cast<int>(PresetLayer::Texture))
+            {
+                m_smokeDetached[scene.id] = wire.textureName;
+                wire.toInput = static_cast<int>(PresetLayer::Feedback);
+                wire.textureName.clear();
+                Edit(std::move(edited), "Smoke Layer", {});
+                GV_LOG_INFO(kLogCategory, "smoke layer: scene %d: texture input detached", live);
+                return;
+            }
+            if (!detach && wire.toInput == static_cast<int>(PresetLayer::Feedback) && m_smokeDetached.count(scene.id) > 0)
+            {
+                wire.toInput = static_cast<int>(PresetLayer::Texture);
+                wire.textureName = m_smokeDetached[scene.id];
+                m_smokeDetached.erase(scene.id);
+                Edit(std::move(edited), "Smoke Layer", {});
+                GV_LOG_INFO(kLogCategory, "smoke layer: scene %d: texture input attached again", live);
+                return;
+            }
+        }
+    }
+
+    /// The node canvas's edits on the live scene, through the same gate the canvas uses (EditGraph):
+    /// 15 adds a Contrast node mid-chain, 16 moves a video wire from On top (or Feedback) to Before composite,
+    /// 17 wires a chain into one of the preset's texture inputs, 18 deletes an effect node and bridges its wires.
+    void SmokeCanvasEdit(int step, int live)
+    {
+        using namespace gv::model;
+        const auto started = Clock::now();
+        m_selectedScene = live; // so the canvas draws the scene being edited
+        if (step == 15 && VideoIdsOf(m_document.Get().scenes[static_cast<size_t>(live)].graph).empty() && !m_document.Get().videos.empty())
+        {
+            auto edited = m_document.Get();
+            AssignVideo(edited, live, edited.videos.front().id);
+            Edit(std::move(edited), "Assign Video", {});
+        }
+        const Graph& graph = m_document.Get().scenes[static_cast<size_t>(live)].graph;
+        auto firstWire = [&](auto&& match) -> std::optional<Wire> {
+            for (const auto& wire : graph.wires)
+            {
+                if (match(wire))
+                    return wire;
+            }
+            return std::nullopt;
+        };
+        auto isEffect = [&](const std::string& id) {
+            const Node* node = graph.Find(id);
+            return node != nullptr && IsEffect(node->type);
+        };
+        auto isPreset = [&](const std::string& id) {
+            const Node* node = graph.Find(id);
+            return node != nullptr && node->type == NodeType::MilkdropPreset;
+        };
+        std::string what = "nothing to do";
+        std::vector<GraphError> errors;
+        if (step == 15)
+        {
+            if (const auto wire = firstWire([&](const Wire& w) { return isEffect(w.fromNode) && isEffect(w.toNode); }))
+            {
+                what = "added a Contrast node between " + wire->fromNode + " and " + wire->toNode;
+                errors = EditGraph(live, [&](Graph& g) {
+                    const Node* to = g.Find(wire->toNode);
+                    const std::string id = AddNode(g, NodeType::Contrast, to->x, to->y + 120.0f);
+                    ParamsOf<ContrastParams>(*g.Find(id)).contrast = 1.6f;
+                    Connect(g, wire->fromNode, id, 0);
+                    Connect(g, id, wire->toNode, wire->toInput, wire->textureName);
+                }, "Add Contrast", {});
+            }
+        }
+        else if (step == 16)
+        {
+            auto into = [&](PresetLayer layer) {
+                return firstWire([&](const Wire& w) { return isPreset(w.toNode) && w.toInput == static_cast<int>(layer); });
+            };
+            auto wire = into(PresetLayer::OnTop);
+            if (!wire)
+                wire = into(PresetLayer::Feedback);
+            if (wire)
+            {
+                what = "rewired " + wire->fromNode + " from input " + std::to_string(wire->toInput) + " to before composite";
+                errors = EditGraph(live, [&](Graph& g) {
+                    Disconnect(g, wire->toNode, wire->toInput);
+                    Connect(g, wire->fromNode, wire->toNode, static_cast<int>(PresetLayer::BeforeComposite));
+                }, "Rewire", {});
+            }
+        }
+        else if (step == 17)
+        {
+            for (const auto& node : graph.nodes)
+            {
+                if (node.type != NodeType::MilkdropPreset)
+                    continue;
+                const auto textures = gv::library::PresetTextures(ParamsOf<MilkdropPresetParams>(node).path);
+                const auto chain = firstWire([&](const Wire& w) { return w.toNode == node.id && isEffect(w.fromNode); });
+                if (textures.empty() || !chain)
+                    continue;
+                what = "wired " + chain->fromNode + " into " + node.id + "'s texture " + textures.front();
+                errors = EditGraph(live, [&](Graph& g) {
+                    Connect(g, chain->fromNode, node.id, static_cast<int>(PresetLayer::Texture), textures.front());
+                }, "Connect Texture", {});
+                break;
+            }
+        }
+        else if (step == 18)
+        {
+            // An effect with an effect upstream: remove it and wire its input to where it went.
+            for (const auto& node : graph.nodes)
+            {
+                const Node* upstream = IsEffect(node.type) ? graph.Upstream(node.id, 0) : nullptr;
+                if (upstream == nullptr || !IsEffect(upstream->type))
+                    continue;
+                std::vector<Wire> out;
+                for (const auto& wire : graph.wires)
+                {
+                    if (wire.fromNode == node.id)
+                        out.push_back(wire);
+                }
+                const std::string id = node.id;
+                const std::string from = upstream->id;
+                what = "deleted " + id + " and wired " + from + " past it";
+                errors = EditGraph(live, [&](Graph& g) {
+                    RemoveNode(g, id);
+                    for (const auto& wire : out)
+                        Connect(g, from, wire.toNode, wire.toInput, wire.textureName);
+                }, "Delete Node", {});
+                break;
+            }
+        }
+        m_smokeCanvasEditAt = std::chrono::duration<double>(Clock::now() - m_smokeStart).count();
+        m_smokeCanvasHeldBefore = m_engine.GetStats().heldTicks;
+        GV_LOG_INFO(kLogCategory, "smoke edit (canvas): scene %d: %s%s (%.2f ms on the main thread)", live, what.c_str(), errors.empty() ? "" : " - REFUSED",
+                    std::chrono::duration<double, std::milli>(Clock::now() - started).count());
+        for (const auto& error : errors)
+            GV_LOG_INFO(kLogCategory, "  refused: %s", error.message.c_str());
+        if (!errors.empty())
+            m_smokeCanvasRefusals++;
     }
 
     /// Scripted edits while playing, one per second from 3 s, to exercise live updates of the engine.
@@ -983,7 +1311,8 @@ private:
             case 1:
                 if (live >= 0)
                 {
-                    edited.scenes[static_cast<size_t>(live)].presetPath = edited.scenes[static_cast<size_t>((live + 2) % count)].presetPath;
+                    const auto other = edited.scenes[static_cast<size_t>((live + 2) % count)].FirstPreset();
+                    gv::model::ReplacePreset(edited, live, 0, other);
                     Edit(std::move(edited), "Change Preset", {});
                     GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's preset (scene %d)", live);
                 }
@@ -991,10 +1320,16 @@ private:
             case 2:
                 if (live >= 0)
                 {
-                    edited.scenes[static_cast<size_t>(live)].video.enabled = true;
-                    edited.scenes[static_cast<size_t>(live)].video.look.mix = 0.3f;
-                    Edit(std::move(edited), "Change Mix", {});
-                    GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's mix");
+                    auto& graph = edited.scenes[static_cast<size_t>(live)].graph;
+                    if (gv::model::VideoIdsOf(graph).empty() && !edited.videos.empty())
+                        gv::model::AssignVideo(edited, live, edited.videos.front().id);
+                    for (auto& node : graph.nodes)
+                    {
+                        if (node.type == gv::model::NodeType::Opacity)
+                            gv::model::ParamsOf<gv::model::OpacityParams>(node).opacity = 0.3f;
+                    }
+                    Edit(std::move(edited), "Change Opacity", {});
+                    GV_LOG_INFO(kLogCategory, "smoke edit: changed the live scene's opacity");
                 }
                 break;
             case 3:
@@ -1013,9 +1348,9 @@ private:
             case 5:
             case 7:
             {
-                // Playlist jumps: into a playlist scene at its third entry, then within it to the second
-                // (with that entry's look changed while live).
-                const auto playlist = std::find_if(edited.scenes.begin(), edited.scenes.end(), [](const auto& s) { return s.IsPlaylist() && s.playlist.presets.size() >= 3; });
+                // Preset switcher jumps: into a scene switching presets at its third entry, then within it to
+                // the second (with that entry's look changed while live).
+                const auto playlist = std::find_if(edited.scenes.begin(), edited.scenes.end(), [](const auto& s) { return s.SwitchesPresets() && s.presetEntries.size() >= 3; });
                 if (playlist == edited.scenes.end())
                     break;
                 const int scene = static_cast<int>(playlist - edited.scenes.begin());
@@ -1028,7 +1363,7 @@ private:
                 else
                 {
                     GV_LOG_INFO(kLogCategory, "smoke edit: scene %d live=%d on preset %d", scene, m_engine.LiveScene(), m_engine.Scene(scene).playlistItem + 1);
-                    playlist->MutableLookFor(1).saturation = 0.f;
+                    SetEntrySaturation(playlist->graph, 1, 0.f);
                     Edit(std::move(edited), "Change Saturation", {});
                     TriggerItem(scene, 1);
                     GV_LOG_INFO(kLogCategory, "smoke edit: jumped within scene %d to preset 2 (black and white)", scene);
@@ -1036,22 +1371,34 @@ private:
                 break;
             }
             case 11:
-                // Dropping a preset on the preview: replaces the playlist entry on screen in the live scene.
-                if (live >= 0 && edited.scenes[static_cast<size_t>(live)].IsPlaylist())
+                // Dropping a preset on the preview: replaces the preset entry on screen in the live scene.
+                if (live >= 0 && edited.scenes[static_cast<size_t>(live)].SwitchesPresets())
                 {
                     const auto preset = edited.scenes[0].FirstPreset();
                     const int item = gv::model::ReplacePreset(edited, live, m_engine.LiveItem(), preset);
-                    Edit(std::move(edited), "Replace Playlist Preset", {});
+                    Edit(std::move(edited), "Replace Switcher Preset", {});
                     if (item > 0)
                         TriggerItem(live, item);
                     GV_LOG_INFO(kLogCategory, "smoke edit: replaced preset %d of live scene %d with %s", item + 1, live, preset.filename().c_str());
                 }
                 break;
+            case 15:
+            case 16:
+            case 17:
+            case 18:
+                if (live >= 0)
+                    SmokeCanvasEdit(step, live);
+                break;
+            case 19:
+                while (m_document.CanUndo())
+                    Undo();
+                GV_LOG_INFO(kLogCategory, "smoke edit: undid the canvas edits too; %zu scenes, dirty=%d", m_document.Get().scenes.size(), m_document.IsDirty());
+                break;
             case 9:
             case 13:
                 for (int scene = 0; scene < static_cast<int>(edited.scenes.size()); ++scene)
                 {
-                    if (edited.scenes[static_cast<size_t>(scene)].IsPlaylist())
+                    if (edited.scenes[static_cast<size_t>(scene)].SwitchesPresets())
                         GV_LOG_INFO(kLogCategory, "smoke edit: scene %d live=%d on preset %d", scene, m_engine.LiveScene(), m_engine.Scene(scene).playlistItem + 1);
                 }
                 break;
@@ -1168,16 +1515,26 @@ private:
     std::deque<std::string> m_messages;
 
     std::deque<float> m_frameIntervals;
+    std::deque<double> m_gpuWindow;                       //!< The live lane's GPU ms, last second.
+    std::map<int, std::pair<double, long long>> m_gpuByScene; //!< Live GPU ms sum and samples per scene (smoke summary).
+    int m_gpuScene{-1};
+    int m_gpuSettle{0};
     long long m_slowFrames{0};
     Clock::time_point m_lastFrame{};
 
     Clock::time_point m_smokeStart{};
     Clock::time_point m_smokeDeadline{};
     int m_smokeLastCut{-1};
+    int m_smokeToggleStep{-1};
+    std::map<std::string, std::string> m_smokeDetached; //!< Scene id -> the texture its video was detached from.
     int m_smokeCuts{0};
     bool m_smokeDone{false};
     bool m_editorSnapshotTaken{false};
     int m_smokeEditStep{-1};
+    int m_smokeCanvasRefusals{0};
+    double m_smokeCanvasEditAt{-1.0}; //!< When the last canvas edit ran (smoke seconds), until its held ticks are counted.
+    long long m_smokeCanvasHeldBefore{0};
+    long long m_smokeCanvasHeld{0};
     double m_smokeNextReport{0.0};
     std::mt19937 m_smokeRandom{12345};
     bool m_smokeOk{false};

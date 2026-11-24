@@ -107,6 +107,8 @@ auto Settings::Load(const std::filesystem::path& file) -> Settings
     Read(root, "gain", settings.gain);
     Read(root, "midiChannel", settings.midiChannel);
     Read(root, "namesOnly", settings.namesOnly);
+    Read(root, "graphPreview", settings.graphPreview);
+    Read(root, "graphPreviewDim", settings.graphPreviewDim);
     Read(root, "lastPerformance", lastPerformance);
     std::vector<std::string> recent;
     Read(root, "recentPerformances", recent);
@@ -119,6 +121,7 @@ auto Settings::Load(const std::filesystem::path& file) -> Settings
     settings.lastPerformance = lastPerformance;
     settings.gain = std::clamp(settings.gain, 0.0f, 16.0f);
     settings.midiChannel = std::clamp(settings.midiChannel, 0, 15);
+    settings.graphPreviewDim = std::clamp(settings.graphPreviewDim, 0.0f, 0.9f);
     return settings;
 }
 
@@ -133,6 +136,8 @@ auto Settings::Save(const std::filesystem::path& file) const -> std::string
     root["gain"] = gain;
     root["midiChannel"] = midiChannel;
     root["namesOnly"] = namesOnly;
+    root["graphPreview"] = graphPreview;
+    root["graphPreviewDim"] = graphPreviewDim;
     root["lastPerformance"] = lastPerformance.string();
     root["recentPerformances"] = json::array();
     for (const auto& path : recentPerformances)

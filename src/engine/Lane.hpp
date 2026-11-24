@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/RenderPlan.hpp"
 #include "engine/ScenePool.hpp"
 
 #include <projectM-4/projectM.h>
@@ -21,22 +22,9 @@
 
 namespace gv::engine {
 
-class VideoOverlay;
+class VideoChain;
 
 using PcmChunk = std::shared_ptr<const std::vector<float>>; //!< Interleaved stereo float samples.
-
-/// A scene's video blend settings, applied to its instance when prepared.
-struct VideoSettings
-{
-    bool enabled{false};
-    float mix{1.0f};
-    float lumaMin{0.0f};
-    float contrast{1.0f};
-    float saturation{1.0f};
-    bool overlay{false};  //!< Also draw the video over the rendered frame, masked by lumaMin.
-    float softness{0.0f}; //!< Overlay mask edge, 0 = hard.
-    bool lumaInvert{false}; //!< The gate keeps pixels darker than lumaMin instead (blend and overlay).
-};
 
 /// The current frame of the live scene's video, if it has one.
 struct VideoFrame
@@ -95,15 +83,15 @@ public:
     /// Render size and texture search paths, applied to slot textures and every hosted instance.
     void Configure(int width, int height, std::vector<std::string> texturePaths);
 
-    void Prepare(InstanceId instance, int scene, std::string presetPath, VideoSettings video, bool priority);
+    void Prepare(InstanceId instance, int scene, std::string presetPath, LanePlan plan, bool priority);
 
     /// Throwaway load + warm-up so the driver's shader cache is hot for `presetPath`.
     void Warm(int scene, std::string presetPath);
 
     void Release(InstanceId instance);
 
-    /// Changes a hosted instance's video blend settings (mix, luma gate, on/off) without re-preparing it.
-    void UpdateVideo(InstanceId instance, VideoSettings video);
+    /// Changes how a hosted instance draws its video (branches and their effects) without re-preparing it.
+    void SetPlan(InstanceId instance, LanePlan plan);
 
     /// Drops queued (not started) Prepare and Warm jobs. Returns the dropped prepares and warm scenes.
     auto CancelQueued() -> std::pair<std::vector<InstanceId>, std::vector<std::pair<int, std::string>>>;
@@ -111,7 +99,7 @@ public:
     /// Which hosted instance renders on ticks (0: none).
     void SetLive(InstanceId instance);
 
-    /// Feeds `pcm` to every hosted instance and, if live, renders one frame blending `video` into it.
+    /// Feeds `pcm` to every hosted instance and, if live, renders one frame, drawing `video` through its plan.
     /// The live instance gets `livePcm` instead when it's set (the same audio plus beat hits).
     /// Coalesces with an unprocessed tick (the newest video frame wins).
     void Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm = nullptr);
@@ -140,7 +128,7 @@ private:
             Warm,
             Release,
             Configure,
-            UpdateVideo,
+            SetPlan,
             Shutdown,
         };
         Type type{Type::Prepare};
@@ -150,7 +138,7 @@ private:
         int width{0};
         int height{0};
         std::vector<std::string> texturePaths;
-        VideoSettings video;
+        LanePlan plan;
     };
 
     struct PendingTick
@@ -171,6 +159,27 @@ private:
     void CreateTargets();
     void DestroyTargets();
     auto CreateInstance() -> projectm_handle;
+    /// The preset's own texture that a Texture branch draws into, with a copy of the original image.
+    struct TextureOverride
+    {
+        GLuint texture{0}; //!< Owned by projectM; 0: the preset has no such image (logged once).
+        int width{0};
+        int height{0};
+        GLuint fbo{0};    //!< Draws into `texture`.
+        GLuint backup{0}; //!< The original image, restored on detach.
+        GLuint backupFbo{0};
+    };
+    using TextureOverrides = std::map<std::string, TextureOverride>;
+    static void DeleteOverride(TextureOverride& override); //!< Deletes the lane's objects, not projectM's texture.
+
+    /// Runs the plan's branches on `video` and sets the instance's layers. Texture branches are drawn only with
+    /// `overrides` (hosted instances, not warm-ups). Returns the On top branch textures, to composite over the
+    /// rendered frame.
+    auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides) -> std::vector<GLuint>;
+    auto BranchTarget(size_t index) -> std::pair<GLuint, GLuint>; //!< (texture, fbo) at render size.
+    auto Override(InstanceId id, projectm_handle instance, const std::string& name, TextureOverrides& overrides) -> TextureOverride*;
+    /// Restores the original images of the textures `plan` no longer draws into (all of them with an empty plan).
+    void RestoreTextures(InstanceId id, const LanePlan& plan, TextureOverrides& overrides);
 
     const int m_id;
     SDL_Window* m_window;
@@ -192,11 +201,13 @@ private:
     struct Hosted
     {
         projectm_handle handle{nullptr};
-        VideoSettings video; //!< The scene's video blend (enabled: it blends video).
+        LanePlan plan; //!< How the scene draws its video.
+        TextureOverrides textures;
     };
     std::map<InstanceId, Hosted> m_instances;
-    GLuint m_placeholderVideo{0}; //!< 1x1 black texture used while warming up video scenes (compiles the blend).
-    std::unique_ptr<VideoOverlay> m_overlay; //!< Created for the first scene with an overlay.
+    GLuint m_placeholderVideo{0}; //!< 1x1 black texture used while warming up video scenes (compiles the blends).
+    std::unique_ptr<VideoChain> m_chain; //!< Created when the thread starts.
+    std::vector<std::pair<GLuint, GLuint>> m_branchTargets; //!< (texture, fbo) per branch index, RGBA8 straight alpha.
     static constexpr int kSlots = 3;
     GLuint m_slotTexture[kSlots]{};
     GLuint m_slotFbo[kSlots]{};

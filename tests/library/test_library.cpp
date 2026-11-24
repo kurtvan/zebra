@@ -61,6 +61,27 @@ comp_5=`  ret += tex2D(sampler_pw_main, uv); float x = texsampler_fake; }
     CHECK(names == std::set<std::string>{"worms", "clouds", "lichen"});
 }
 
+TEST_CASE("texture names follow projectM: any two-letter prefix, built-ins and random images left out")
+{
+    const std::string preset = R"(
+warp_1=`shader_body { ret = tex2D(sampler_WF_Rock, uv).xyz + tex2D(sampler_cp_Bark, uv).xyz + tex2D(sampler_xy_odd, uv).xyz;
+warp_2=`  ret += tex2D(sampler_noise_lq_lite, uv).xyz + tex2D(sampler_noise_mq, uv).xyz + tex2D(sampler_idlem, uv).xyz;
+warp_3=`  ret += tex2D(sampler_fc_idleheadphones, uv).xyz + tex2D(sampler_rand12, uv).xyz + tex2D(sampler_noise_custom, uv).xyz;
+warp_4=`  ret += tex2D(sampler_ab, uv).xyz + tex2D(sampler_fw_main, uv).xyz + tex2D(sampler_blur3, uv).xyz; }
+)";
+    // "noise_custom" is a file, not projectM's noise; "ab" is too short to have a prefix.
+    CHECK(ExtractTextureNames(preset) == std::set<std::string>{"rock", "bark", "odd", "noise_custom", "ab"});
+}
+
+TEST_CASE("PresetTextures reads a preset file")
+{
+    const auto file = std::filesystem::temp_directory_path() / "gv_test_preset_textures.milk";
+    std::ofstream(file) << "comp_1=`ret = tex2D(sampler_fw_Worms, uv) + tex2D(sampler_clouds, uv);\n";
+    CHECK(PresetTextures(file) == std::vector<std::string>{"clouds", "worms"});
+    CHECK(PresetTextures(file.string() + ".missing").empty());
+    std::filesystem::remove(file);
+}
+
 TEST_CASE("search matches all words in name, author and tags, and filters")
 {
     const auto dir = std::filesystem::temp_directory_path() / "gv_test_library_search";

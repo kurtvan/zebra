@@ -282,7 +282,7 @@ void main() {
 ```
 
 - **Exact match with today:** today's shaders run contrast and saturation unclamped, then clamp once, then gate. Clamping after each colour pass wouldn't match: saturation can pull values that contrast pushed out of range back inside [0, 1]. So, as shown above, colour passes leave values unclamped, and the gate and the chain's end clamp. For converted chains (contrast, saturation, gate, mix) this is today's math, step for step. N2.6 proves it.
-- **Output:** one draw per branch into that branch's lane-owned RGBA8 texture (D3) at render size, stored with straight alpha. Branch textures are kept per (instance, branch index) and reallocated only when the render size changes.
+- **Output:** one draw per branch into that branch's lane-owned RGBA8 texture (D3) at render size, stored with straight alpha. Branch textures are kept per lane and branch index (a lane renders one instance at a time, so instances can share them), and reallocated only when the render size changes.
 - **Video alpha:** sources may carry alpha, but today's shaders ignore it, so the chain starts from alpha = 1 as shown.
 - **No passes** (a source wired straight into a layer) still runs the shader, with count 0, so every layer gets the same straight-alpha input.
 
@@ -365,22 +365,20 @@ A scene with an overlay already compiles to two branches, feedback and on top, f
 - **Checked against projectM:** the exclusions are checked against `TextureManager` in 4.1.8 (its built-in names) as part of this milestone.
 - **Caching:** results are cached in the library index next to the missing-texture check, which already parses the same text.
 
-### N3.3 Patch 0007: texture override (C5)
+### N3.3 Patch 0007: texture access (C5, simplified during N3)
 
 ```c
-PROJECTM_EXPORT void projectm_set_texture_override(projectm_handle, const char* name, uint32_t texture, int width, int height);
-PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
+PROJECTM_EXPORT bool projectm_get_preset_texture(projectm_handle, const char* name, uint32_t* texture, int* width, int* height);
 ```
 
-- **Inside projectM:** the override inserts a non-owning `Texture(name, id, GL_TEXTURE_2D, width, height, true)` into the instance's `TextureManager::m_textures` cache. A flag added in the patch stops `~Texture` from deleting a GL id it doesn't own. A later `GetTexture(name)` from the preset's shaders then finds it.
-- **The lane, before loading a preset with textures:**
-  - for **every** texture the preset uses, it creates a lane-owned texture sized like the original image file (loaded with stb, which is already a dependency);
-  - it uploads the original image into it;
-  - it registers that texture as the override.
-- **Live attach and detach:** an attached texture input copies the branch result into that texture each tick, with a scaled `glBlitFramebuffer`. Detaching re-uploads the original image. The preset never reloads or rebinds, because the GL id never changes.
-- **Size:** keeping the original image's size keeps projectM's `texsize_<name>` uniforms correct.
-- **Cost:** the extra textures exist only for presets that use textures, on instances that are hosted.
-- **Fallback**, if the cache insert doesn't behave (for example, the preset resolves textures before the override): re-prepare the preset in the background with overrides set, and swap it in, as a cut. That resets its feedback history once. This is decided in the first two days of N3.
+- **What reading projectM showed:** a preset's shaders look each texture up once, at load (`MilkdropShader::LoadTexturesAndCompile`), keep the `Texture` object, and bind its GL id every frame. So the lane can draw straight into projectM's own texture; nothing has to be inserted into `TextureManager`, and no ownership flag is needed.
+- **The patch** only looks up an already-loaded image by lower-case name (as `TextureManager` stores them) and returns its id and size. It never loads anything and never returns the missing-texture placeholder or the built-in noise and idle textures.
+- **Attach**, on the first tick a Texture branch draws: the lane copies the original image into a lane-owned backup texture, then each tick blits the branch result into the preset's texture, scaled and flipped (image rows are stored top first, video bottom up).
+- **Detach**, when a new plan no longer has that branch: the backup is blitted back and deleted. The preset never reloads or rebinds.
+- **Size:** the preset's texture keeps the image file's size, so `texsize_<name>` stays correct.
+- **When the video stops** (a disconnected source), the texture keeps the last frame until the input is detached.
+- **Not handled:** projectM loads images with premultiplied alpha; video is written as it is, which is the same for opaque video.
+- **The fallback** in the original plan (re-preparing with overrides) isn't needed.
 
 ### N3.4 Plan and lane wiring
 
@@ -411,7 +409,10 @@ PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
   - typed pins with our own validation;
   - our own saved positions;
   - 100 nodes at 60 fps in the editor.
-- **Result:** a short note in the PR with the choice and why. The chosen library is vendored with `FetchContent` at a pinned tag, the way ImGui is.
+- **Result (2026-11-18): imgui-node-editor**, `develop` at commit `27bcace`, vendored with `FetchContent` in `cmake/Dependencies.cmake`.
+  - Both libraries built against ImGui 1.92.9b with no warnings, and drew 100 nodes in about 1.1–1.5 ms per frame.
+  - imnodes has no zoom, which fails a must-have.
+  - imgui-node-editor zooms with sharp text and widgets, reports finished drags as edits, and takes our node positions. Combos and popups must open outside the zoomed canvas (`Suspend`/`Resume`), so node bodies use buttons that open popups instead of combos.
 
 ### N4.2 Structure
 
@@ -420,9 +421,12 @@ PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
 | `src/app/GraphEditor.hpp/.cpp` | Wraps the library: `Draw(const Graph&, const GraphView& state, GraphActions&)`; owns zoom and pan per scene (not saved); hit-testing; the wire being dragged |
 | `src/app/nodes/NodeDraw.hpp` | `DrawNodeBody(const Node&, NodeContext&) -> std::optional<NodeEdit>`, one per type |
 | `src/app/nodes/VideoSourceNode.cpp`, `EffectNodes.cpp`, `PresetNode.cpp`, `SwitcherNode.cpp`, `ViewportNode.cpp` | Each node's body, using today's widgets moved out of `Shell.cpp` (about 650 lines move) |
-| `Shell.cpp` | `DrawSceneProperties` keeps name, CC and beat hits, then hosts the canvas. The read-only video and playlist sections are deleted. |
+| `Shell.cpp` | `DrawSceneProperties` keeps name, CC and beat hits. The canvas has its own **Graph** panel (decided during N4: the Scene panel is too narrow for it), docked under the preview, or as a tab next to it in a layout saved before N4. The read-only video and playlist sections are deleted. |
+| `Widgets.hpp/.cpp` | Colours and small widgets shared by the panels and the node bodies, moved out of `Shell.cpp` |
 
 ### N4.3 Node layout
+
+*As built:* the switcher node already has its interval, unit and shuffle controls in N4, so playlist timing stays editable; N5 adds the live row markers and double-click. Texture inputs show their name; a thumbnail of the texture image is left for later.
 
 - **Fixed widths:** effects 180 px, source 240, preset 260, switcher 220, viewport 220.
 - **Title bar:** the name, the expand/collapse button, and a state dot (live, ready, missing file).
@@ -491,7 +495,8 @@ PROJECTM_EXPORT void projectm_clear_texture_overrides(projectm_handle);
 
 - `Engine::PlaylistState`, `Engine::UpdatePlaylist`, `PickNextItem`;
 - `VideoManager` playlist cycling;
-- the legacy structs, except in the v2 parser.
+- the classic view: `Scene::classic`, `Scene::classicShape`, `ClassicFromGraph`, `NormalizeClassic`, and the `Performance` helpers that read it (`IsPlaylist`, `IsVideoPlaylist`, `LookFor`, `FirstPreset` and the rest). Every reader works on the graph instead;
+- the legacy structs, except in the v2 parser. `Classic.hpp/.cpp` keeps only what reading older files needs (the v2 structs and `GraphFromClassic`) and is renamed to match.
 
 ### N5 done when
 

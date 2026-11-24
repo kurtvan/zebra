@@ -15,7 +15,7 @@ patch file changes. A patch that doesn't apply stops the configure step with its
 ```sh
 scripts/patches.sh start /tmp/pm-work         # worktree at the pinned tag, existing patches applied as commits
 # edit files in /tmp/pm-work, then commit (one concern per commit, explain why in the message)
-scripts/patches.sh export /tmp/pm-work feedback-texture-api   # -> 0002-feedback-texture-api.patch
+scripts/patches.sh export /tmp/pm-work my-change   # -> the next number, e.g. 0004-my-change.patch
 scripts/patches.sh finish /tmp/pm-work
 ```
 
@@ -33,7 +33,10 @@ To change an existing patch, amend or fix up its commit in the worktree and re-e
 | Patch | Purpose |
 |---|---|
 | `0001-render-to-target-fbo.patch` | Backport of `projectm_opengl_render_frame_fbo()` from upstream 4.2.0 so projectM draws into our offscreen FBO. |
-| `0004-feedback-contrast-saturation.patch` | `projectm_set_feedback_contrast/_saturation`: colour adjustments of the feedback texture, applied before the luma gate. |
+| `0002-layer-texture-api.patch` | `projectm_set_layer_texture`: alpha-blends a caller's finished texture into the frame at a fixed layer (feedback, before the warp; before-composite is stored for a later patch). The app prepares the texture itself (`engine/VideoChain`). |
 | `0003-shader-program-cache.patch` | Reuses linked shader programs per thread (macOS's GL driver leaks ~35 KB per program, even after deletion); fixes two GL buffer leaks. |
-| `0005-feedback-luma-invert.patch` | `projectm_set_feedback_luma_invert`: the luma gate keeps the feedback texture's dark pixels instead of its bright ones. |
-| `0002-feedback-texture-api.patch` | `projectm_set_feedback_texture/_mix/_luma_gate`: blends a caller's texture (video) into the preset's feedback buffer before the warp. |
+| `0006-before-composite-layer.patch` | Draws the before-composite layer into the flipped image the final composite samples (not fed back); the layer blend can draw flipped and no longer inherits projectM's sampler objects. |
+| `0007-preset-texture-access.patch` | `projectm_get_preset_texture`: the GL texture a loaded preset samples as `sampler_<name>`, so the app can draw video into it without reloading the preset. |
+
+`0004` and `0005` (feedback contrast, saturation and luma invert) were removed in N2: those effects now run in the app's
+own shader before the texture reaches projectM. Their numbers stay unused.

@@ -7,7 +7,8 @@ add_library(gv_common STATIC
     common/paths.hpp
     common/memory.cpp
     common/memory.hpp
-    common/SpscRingBuffer.hpp)
+    common/SpscRingBuffer.hpp
+    common/FitRect.hpp)
 target_include_directories(gv_common PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -15,13 +16,29 @@ target_compile_features(gv_common PUBLIC cxx_std_20)
 target_link_libraries(gv_common PRIVATE gv_warnings "-framework Foundation")
 
 add_library(gv_model STATIC
+    model/Graph.cpp
+    model/Graph.hpp
+    model/LegacyScene.cpp
+    model/LegacyScene.hpp
     model/Performance.cpp
     model/Performance.hpp
     model/PerformanceJson.cpp
     model/PerformanceJson.hpp
     model/Document.cpp
-    model/Document.hpp)
-target_link_libraries(gv_model PUBLIC gv_common PRIVATE gv_warnings nlohmann_json::nlohmann_json)
+    model/Document.hpp
+    model/nodes/NodeDef.cpp
+    model/nodes/NodeDef.hpp
+    model/nodes/NodeJson.hpp
+    model/nodes/VideoSourceNode.cpp
+    model/nodes/ContrastNode.cpp
+    model/nodes/SaturationNode.cpp
+    model/nodes/LumaGateNode.cpp
+    model/nodes/OpacityNode.cpp
+    model/nodes/MilkdropPresetNode.cpp
+    model/nodes/SwitcherNode.cpp
+    model/nodes/ViewportNode.cpp)
+# Public: model/nodes/NodeDef.hpp names nlohmann::json in the node definitions' signatures.
+target_link_libraries(gv_model PUBLIC gv_common nlohmann_json::nlohmann_json PRIVATE gv_warnings)
 
 add_library(gv_library STATIC
     library/PresetParsing.cpp
@@ -61,14 +78,33 @@ add_library(gv_engine STATIC
     engine/Lane.hpp
     engine/Engine.cpp
     engine/Engine.hpp
-    engine/CycleTimer.cpp
-    engine/CycleTimer.hpp
+    engine/SwitcherClock.cpp
+    engine/SwitcherClock.hpp
     engine/BeatHit.cpp
     engine/BeatHit.hpp
-    engine/VideoOverlay.cpp
-    engine/VideoOverlay.hpp)
+    engine/VideoChain.cpp
+    engine/VideoChain.hpp
+    engine/RenderPlan.cpp
+    engine/RenderPlan.hpp)
 target_link_libraries(gv_engine PUBLIC gv_common gv_model SDL2::SDL2 OpenGL::GL libprojectM::projectM PRIVATE gv_warnings)
 target_compile_definitions(gv_engine PRIVATE GL_SILENCE_DEPRECATION)
+
+# The canvas's node types (and the widgets they draw with): a library of their own, so tests/nodes can draw
+# them headless, with a fake NodeContext.
+add_library(gv_app_nodes STATIC
+    app/Widgets.cpp
+    app/Widgets.hpp
+    app/nodes/NodeUi.cpp
+    app/nodes/NodeUi.hpp
+    app/nodes/VideoSourceNode.cpp
+    app/nodes/ContrastNode.cpp
+    app/nodes/SaturationNode.cpp
+    app/nodes/LumaGateNode.cpp
+    app/nodes/OpacityNode.cpp
+    app/nodes/MilkdropPresetNode.cpp
+    app/nodes/SwitcherNode.cpp
+    app/nodes/ViewportNode.cpp)
+target_link_libraries(gv_app_nodes PUBLIC gv_common gv_model imgui PRIVATE gv_warnings)
 
 add_executable(govtech-visualizer
     app/main.cpp
@@ -76,6 +112,8 @@ add_executable(govtech-visualizer
     app/Settings.hpp
     app/Shell.cpp
     app/Shell.hpp
+    app/GraphEditor.cpp
+    app/GraphEditor.hpp
     app/VideoManager.cpp
     app/VideoManager.hpp
     app/macos/FileDialog.mm
@@ -92,7 +130,8 @@ target_link_libraries(govtech-visualizer PRIVATE
     gv_engine
     gv_library
     gv_thumbnails
-    imgui
+    gv_app_nodes
+    imgui_node_editor # and imgui
     nlohmann_json::nlohmann_json
     SDL2::SDL2
     OpenGL::GL
