@@ -45,7 +45,9 @@ add_library(gv_library STATIC
     library/PresetParsing.cpp
     library/PresetParsing.hpp
     library/Library.cpp
-    library/Library.hpp)
+    library/Library.hpp
+    library/PresetStepping.cpp
+    library/PresetStepping.hpp)
 target_link_libraries(gv_library PUBLIC gv_common PRIVATE gv_warnings nlohmann_json::nlohmann_json)
 
 add_library(gv_thumbnails STATIC
@@ -106,7 +108,7 @@ add_library(gv_app_nodes STATIC
     app/nodes/MilkdropPresetNode.cpp
     app/nodes/SwitcherNode.cpp
     app/nodes/ViewportNode.cpp)
-target_link_libraries(gv_app_nodes PUBLIC gv_common gv_model imgui PRIVATE gv_warnings)
+target_link_libraries(gv_app_nodes PUBLIC gv_common gv_model gv_library imgui PRIVATE gv_warnings)
 
 # The user's settings, including which editor areas are collapsed: pure, so tests can round-trip them.
 add_library(gv_app_settings STATIC

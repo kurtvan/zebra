@@ -5,6 +5,8 @@
 #include "engine/RenderPlan.hpp"
 #include "model/PerformanceJson.hpp"
 
+#include <fstream>
+
 using namespace gv;
 using model::NodeType;
 using model::PresetLayer;
@@ -274,4 +276,90 @@ TEST_CASE("milkdrop preset: older show files call it \"preset\"; they open, and 
     const std::string saved = model::SerializePerformance(loaded.performance);
     CHECK(saved.find("\"milkdropPreset\"") != std::string::npos);
     CHECK(saved.find("\"type\": \"preset\"") == std::string::npos);
+}
+
+namespace {
+
+/// A library in a temp folder: A/1, A/2 (broken), A/3 and B/4.
+auto StepLibrary() -> library::Library
+{
+    const auto dir = std::filesystem::temp_directory_path() / "gv_test_node_stepping";
+    std::filesystem::remove_all(dir);
+    for (const char* file : {"A/1.milk", "A/2.milk", "A/3.milk", "B/4.milk"})
+    {
+        std::filesystem::create_directories((dir / file).parent_path());
+        std::ofstream(dir / file) << "[preset00]\n";
+    }
+    auto presets = library::Library::Scan(dir, library::Library());
+    presets.Record(dir / "A/2.milk", 0.0, "Could not parse");
+    std::filesystem::remove_all(dir);
+    return presets;
+}
+
+} // namespace
+
+TEST_CASE("milkdrop preset: ◀ ▶ step through its folder, one undo step each", "[node:milkdrop-preset]")
+{
+    const auto presets = StepLibrary();
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath(presets.PathForId("A/1.milk").string()));
+    test::FakeNodeContext context(scene);
+    context.presetLibrary = &presets;
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    const ImVec2 next = test::HeadlessUi::Centre(context, "The next preset in this folder.");
+    const ImVec2 previous = test::HeadlessUi::Centre(context, "The previous preset in this folder.");
+
+    ui.Click(context, id, next);
+    REQUIRE(context.edits.size() == 1);
+    CHECK(context.LastEdit() == "Next preset");
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("A/3.milk")); // A/2 is broken
+    ui.Click(context, id, next);
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("A/1.milk")); // wraps, staying in A
+    ui.Click(context, id, previous);
+    CHECK(context.LastEdit() == "Previous preset");
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("A/3.milk"));
+    CHECK(context.edits.size() == 3);
+}
+
+TEST_CASE("milkdrop preset: Random picks another working library preset, one undo step each", "[node:milkdrop-preset]")
+{
+    const auto presets = StepLibrary();
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath(presets.PathForId("A/1.milk").string()));
+    test::FakeNodeContext context(scene);
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    const ImVec2 random = test::HeadlessUi::Centre(context, "A random preset from the whole library.");
+    const ImVec2 next = test::HeadlessUi::Centre(context, "The next preset in this folder.");
+    ui.Click(context, id, random); // no library yet: disabled
+    ui.Click(context, id, next);
+    CHECK(context.edits.empty());
+
+    context.presetLibrary = &presets;
+    for (int i = 0; i < 5; ++i)
+    {
+        const auto before = PathOf(scene.Node(id));
+        ui.Click(context, id, random);
+        CHECK(context.LastEdit() == "Random preset");
+        CHECK(PathOf(scene.Node(id)) != before);
+        CHECK(PathOf(scene.Node(id)) != presets.PathForId("A/2.milk"));
+    }
+    CHECK(context.edits.size() == 5);
+}
+
+TEST_CASE("milkdrop preset: a preset outside the library can't step through a folder, but can go random", "[node:milkdrop-preset]")
+{
+    const auto presets = StepLibrary();
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/elsewhere/x.milk"));
+    test::FakeNodeContext context(scene);
+    context.presetLibrary = &presets;
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    ui.Click(context, id, test::HeadlessUi::Centre(context, "The next preset in this folder."));
+    ui.Click(context, id, test::HeadlessUi::Centre(context, "The previous preset in this folder."));
+    CHECK(context.edits.empty());
+    ui.Click(context, id, test::HeadlessUi::Centre(context, "A random preset from the whole library."));
+    CHECK(context.LastEdit() == "Random preset");
 }

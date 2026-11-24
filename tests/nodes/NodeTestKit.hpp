@@ -4,6 +4,7 @@
 // and records edits, and a headless ImGui frame to draw the node's body in (and click it).
 
 #include "app/nodes/NodeUi.hpp"
+#include "library/Library.hpp"
 #include "model/Graph.hpp"
 #include "model/Performance.hpp"
 #include "model/PerformanceJson.hpp"
@@ -93,6 +94,8 @@ public:
     std::map<std::string, std::vector<std::string>> textures; //!< By preset path.
     std::map<std::string, bool> favourites;               //!< Library presets, by path.
     std::optional<std::filesystem::path> chosenFile;      //!< What the file dialog returns.
+    const library::Library* presetLibrary{nullptr};
+    std::mt19937 random{1};                               //!< Seeded: the same picks every run.
     std::vector<app::SyphonServer> servers;
 
     // What the node did.
@@ -176,6 +179,14 @@ public:
     void ToggleFavourite(const std::filesystem::path& preset) override
     {
         toggledFavourites.push_back(preset.string());
+    }
+    auto PresetLibrary() const -> const library::Library* override
+    {
+        return presetLibrary;
+    }
+    auto Random() -> std::mt19937& override
+    {
+        return random;
     }
 
     void Edit(const model::Node& node, const char* label, const char* field, const std::function<void(model::Node&)>& change) override
