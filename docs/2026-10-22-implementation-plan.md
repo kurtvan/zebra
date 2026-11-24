@@ -2,7 +2,7 @@
 
 *Written 2026-10-22. **Status: awaiting approval. Do not start implementation until the author approves this plan.***
 
-Read first: `product-2026-10-22.md` (what) and `technical-details-2026-10-22.md` (decisions and why). Where this plan refines the technical doc, it says so explicitly and the technical doc has been updated to match.
+Read first: `2026-10-22-product.md` (what) and `2026-10-22-technical-details.md` (decisions and why). Where this plan refines the technical doc, it says so explicitly and the technical doc has been updated to match.
 
 ---
 
@@ -107,7 +107,7 @@ Findings from reading v4.1.8 that shape the spike:
 1. `tools/spike_compile`: a headless (hidden SDL window) harness that loads N presets sampled across Cream of the Crop categories and records, per preset: parse time, eval compile time, HLSL transpile time, GL compile/link time, first-draw time (to catch deferred driver work), and per-instance GPU memory at 1080p and 4K (estimated from FBO/texture sizes).
 2. Instrument the patched-copy build with timing hooks (spike-only patch, not kept).
 3. Prototype S1. If the GL slices can't be kept under about 4–6 ms each on the author's Mac, prototype S2.
-4. Decide, write the result into `technical-details-2026-10-22.md` §4 (strategy, numbers, pool size), and turn the chosen approach into clean patches (`0003-…`).
+4. Decide, write the result into `2026-10-22-technical-details.md` §4 (strategy, numbers, pool size), and turn the chosen approach into clean patches (`0003-…`).
 
 **Acceptance:** a written decision with numbers. A demo in the M0 app: press a key to cut between two presets prepared in the background, with **no frame over 16.7 ms** at 60 Hz during preparation or at the cut (frame-time graph in the debug overlay). Also: measured **per-instance memory at 1080p** (framebuffers, blur levels, motion-vector map, per-instance texture manager). From that, the pool window that fits inside the **5 GB app budget**, leaving room for video players, thumbnails (M6) and the UI.
 

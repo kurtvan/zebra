@@ -3,9 +3,9 @@
 A VJ / visual performance designer for macOS, built on the projectM (MilkDrop) renderer.
 
 Planning documents:
-- `product-2026-10-22.md`: what we're building.
-- `technical-details-2026-10-22.md`: technical decisions and their reasons.
-- `implementation-plan-2026-10-22.md`: milestones.
+- `docs/2026-10-22-product.md`: what we're building.
+- `docs/2026-10-22-technical-details.md`: technical decisions and their reasons.
+- `docs/2026-10-22-implementation-plan.md`: milestones.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ projectM is built from a patched copy of the `third_party/projectm` submodule. S
 
 ### Performance files
 
-A performance is a JSON file (format: `technical-details-2026-10-22.md` §6). To convert one from the old libprojectM-4.1.4 fork:
+A performance is a JSON file (format: `docs/2026-10-22-technical-details.md` §6). To convert one from the old libprojectM-4.1.4 fork:
 
 ```sh
 scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.txt ~/Shows/my-show.json

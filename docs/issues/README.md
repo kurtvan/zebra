@@ -13,7 +13,7 @@ Tickets live in **GitHub Issues** (`kurtvan/govtech-visualizer`), not in this fo
 - **Decisions** made after a ticket is written go in its **Grill notes** section (and a comment).
 - **Agents:** read `AGENTS.md` first.
 
-Background: `docs/2026-11-24-node-graph-usability-improvements.md` (the original idea dump) and `docs/technical-isf-shaders-2026-11-21.md` (project D).
+Background: `docs/2026-11-24-node-graph-usability-improvements.md` (the original idea dump) and `docs/2026-11-21-technical-isf-shaders.md` (project D).
 
 ## How the work runs
 - **One agent at a time.** The coordinator (the main Claude chat) starts an agent on the next Todo ticket and moves it to In progress. When its PR opens, the ticket moves to In review and the next one starts. Tickets whose dependencies are still open are skipped, and so is anything in `GraphEditor.cpp` while another open PR touches it.

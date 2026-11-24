@@ -1,6 +1,6 @@
 # Govtech Visualizer: Technical Details & Decisions
 
-*Agreed on 2026-10-22. Companion document: `product-2026-10-22.md` (what we're building). This document covers how, and why.*
+*Agreed on 2026-10-22. Companion document: `2026-10-22-product.md` (what we're building). This document covers how, and why.*
 
 ## 0. Starting point
 
@@ -274,7 +274,7 @@ Goal: **instant-feeling, no upfront wait.** Never pre-generate the whole library
 
 ## 9. Suggested milestones
 
-**Superseded by `implementation-plan-2026-10-22.md`**, which reorders these to reach a show-capable build first (skeleton → compile spike → engine → video → editor → library → previews → hardening). The original list is kept below for reference.
+**Superseded by `2026-10-22-implementation-plan.md`**, which reorders these to reach a show-capable build first (skeleton → compile spike → engine → video → editor → library → previews → hardening). The original list is kept below for reference.
 
 1. **Background compile prototype** (§4 critical risk): patched libprojectM, shared-context compile, hitch measurement, memory per instance. Go/no-go for the pool design.
 2. **Engine core:** offscreen render, output window on the chosen display, scene instance pool, PCM fan-out, CC 20 triggers, the performance JSON loader (v1). The old fork's performance can be converted by hand to validate it.
