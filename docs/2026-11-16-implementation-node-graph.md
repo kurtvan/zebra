@@ -1,6 +1,6 @@
 # Node Graph: Implementation Plan
 
-*Drafted 2026-11-16, after PR #34 merged. It turns `technical-node-graph-2026-11-12.md` into file-by-file work for each milestone, N1–N6. Read the product and technical docs first. This doc says how each part gets built, tested and proven, and lists the decisions that need your answer before or during each milestone.*
+*Drafted 2026-11-16, after PR #34 merged. It turns `2026-11-12-technical-node-graph.md` into file-by-file work for each milestone, N1–N6. Read the product and technical docs first. This doc says how each part gets built, tested and proven, and lists the decisions that need your answer before or during each milestone.*
 
 ## 0. What changed since the technical doc
 
@@ -522,4 +522,4 @@ PROJECTM_EXPORT bool projectm_get_preset_texture(projectm_handle, const char* na
 - Copy and paste of nodes, box selection, and comments on the canvas.
 - New effect nodes.
 - Saving the canvas zoom and pan.
-- A web player. It would read the v3 format later; see `web-player-notes-2026-11-08.md`.
+- A web player. It would read the v3 format later; see `2026-11-08-web-player-notes.md`.

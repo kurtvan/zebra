@@ -65,7 +65,7 @@ Keep show files outside the repo (`performances/` is ignored, so a show saved th
 
 ### Show checklist
 
-See `docs/show-checklist.md` before a performance.
+See `docs/2026-10-25-show-checklist.md` before a performance.
 
 ### Headless smoke run
 

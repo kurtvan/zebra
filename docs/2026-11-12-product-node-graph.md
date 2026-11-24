@@ -1,6 +1,6 @@
 # Node Graph: Product Definition
 
-*Drafted 2026-11-12 from `proposal-new-features-nov-11-2-26.md` and the answers to its clarifying questions; revised 2026-11-13 from review comments on PR #34. Companion document: `technical-node-graph-2026-11-12.md`.*
+*Drafted 2026-11-12 from `2026-11-11-proposal-new-features.md` and the answers to its clarifying questions; revised 2026-11-13 from review comments on PR #34. Companion document: `2026-11-12-technical-node-graph.md`.*
 
 ## Purpose
 

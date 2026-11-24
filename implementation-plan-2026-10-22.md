@@ -287,7 +287,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 - **Soak test:** run the full show in a loop for 2+ hours at 1080p with random and sequential triggers. **Peak physical footprint must stay ≤ 5 GB** (`footprint` / Activity Monitor) with no growth over the run. Check for GL object leaks and review the log for warnings.
 - **Failure drills:** MIDI unplug/replug, audio device change, Syphon sender crash, display unplug/replug, missing video, a broken preset in a scene. Each must degrade gracefully with a visible indicator.
 - **Startup:** reopen the last performance, re-select the last audio and MIDI settings, and put the output on the last display if it's present.
-- **`docs/show-checklist.md`:** pre-show steps (Loopback routing, IAC CC 20 channel, displays, macOS "Do Not Disturb", disable sleep) and recovery steps.
+- **`docs/2026-10-25-show-checklist.md`:** pre-show steps (Loopback routing, IAC CC 20 channel, displays, macOS "Do Not Disturb", disable sleep) and recovery steps.
 - Write down in the docs which macOS GL deprecation warnings are expected so nobody chases them.
 
 ---
@@ -295,7 +295,7 @@ Rough pre-measurement estimate: about 8 MB per full-size RGBA8 1080p texture, an
 **M7 as built (2026-10-25):**
 - **Soak (first build):** 40 min of random cuts every 3 s (801 cuts), full show with videos and previews: no errors or crashes, but memory grew ~25 MB/min (1.1 GB → 2.1 GB). Cause: macOS's OpenGL driver keeps ~35 KB per shader program forever, even after deletion (reproduced without projectM), and projectM compiles ~8 programs per instance. **Fixed by patch 0003** (per-thread shader program cache); memory is flat over 300 instance create/destroy cycles. The author stopped the follow-up 2-hour soak with the fix, so the fixed build hasn't had a long run.
 - **Drills:** MIDI hot-plug and triggers (`tools/midi_test_sender`: a virtual source appearing after launch, out-of-order values, unknown value, removal and return); missing, empty and garbage presets, missing video and Syphon without a sender (no crash, each flagged); crash recovery (unsaved edit restored after a simulated crash). Audio-device and display unplugging need real hardware and are in the checklist's recovery table.
-- `docs/show-checklist.md`: day before, venue setup, during the show, recovery, harmless console messages.
+- `docs/2026-10-25-show-checklist.md`: day before, venue setup, during the show, recovery, harmless console messages.
 - Smoke options: `--smoke-random`, `--smoke-report-every`, `--smoke-cut-every 0`, `--smoke-crash` / `--smoke-recover`.
 
 ## 4. Patch set summary (target)
