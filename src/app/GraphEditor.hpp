@@ -107,6 +107,8 @@ private:
     void FitView(const model::Graph& graph, ImVec2 size);
     /// Pans by a scroll (two fingers or the wheel), or zooms at `pointer` (relative to the canvas) when `zoom`.
     void Scroll(ImVec2 wheel, bool zoom, ImVec2 pointer, ImVec2 size);
+    /// Zooms by `factor` (above 1 zooms in) at `pointer` (relative to the canvas), keeping the point under it still.
+    void Zoom(float factor, ImVec2 pointer, ImVec2 size);
 
     // Drawing.
     void DrawNode(const model::Node& node, NodeContext& context);

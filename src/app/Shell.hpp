@@ -81,6 +81,7 @@ struct ShellState
     thumbnails::ThumbnailService* thumbnails{nullptr};
     int indexProgress{0};
     GLuint preview{0};
+    float pinch{1.f}; //!< Trackpad pinch since the last frame, as a zoom factor (1: none).
     const std::deque<float>* frameIntervalsMs{nullptr};
     long long slowFrames{0};
     double liveGpuMs{-1.0}; //!< The live lane's GPU time over the last second; -1 if not known.

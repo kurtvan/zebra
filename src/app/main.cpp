@@ -806,6 +806,7 @@ public:
         bool running = true;
         HandleMenuCommands(running);
         SyncFullscreen();
+        m_pinch = gv::app::TakePinch(); // collected while SDL pumped this frame's events
 
         // MIDI scene triggers.
         if (auto value = m_midi->TakeSceneTrigger())
@@ -894,6 +895,7 @@ private:
         state.indexProgress = m_indexer.Progress();
         state.thumbnails = &m_thumbnails;
         state.preview = presented;
+        state.pinch = m_pinch;
         state.frameIntervalsMs = &m_frameIntervals;
         state.slowFrames = m_slowFrames;
         state.liveGpuMs = LiveGpuMs();
@@ -1517,6 +1519,7 @@ private:
     gv::engine::Engine m_engine;
     bool m_fullscreen{false};          //!< Only the visuals (Cmd+F).
     bool m_nativeForFullscreen{false}; //!< The visuals view entered macOS full screen, so leaving it leaves that too.
+    float m_pinch{1.f};                //!< Trackpad pinch collected for this frame (1: none).
     bool m_nativeSeen{false};          //!< The window has been in macOS full screen since the visuals view started.
     bool m_menuBarHidden{false};
     GLuint m_readFbo{0};
@@ -1598,6 +1601,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     SDL_GL_MakeCurrent(window, context);
+    gv::app::StartPinchCapture(window);
     SDL_GL_SetSwapInterval(1);
     GV_LOG_INFO(kLogCategory, "OpenGL %s, renderer %s", glGetString(GL_VERSION), glGetString(GL_RENDERER));
 
