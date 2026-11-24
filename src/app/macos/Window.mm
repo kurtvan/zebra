@@ -5,6 +5,8 @@
 
 #import <AppKit/AppKit.h>
 
+#include <algorithm>
+
 namespace gv::app {
 
 namespace {
@@ -20,7 +22,32 @@ auto CocoaWindow(SDL_Window* window) -> NSWindow*
     return info.info.cocoa.window;
 }
 
+double g_pinch = 1.0; //!< Pinch factor collected since the last TakePinch (main thread only).
+id g_pinchMonitor = nil;
+
 } // namespace
+
+void StartPinchCapture(SDL_Window* window)
+{
+    NSWindow* nsWindow = CocoaWindow(window);
+    if (nsWindow == nil || g_pinchMonitor != nil)
+        return;
+    __weak NSWindow* weakWindow = nsWindow;
+    // SDL2 doesn't pass AppKit's magnify gesture on, so watch for it before it reaches SDL's view.
+    g_pinchMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMagnify
+                                                           handler:^NSEvent*(NSEvent* event) {
+                                                               if (event.window == weakWindow)
+                                                                   g_pinch *= std::max(1.0 + event.magnification, 0.1);
+                                                               return event;
+                                                           }];
+}
+
+auto TakePinch() -> float
+{
+    const double pinch = g_pinch;
+    g_pinch = 1.0;
+    return static_cast<float>(pinch);
+}
 
 void ToggleNativeFullscreen(SDL_Window* window)
 {

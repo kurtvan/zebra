@@ -424,7 +424,7 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
         }
     }
     ImGui::SameLine(0.f, 16.f);
-    ImGui::TextColored(kDim, "Scroll: pan.  Cmd+scroll: zoom.  Right-click: add.  Delete: remove.");
+    ImGui::TextColored(kDim, "Scroll: pan.  Pinch or Cmd+scroll: zoom.  F: fit.  Right-click: add.  Delete: remove.");
 
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 size(std::max(ImGui::GetContentRegionAvail().x, 50.f), std::max(ImGui::GetContentRegionAvail().y, 50.f));
@@ -437,6 +437,8 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     // editor's own wheel zoom is turned off by taking the wheel before it sees it.
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 wheel(io.MouseWheelH, io.MouseWheel);
+    // The pointer on screen: once ed::Begin runs, ImGui's mouse is in canvas coordinates instead.
+    const ImVec2 mouse = io.MousePos;
     const bool zoomKey = io.KeySuper || io.KeyCtrl;
     const bool scrolled = m_hovered && (wheel.x != 0.f || wheel.y != 0.f) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
     if (scrolled)
@@ -444,6 +446,11 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
         io.MouseWheel = 0.f;
         io.MouseWheelH = 0.f;
     }
+    // A trackpad pinch zooms at the pointer too; F fits, like the button, unless a text field is taking the keys.
+    const bool noPopup = !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    const bool pinched = m_hovered && state.pinch != 1.f && noPopup;
+    if (m_hovered && noPopup && !io.WantTextInput && !io.KeySuper && !io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F, false))
+        m_fitRequested = true;
 
     // The live output behind the nodes, letterboxed, darkened so the nodes stay readable.
     const engine::Engine* engine = state.engine;
@@ -474,7 +481,11 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     }
     else if (scrolled)
     {
-        Scroll(wheel, zoomKey, ImVec2(io.MousePos.x - origin.x, io.MousePos.y - origin.y), size);
+        Scroll(canvas.view, wheel, zoomKey, mouse);
+    }
+    else if (pinched)
+    {
+        canvas.view.Zoom(state.pinch, mouse);
     }
     m_zoom = ed::GetCurrentZoom();
     m_mouseCanvas = ImGui::GetMousePos(); // inside the canvas, ImGui's mouse is in canvas coordinates
@@ -594,30 +605,17 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     canvas.frames++;
 }
 
-void GraphEditor::Scroll(ImVec2 wheel, bool zoom, ImVec2 pointer, ImVec2 size)
+void GraphEditor::Scroll(EditorView& view, ImVec2 wheel, bool zoom, ImVec2 mouse)
 {
     constexpr float kPanPixelsPerStep = 40.f; //!< Screen pixels per wheel step (trackpads send fractions).
     constexpr float kZoomPerStep = 1.12f;
-    constexpr float kMinZoom = 0.25f;
-    constexpr float kMaxZoom = 2.0f;
-    const ed::ViewState view = ed::GetViewState();
-    const float scale = size.x / std::max(view.VisibleMax.x - view.VisibleMin.x, 1.f); // screen pixels per canvas unit
-    ImVec2 min = view.VisibleMin;
-    float newScale = scale;
     if (zoom)
     {
-        // Keep the canvas point under the pointer where it is.
-        newScale = std::clamp(scale * std::pow(kZoomPerStep, wheel.y + wheel.x), kMinZoom, kMaxZoom);
-        const ImVec2 under(min.x + pointer.x / scale, min.y + pointer.y / scale);
-        min = ImVec2(under.x - pointer.x / newScale, under.y - pointer.y / newScale);
+        view.Zoom(std::pow(kZoomPerStep, wheel.y + wheel.x), mouse);
+        return;
     }
-    else
-    {
-        // Like scrolling a page: the canvas follows the fingers (ImGui's wheel signs, as in its own windows).
-        min.x -= wheel.x * kPanPixelsPerStep / scale;
-        min.y -= wheel.y * kPanPixelsPerStep / scale;
-    }
-    ed::SetViewState({min, ImVec2(min.x + size.x / newScale, min.y + size.y / newScale)});
+    // Like scrolling a page: the canvas follows the fingers (ImGui's wheel signs, as in its own windows).
+    view.Pan(ImVec2(-wheel.x * kPanPixelsPerStep, -wheel.y * kPanPixelsPerStep));
 }
 
 void GraphEditor::FitView(const model::Graph& graph, ImVec2 size)

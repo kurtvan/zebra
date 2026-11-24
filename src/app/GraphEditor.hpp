@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/EditorView.hpp"
 #include "app/nodes/NodeUi.hpp"
 #include "model/Graph.hpp"
 #include "thumbnails/ThumbnailService.hpp"
@@ -91,6 +92,7 @@ private:
         ax::NodeEditor::EditorContext* context{nullptr};
         std::map<std::string, ImVec2> pushed; //!< Node position last given to the editor, by node id.
         int frames{0};
+        EditorView view; //!< Zooms and pans the view without drifting.
         std::vector<std::string> selectedNodes;
         std::vector<uint64_t> selectedLinks;
     };
@@ -105,8 +107,8 @@ private:
     auto CanvasFor(const std::string& sceneId) -> Canvas&;
     void Configure();
     void FitView(const model::Graph& graph, ImVec2 size);
-    /// Pans by a scroll (two fingers or the wheel), or zooms at `pointer` (relative to the canvas) when `zoom`.
-    void Scroll(ImVec2 wheel, bool zoom, ImVec2 pointer, ImVec2 size);
+    /// Pans by a scroll (two fingers or the wheel), or zooms at the screen point `mouse` when `zoom`.
+    static void Scroll(EditorView& view, ImVec2 wheel, bool zoom, ImVec2 mouse);
 
     // Drawing.
     void DrawNode(const model::Node& node, NodeContext& context);
