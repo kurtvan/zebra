@@ -1,6 +1,7 @@
 #include "thumbnails/ThumbnailService.hpp"
 
 #include "common/log.hpp"
+#include "thumbnails/SlotPlan.hpp"
 
 #include <projectM-4/projectM.h>
 
@@ -146,17 +147,18 @@ void ThumbnailService::SetTexturePaths(std::vector<std::string> texturePaths)
     m_texturePaths = std::move(texturePaths);
 }
 
-void ThumbnailService::SetWanted(std::vector<Request> visible, std::vector<Request> prefetch)
+void ThumbnailService::SetWanted(std::vector<Request> visible, std::vector<Request> prefetch, std::vector<Request> kept)
 {
     auto sameIds = [](const std::vector<Request>& a, const std::vector<Request>& b) {
         return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](const Request& x, const Request& y) { return x.id == y.id; });
     };
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (sameIds(visible, m_visible) && sameIds(prefetch, m_prefetch))
+        if (sameIds(visible, m_visible) && sameIds(prefetch, m_prefetch) && sameIds(kept, m_kept))
             return;
         m_visible = std::move(visible);
         m_prefetch = std::move(prefetch);
+        m_kept = std::move(kept);
         m_wantedVersion++;
     }
     m_wake.notify_one();
@@ -228,11 +230,13 @@ void ThumbnailService::Work()
 {
     std::vector<Request> visible;
     std::vector<Request> prefetch;
+    std::vector<Request> kept;
     bool paused = false;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         visible = m_visible;
         prefetch = m_prefetch;
+        kept = m_kept;
         paused = m_paused;
     }
 
@@ -246,32 +250,30 @@ void ThumbnailService::Work()
     bool drew = false;
     const auto now = Clock::now();
 
-    // Drop what's no longer wanted.
-    std::set<std::string> wanted;
-    for (const auto& request : visible)
-        wanted.insert(request.id);
-    for (const auto& request : prefetch)
-        wanted.insert(request.id);
-    std::vector<std::string> unwanted;
+    // Drop what's no longer wanted, pause what's kept, and make slots (showing cached images at once).
+    std::map<std::string, bool> running;
     for (const auto& [id, slot] : m_slots)
-    {
-        if (wanted.count(id) == 0)
-            unwanted.push_back(id);
-    }
-    for (const auto& id : unwanted)
-        DestroySlot(id);
-
-    // Make slots (showing cached images at once), visible first.
-    for (const auto* list : {&visible, &prefetch})
+        running[id] = slot->instance != nullptr;
+    std::vector<std::string> live;
+    std::vector<std::string> keptIds;
+    std::map<std::string, const Request*> requests;
+    for (const auto* list : {&visible, &prefetch, &kept})
     {
         for (const auto& request : *list)
         {
-            if (m_slots.count(request.id) == 0)
-            {
-                CreateSlot(request, true);
-                drew = true;
-            }
+            (list == &kept ? keptIds : live).push_back(request.id);
+            requests.emplace(request.id, &request);
         }
+    }
+    const SlotPlan plan = PlanSlots(running, live, keptIds);
+    for (const auto& id : plan.destroy)
+        DestroySlot(id);
+    for (const auto& id : plan.stop)
+        StopInstance(*m_slots.at(id));
+    for (const auto& id : plan.create)
+    {
+        CreateSlot(*requests.at(id), true);
+        drew = true;
     }
 
     // Start at most one instance per pass (loading costs ~20 ms); visible tiles first, then prefetch.
@@ -485,6 +487,14 @@ void ThumbnailService::DestroySlot(const std::string& id)
     m_slots.erase(it);
     std::lock_guard<std::mutex> lock(m_mutex);
     m_published.erase(id);
+}
+
+void ThumbnailService::StopInstance(Slot& slot)
+{
+    // The texture keeps the last frame, so the tile still shows it.
+    projectm_destroy(slot.instance);
+    slot.instance = nullptr;
+    slot.warmed = false;
 }
 
 void ThumbnailService::Publish(const std::string& id, const Slot& slot)

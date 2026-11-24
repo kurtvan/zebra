@@ -33,7 +33,7 @@ void DrawPicture(const model::Node& node, NodeContext& context)
     const ImVec2 corner(at.x + width, at.y + height);
     draw->AddRectFilled(at, corner, ImGui::GetColorU32(ImVec4(0.06f, 0.06f, 0.07f, 1.f)), 4.f);
     const unsigned int livePicture = live ? context.LivePicture() : 0;
-    const unsigned int texture = livePicture != 0 ? livePicture : context.Thumbnail(path);
+    const unsigned int texture = livePicture != 0 ? livePicture : context.Thumbnail(path, at, corner);
     if (texture != 0)
         draw->AddImageRounded(static_cast<ImTextureID>(texture), at, corner, ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, 4.f); // GL is bottom-up
     else

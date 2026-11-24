@@ -107,6 +107,7 @@ public:
     std::vector<std::filesystem::path> revealed;
     std::vector<std::string> toggledFavourites;
     std::map<std::string, std::pair<ImVec2, ImVec2>> itemRects; //!< The item before each tooltip, by tooltip.
+    std::vector<std::pair<ImVec2, ImVec2>> thumbnailRects;      //!< Where each asked-for thumbnail is drawn.
 
     auto Performance() const -> const model::Performance& override
     {
@@ -162,8 +163,9 @@ public:
     {
         return 7;
     }
-    auto Thumbnail(const std::filesystem::path&) -> unsigned int override
+    auto Thumbnail(const std::filesystem::path&, ImVec2 min, ImVec2 max) -> unsigned int override
     {
+        thumbnailRects.emplace_back(min, max);
         return 0;
     }
     auto IsFavourite(const std::filesystem::path& preset) const -> std::optional<bool> override

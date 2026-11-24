@@ -216,6 +216,24 @@ TEST_CASE("milkdrop preset: the star shows for library presets and toggles the f
     CHECK(context.toggledFavourites == std::vector<std::string>{"/p.milk"});
 }
 
+TEST_CASE("milkdrop preset: asks for its thumbnail with where it's drawn, so a tiny one can be paused", "[node:milkdrop-preset]")
+{
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
+    test::FakeNodeContext context(scene);
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    REQUIRE(context.thumbnailRects.size() == 1);
+    const auto [min, max] = context.thumbnailRects[0];
+    CHECK(max.x - min.x == context.width);
+    CHECK(max.y - min.y == context.width * 9.f / 16.f);
+    const auto [itemMin, itemMax] = context.itemRects.at("/p.milk"); // the picture's own rectangle
+    CHECK(min.x == itemMin.x);
+    CHECK(min.y == itemMin.y);
+    CHECK(max.x == itemMax.x);
+    CHECK(max.y == itemMax.y);
+}
+
 TEST_CASE("milkdrop preset: the frame time shows only on the live preset, and the missing note only when missing", "[node:milkdrop-preset]")
 {
     test::NodeScene scene;

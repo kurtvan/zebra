@@ -288,12 +288,12 @@ void Shell::Draw(ShellState& state, AppActions& actions)
     }
     DrawHideButtons(state, actions);
 
-    // Thumbnails: the canvas's preset nodes first, then the browser's tiles.
+    // Thumbnails: the canvas's preset nodes first, then the browser's tiles; tiny or off-screen nodes keep theirs.
     if (state.thumbnails != nullptr)
     {
         auto visible = m_graph.WantedThumbnails();
         visible.insert(visible.end(), m_gridVisible.begin(), m_gridVisible.end());
-        state.thumbnails->SetWanted(std::move(visible), std::move(m_gridPrefetch));
+        state.thumbnails->SetWanted(std::move(visible), std::move(m_gridPrefetch), m_graph.KeptThumbnails());
     }
 }
 

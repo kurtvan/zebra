@@ -93,7 +93,9 @@ public:
 
     // Pictures (GL textures; 0 for none).
     virtual auto LivePicture() -> unsigned int = 0;
-    virtual auto Thumbnail(const std::filesystem::path& preset) -> unsigned int = 0;
+    /// The library's picture of `preset`, drawn from `min` to `max` (ImGui coordinates). While that's too small
+    /// to see or off the canvas, the last picture stays but no new frames are rendered for it.
+    virtual auto Thumbnail(const std::filesystem::path& preset, ImVec2 min, ImVec2 max) -> unsigned int = 0;
 
     // The library. Nullopt: the preset isn't in it.
     virtual auto IsFavourite(const std::filesystem::path& preset) const -> std::optional<bool> = 0;
