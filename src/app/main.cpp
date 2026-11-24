@@ -89,6 +89,7 @@ struct Options
     double smokeSeconds{20.0};
     double smokeCutSeconds{2.0};
     bool smokeNoEditor{false}; //!< Skip drawing the editor (to measure its cost).
+    bool smokeFocus{false};    //!< Start in focus mode: every panel around the Preview and Graph collapsed.
     bool smokeEdits{false};    //!< Script edits during playback (reorder, change the live preset, delete live, undo).
     bool smokeRandom{false};   //!< Trigger scenes in random order instead of sequentially.
     bool smokeCrash{false};    //!< Edit, write the recovery copy, then exit abruptly (crash-recovery drill).
@@ -132,6 +133,8 @@ auto ParseOptions(int argc, char* argv[]) -> Options
             options.smokeReportSeconds = std::atof(argv[++i]);
         else if (arg == "--smoke-edits")
             options.smokeEdits = true;
+        else if (arg == "--smoke-focus")
+            options.smokeFocus = true;
         else if (arg == "--smoke-no-editor")
             options.smokeNoEditor = true;
         else if (arg == "--smoke-layer" && hasValue)
@@ -160,6 +163,10 @@ public:
     {
         m_settingsFile = gv::paths::ApplicationSupportDir() / "settings.json";
         m_settings = gv::app::Settings::Load(m_settingsFile);
+        if (m_options.smoke)
+            m_settings.panes = {}; // smoke runs show the default layout, whatever the user collapsed
+        if (m_options.smokeFocus)
+            m_settings.panes.ToggleFocus();
 
         if (!m_engine.Start(kLanes, gv::engine::PoolConfig{kLanes, 1, 3}))
         {
@@ -712,6 +719,22 @@ public:
                 case MenuCommand::Fullscreen:
                     ToggleFullscreen();
                     break;
+                case MenuCommand::ToggleLeftPanes:
+                    m_settings.panes.Toggle(gv::app::PaneArea::Left);
+                    m_settingsDirty = true;
+                    break;
+                case MenuCommand::ToggleRightPanes:
+                    m_settings.panes.Toggle(gv::app::PaneArea::Right);
+                    m_settingsDirty = true;
+                    break;
+                case MenuCommand::ToggleBottomPanes:
+                    m_settings.panes.Toggle(gv::app::PaneArea::Bottom);
+                    m_settingsDirty = true;
+                    break;
+                case MenuCommand::FocusMode:
+                    m_settings.panes.ToggleFocus();
+                    m_settingsDirty = true;
+                    break;
                 case MenuCommand::ClearRecent:
                     m_settings.recentPerformances.clear();
                     gv::app::SetRecentFiles({});
@@ -735,6 +758,10 @@ public:
         gv::app::SetMenuEnabled(MenuCommand::DuplicateScene, hasScene);
         gv::app::SetMenuEnabled(MenuCommand::DeleteScene, hasScene);
         gv::app::SetMenuEnabled(MenuCommand::TriggerSelected, hasScene);
+        gv::app::SetMenuChecked(MenuCommand::ToggleLeftPanes, !m_settings.panes.IsCollapsed(gv::app::PaneArea::Left));
+        gv::app::SetMenuChecked(MenuCommand::ToggleRightPanes, !m_settings.panes.IsCollapsed(gv::app::PaneArea::Right));
+        gv::app::SetMenuChecked(MenuCommand::ToggleBottomPanes, !m_settings.panes.IsCollapsed(gv::app::PaneArea::Bottom));
+        gv::app::SetMenuChecked(MenuCommand::FocusMode, m_settings.panes.focus);
         gv::app::SetUndoRedoLabels(m_document.UndoLabel(), m_document.RedoLabel());
 
         const std::string title = m_document.Title() + (m_document.IsDirty() ? " \u2014 Edited" : "") + " \u2014 " + gv::app_info::kName;

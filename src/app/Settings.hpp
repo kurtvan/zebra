@@ -1,5 +1,7 @@
 #pragma once
 
+#include "app/PaneLayout.hpp"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -19,6 +21,7 @@ struct Settings
     float graphPreviewDim{0.5f}; //!< 0..0.9: how much that preview is darkened, so the nodes stay readable.
     std::filesystem::path lastPerformance;
     std::vector<std::filesystem::path> recentPerformances; //!< Most recent first.
+    PaneLayout panes; //!< Which editor areas are collapsed (default: none).
 
     /// Loads from `file`; missing or invalid fields fall back to defaults. Never throws.
     static auto Load(const std::filesystem::path& file) -> Settings;

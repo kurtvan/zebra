@@ -114,6 +114,8 @@ auto Settings::Load(const std::filesystem::path& file) -> Settings
     Read(root, "recentPerformances", recent);
     for (const auto& path : recent)
         settings.recentPerformances.emplace_back(path);
+    if (auto panes = root.find("panes"); panes != root.end())
+        settings.panes = PaneLayout::FromJson(*panes);
 
     settings.libraryRoot = libraryRoot;
     for (const auto& path : texturePaths)
@@ -142,6 +144,7 @@ auto Settings::Save(const std::filesystem::path& file) const -> std::string
     root["recentPerformances"] = json::array();
     for (const auto& path : recentPerformances)
         root["recentPerformances"].push_back(path.string());
+    root["panes"] = panes.ToJson();
 
     const auto temp = std::filesystem::path(file.string() + ".tmp");
     {

@@ -10,6 +10,7 @@ namespace {
 
 std::vector<int> g_commands;
 std::map<int, bool> g_enabled;
+std::map<int, bool> g_checked;
 NSMenuItem* g_undoItem = nil;
 NSMenuItem* g_redoItem = nil;
 NSMenu* g_recentMenu = nil;
@@ -26,6 +27,8 @@ NSMenu* g_recentMenu = nil;
 }
 - (BOOL)validateMenuItem:(NSMenuItem*)item
 {
+    if (auto checked = g_checked.find(static_cast<int>(item.tag)); checked != g_checked.end())
+        item.state = checked->second ? NSControlStateValueOn : NSControlStateValueOff;
     auto it = g_enabled.find(static_cast<int>(item.tag));
     return it == g_enabled.end() ? YES : it->second;
 }
@@ -93,6 +96,11 @@ void InstallMenus()
 
         NSMenu* view = AddMenu(@"View", 4);
         AddItem(view, @"Fullscreen Visuals", MenuCommand::Fullscreen, @"f");
+        [view addItem:[NSMenuItem separatorItem]];
+        AddItem(view, @"Scenes Panel", MenuCommand::ToggleLeftPanes, @"1");
+        AddItem(view, @"Scene and Setup Panels", MenuCommand::ToggleRightPanes, @"2");
+        AddItem(view, @"Presets, Videos, Status and Messages", MenuCommand::ToggleBottomPanes, @"3");
+        AddItem(view, @"Focus Mode", MenuCommand::FocusMode, @"0");
 
         SetRecentFiles({});
     }
@@ -108,6 +116,11 @@ auto TakeMenuCommands() -> std::vector<int>
 void SetMenuEnabled(MenuCommand command, bool enabled)
 {
     g_enabled[static_cast<int>(command)] = enabled;
+}
+
+void SetMenuChecked(MenuCommand command, bool checked)
+{
+    g_checked[static_cast<int>(command)] = checked;
 }
 
 void SetUndoRedoLabels(const std::string& undo, const std::string& redo)
