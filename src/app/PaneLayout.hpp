@@ -11,7 +11,7 @@ enum class PaneArea
 {
     Left,   //!< Scenes.
     Right,  //!< Scene, Setup.
-    Bottom, //!< Presets, Videos, Status, Messages.
+    Bottom, //!< Presets, Videos, Nodes, Status, Messages.
 };
 inline constexpr int kPaneAreaCount = 3;
 

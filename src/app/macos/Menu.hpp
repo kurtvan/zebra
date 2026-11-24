@@ -24,7 +24,7 @@ enum class MenuCommand
     ClearRecent,
     ToggleLeftPanes,   //!< Scenes.
     ToggleRightPanes,  //!< Scene, Setup.
-    ToggleBottomPanes, //!< Presets, Videos, Status, Messages.
+    ToggleBottomPanes, //!< Presets, Videos, Nodes, Status, Messages.
     FocusMode,         //!< Hide all three; again: bring back what was open.
     OpenRecent = 1000, //!< OpenRecent + n opens the n-th recent file.
 };

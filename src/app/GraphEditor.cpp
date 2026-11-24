@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <utility>
 
 namespace ed = ax::NodeEditor;
 
@@ -365,6 +366,39 @@ auto GraphEditor::SelectedNode(const std::string& sceneId) const -> std::string
     return it->second.selectedNodes.front();
 }
 
+void GraphEditor::FocusNode(const std::string& sceneId, const std::string& node)
+{
+    m_focusScene = sceneId;
+    m_focusNode = node;
+}
+
+auto GraphEditor::TitleOf(ShellState& state, AppActions& actions, int scene, const model::Node& node) -> std::string
+{
+    CanvasNodeContext context(*this, state, actions, scene);
+    return NodeTitle(node, context);
+}
+
+void GraphEditor::ApplyFocus(const model::Graph& graph, ImVec2 size)
+{
+    if (m_focusNode.empty() || m_focusScene != m_sceneId || m_canvas->frames < 2) // wait for the first fit
+        return;
+    const std::string id = std::exchange(m_focusNode, {});
+    m_focusScene.clear();
+    const model::Node* node = graph.Find(id);
+    if (node == nullptr)
+        return;
+    const uint64_t key = NodeKey(id);
+    ImVec2 extent = ed::GetNodeSize(key);
+    if (extent.x <= 0.f)
+        extent = ImVec2(Ui(node->type).width, 120.f);
+    const ed::ViewState view = ed::GetViewState();
+    const float scale = size.x / std::max(view.VisibleMax.x - view.VisibleMin.x, 1.f); // screen pixels per canvas unit
+    const ImVec2 half(size.x / scale * 0.5f, size.y / scale * 0.5f);
+    const ImVec2 centre(node->x + extent.x * 0.5f, node->y + extent.y * 0.5f);
+    ed::SetViewState({ImVec2(centre.x - half.x, centre.y - half.y), ImVec2(centre.x + half.x, centre.y + half.y)});
+    ed::SelectNode(key);
+}
+
 void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
 {
     const auto& performance = state.document->Get();
@@ -495,6 +529,7 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     m_accepts.clear();
     m_bodyTooltip.clear();
     m_openNodePopup = false;
+    ApplyFocus(graph, size); // a row of the Nodes pane was clicked
 
     // The preset node and video source node on screen.
     m_livePresetNode.clear();

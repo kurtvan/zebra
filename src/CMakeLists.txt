@@ -21,6 +21,8 @@ add_library(gv_model STATIC
     model/Graph.hpp
     model/LegacyScene.cpp
     model/LegacyScene.hpp
+    model/NodeList.cpp
+    model/NodeList.hpp
     model/Performance.cpp
     model/Performance.hpp
     model/PerformanceJson.cpp
