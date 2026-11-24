@@ -1,6 +1,6 @@
 # Node Graph: Technical Details & Milestones
 
-*Drafted 2026-11-12; revised 2026-11-13 from review comments on PR #34, and 2026-11-16 with corrections from the implementation plan. Companion to `product-node-graph-2026-11-12.md`; read that first for what each node does.*
+*Drafted 2026-11-12; revised 2026-11-13 from review comments on PR #34, and 2026-11-16 with corrections from the implementation plan. Companion to `2026-11-12-product-node-graph.md`; read that first for what each node does.*
 
 ## 0. Summary
 
