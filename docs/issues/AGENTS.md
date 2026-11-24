@@ -45,5 +45,9 @@ ctest --test-dir build --output-on-failure
   - Follow-ups.
 - Don't edit issues (body, labels or board status). The coordinator does that.
 
-## 7. When you're stuck
-Stop and write down what you found and what you'd need. A clear "blocked because X" is better than a guess that widens the ticket.
+## 7. Questions and when you're stuck
+**You can always ask the user.** Questions are welcome: about unclear requirements, a choice the ticket doesn't settle, a size that's heading past 1,000 lines, or a split. Don't guess to avoid asking.
+1. **Push-notify the user** with the `PushNotification` tool (it reaches their phone). Keep it to one line under 200 characters: the ticket ID, then the question, e.g. `A3 #48: folder has 1 preset, should ▶ do nothing or jump to the library?`. If you don't have the tool, skip this step: the coordinator notifies them when it gets your report.
+2. **Then stop** and end your turn with the full question, its context and the options you see. The user answers in the coordinator chat, and the coordinator sends the answer back to you, so you continue with your work intact.
+
+The same applies when you're stuck: write down what you found and what you'd need. A clear "blocked because X" is better than a guess that widens the ticket.
