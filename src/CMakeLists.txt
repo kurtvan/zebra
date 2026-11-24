@@ -123,6 +123,7 @@ add_executable(govtech-visualizer
     app/GraphEditor.cpp
     app/GraphEditor.hpp
     app/CanvasZoom.hpp
+    app/EditorView.hpp
     app/VideoManager.cpp
     app/VideoManager.hpp
     app/macos/FileDialog.mm

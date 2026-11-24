@@ -32,7 +32,7 @@ add_executable(gv_tests
     nodes/test_node_types.cpp
     ${GV_NODE_TESTS})
 target_include_directories(gv_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(gv_tests PRIVATE gv_warnings gv_common gv_model gv_io gv_engine gv_library gv_app_nodes gv_app_settings Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+target_link_libraries(gv_tests PRIVATE gv_warnings gv_common gv_model gv_io gv_engine gv_library gv_app_nodes gv_app_settings imgui_node_editor Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 list(JOIN GV_NODE_TESTS "," GV_NODE_TEST_LIST)
 target_compile_definitions(gv_tests PRIVATE GV_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
     GV_NODE_TEST_FILES="${GV_NODE_TEST_LIST}")

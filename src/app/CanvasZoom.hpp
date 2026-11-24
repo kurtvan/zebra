@@ -9,20 +9,24 @@ namespace gv::app {
 constexpr float kCanvasMinZoom = 0.25f; //!< Smallest canvas zoom (25%).
 constexpr float kCanvasMaxZoom = 2.0f;  //!< Largest canvas zoom (200%).
 
-/// Where the canvas is looking: its zoom and the canvas point at the view's top left corner.
-struct CanvasView
+/// The part of the canvas the view shows, in canvas units.
+struct CanvasRect
 {
-    float scale{1.f}; //!< Screen pixels per canvas unit.
-    ImVec2 origin;    //!< Canvas point at the view's top left.
+    ImVec2 min; //!< Canvas point at the view's top left.
+    ImVec2 max; //!< Canvas point at the view's bottom right.
 };
 
-/// Zooms the view by `factor` (above 1 zooms in) around `pointer`, in screen pixels from the view's top left,
-/// so the canvas point under the pointer stays under it. The zoom is clamped to 25%–200%.
-inline auto ZoomAt(float scale, ImVec2 origin, ImVec2 pointer, float factor) -> CanvasView
+/// Zooms `view`, now at `zoom` screen pixels per canvas unit, by `factor` (above 1 zooms in) around the canvas
+/// point `under`, which stays where it is on screen. The zoom is clamped to 25%–200%.
+///
+/// Works in canvas units only, so the rect keeps its exact aspect ratio: the node editor fits the rect it's given
+/// to its (whole-pixel) canvas and centres it, and a rect built from a fractional widget size would shift a
+/// little every frame of a pinch.
+inline auto ZoomAt(CanvasRect view, float zoom, ImVec2 under, float factor) -> CanvasRect
 {
-    const float newScale = std::clamp(scale * factor, kCanvasMinZoom, kCanvasMaxZoom);
-    const ImVec2 under(origin.x + pointer.x / scale, origin.y + pointer.y / scale);
-    return {newScale, ImVec2(under.x - pointer.x / newScale, under.y - pointer.y / newScale)};
+    const float f = std::clamp(zoom * factor, kCanvasMinZoom, kCanvasMaxZoom) / zoom;
+    return {ImVec2(under.x - (under.x - view.min.x) / f, under.y - (under.y - view.min.y) / f),
+            ImVec2(under.x + (view.max.x - under.x) / f, under.y + (view.max.y - under.y) / f)};
 }
 
 } // namespace gv::app
