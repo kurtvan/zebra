@@ -437,6 +437,8 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     // editor's own wheel zoom is turned off by taking the wheel before it sees it.
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 wheel(io.MouseWheelH, io.MouseWheel);
+    // The pointer on screen: once ed::Begin runs, ImGui's mouse is in canvas coordinates instead.
+    const ImVec2 mouse = io.MousePos;
     const bool zoomKey = io.KeySuper || io.KeyCtrl;
     const bool scrolled = m_hovered && (wheel.x != 0.f || wheel.y != 0.f) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
     if (scrolled)
@@ -479,11 +481,11 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     }
     else if (scrolled)
     {
-        Scroll(canvas.view, wheel, zoomKey, io.MousePos);
+        Scroll(canvas.view, wheel, zoomKey, mouse);
     }
     else if (pinched)
     {
-        canvas.view.Zoom(state.pinch, io.MousePos);
+        canvas.view.Zoom(state.pinch, mouse);
     }
     m_zoom = ed::GetCurrentZoom();
     m_mouseCanvas = ImGui::GetMousePos(); // inside the canvas, ImGui's mouse is in canvas coordinates

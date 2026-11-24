@@ -155,3 +155,46 @@ TEST_CASE("In the real node editor, a long pinch keeps the point under the point
     ed::DestroyEditor(editor);
     ImGui::DestroyContext(context);
 }
+
+TEST_CASE("Inside the node editor, ImGui's mouse is in canvas coordinates, not on screen")
+{
+    // GraphEditor must read the pointer for zooming before ed::Begin: reading it after zooms at the wrong point.
+    ImGuiContext* context = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(1200.f, 900.f);
+    io.IniFilename = nullptr;
+    unsigned char* pixels = nullptr;
+    int width = 0;
+    int height = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    ed::Config config;
+    config.SettingsName = nullptr;
+    ed::EditorContext* editor = ed::CreateEditor(&config);
+
+    const ImVec2 mouse(760.f, 400.f);
+    io.MousePos = mouse;
+    ImVec2 inside;
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        io.DeltaTime = 1.f / 60.f;
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(100.f, 80.f)); // the canvas doesn't start at the screen's corner
+        ImGui::SetNextWindowSize(ImVec2(1000.f, 800.f));
+        ImGui::Begin("canvas", nullptr, ImGuiWindowFlags_NoDecoration);
+        ed::SetCurrentEditor(editor);
+        ed::Begin("graph", ImVec2(800.6f, 600.3f));
+        if (frame == 1)
+            ed::SetViewState({ImVec2(-500.f, -300.f), ImVec2(300.6f, 300.3f)});
+        inside = io.MousePos;
+        ed::End();
+        ed::SetCurrentEditor(nullptr);
+        ImGui::End();
+        ImGui::Render();
+    }
+    CHECK(io.MousePos.x == mouse.x); // restored after the editor
+    CHECK(io.MousePos.y == mouse.y);
+    CHECK(std::abs(inside.x - mouse.x) + std::abs(inside.y - mouse.y) > 50.f);
+
+    ed::DestroyEditor(editor);
+    ImGui::DestroyContext(context);
+}
