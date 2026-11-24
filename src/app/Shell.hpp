@@ -113,7 +113,13 @@ private:
     void DrawVideos(ShellState& state, AppActions& actions);
     void DrawStatus(const ShellState& state);
     void DrawMessages(const ShellState& state);
-    void DrawStatusBar(const ShellState& state);
+    void DrawStatusBar(ShellState& state, AppActions& actions);
+    /// The edge strips of collapsed areas, each with a button that brings its area back.
+    void DrawCollapsedStrips(ShellState& state, AppActions& actions);
+    /// A hide button in the tab bar of each open area.
+    void DrawHideButtons(ShellState& state, AppActions& actions);
+    /// Left/Right (and Page Up/Down) step through the scenes, whether or not the scene list is shown.
+    void HandleSceneStepKeys(const ShellState& state, AppActions& actions);
     void HandleDrops(ShellState& state, AppActions& actions, int hoveredScene);
     /// Puts `preset` in scene `index` of `edited`: in the preset node selected on its canvas, else its first.
     void PutPreset(model::Performance& edited, int index, const std::filesystem::path& preset) const;

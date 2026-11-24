@@ -106,10 +106,16 @@ add_library(gv_app_nodes STATIC
     app/nodes/ViewportNode.cpp)
 target_link_libraries(gv_app_nodes PUBLIC gv_common gv_model imgui PRIVATE gv_warnings)
 
+# The user's settings, including which editor areas are collapsed: pure, so tests can round-trip them.
+add_library(gv_app_settings STATIC
+    app/PaneLayout.cpp
+    app/PaneLayout.hpp
+    app/Settings.cpp
+    app/Settings.hpp)
+target_link_libraries(gv_app_settings PUBLIC gv_common nlohmann_json::nlohmann_json PRIVATE gv_warnings)
+
 add_executable(govtech-visualizer
     app/main.cpp
-    app/Settings.cpp
-    app/Settings.hpp
     app/Shell.cpp
     app/Shell.hpp
     app/GraphEditor.cpp
@@ -131,6 +137,7 @@ target_link_libraries(govtech-visualizer PRIVATE
     gv_library
     gv_thumbnails
     gv_app_nodes
+    gv_app_settings
     imgui_node_editor # and imgui
     nlohmann_json::nlohmann_json
     SDL2::SDL2

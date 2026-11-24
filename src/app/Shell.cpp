@@ -39,6 +39,40 @@ constexpr const char* kVideos = "Videos";
 constexpr const char* kGraph = "Graph";
 constexpr const char* kSceneDragPayload = "GV_SCENE";
 
+/// The windows each collapsible area holds (by PaneArea). A window dragged elsewhere still collapses with its area.
+const std::vector<const char*> kPaneWindows[kPaneAreaCount] = {
+    {kScenes},
+    {kProperties, kSetup},
+    {kBrowser, kVideos, kStatus, kMessages},
+};
+
+struct PaneAreaInfo
+{
+    const char* name; //!< For tooltips: "Hide <name>".
+    const char* shortcut;
+    ImGuiDir hideArrow; //!< The window edge the area goes to when hidden.
+};
+constexpr PaneAreaInfo kPaneAreas[kPaneAreaCount] = {
+    {"Scenes", "Cmd+1", ImGuiDir_Left},
+    {"Scene and Setup", "Cmd+2", ImGuiDir_Right},
+    {"Presets, Videos, Status and Messages", "Cmd+3", ImGuiDir_Down},
+};
+
+auto Opposite(ImGuiDir dir) -> ImGuiDir
+{
+    switch (dir)
+    {
+        case ImGuiDir_Left:
+            return ImGuiDir_Right;
+        case ImGuiDir_Right:
+            return ImGuiDir_Left;
+        case ImGuiDir_Down:
+            return ImGuiDir_Up;
+        default:
+            return ImGuiDir_Down;
+    }
+}
+
 constexpr double kGpuBudgetMs = 1000.0 / 60.0; //!< Over this, the live scene can't keep up with 60 fps.
 
 struct CanvasPreset
@@ -209,7 +243,8 @@ void Shell::Draw(ShellState& state, AppActions& actions)
         m_listsLoaded = true;
     }
 
-    DrawStatusBar(state);
+    DrawStatusBar(state, actions);
+    DrawCollapsedStrips(state, actions); // before the dockspace: they take their room from it
     const ImGuiID dockspace = ImGui::DockSpaceOverViewport();
     if (!m_layoutBuilt)
     {
@@ -217,18 +252,41 @@ void Shell::Draw(ShellState& state, AppActions& actions)
         m_layoutBuilt = true;
     }
 
+    // A collapsed area's windows aren't submitted: ImGui keeps their empty dock node, size and tab order, and the
+    // Preview and Graph take its space until they come back.
+    const PaneLayout& panes = state.settings->panes;
     m_gridVisible.clear();
     m_gridPrefetch.clear();
     m_graph.ClearWantedThumbnails();
     DrawPreview(state, actions);
-    DrawScenes(state, actions);
-    DrawSceneProperties(state, actions);
+    if (!panes.IsCollapsed(PaneArea::Left))
+    {
+        DrawScenes(state, actions);
+    }
+    else
+    {
+        const int count = static_cast<int>(state.document->Get().scenes.size());
+        *state.selectedScene = count > 0 ? std::clamp(*state.selectedScene, 0, count - 1) : -1;
+        HandleDrops(state, actions, -1);
+    }
+    HandleSceneStepKeys(state, actions);
+    if (!panes.IsCollapsed(PaneArea::Right))
+        DrawSceneProperties(state, actions);
     DrawGraph(state, actions);
-    DrawSetup(state, actions);
-    DrawBrowser(state, actions);
-    DrawVideos(state, actions);
-    DrawStatus(state);
-    DrawMessages(state);
+    if (!panes.IsCollapsed(PaneArea::Right))
+        DrawSetup(state, actions);
+    if (!panes.IsCollapsed(PaneArea::Bottom))
+    {
+        DrawBrowser(state, actions);
+        DrawVideos(state, actions);
+        DrawStatus(state);
+        DrawMessages(state);
+    }
+    else
+    {
+        m_videosHovered = false; // Finder drops go to a scene, not the hidden video pool
+    }
+    DrawHideButtons(state, actions);
 
     // Thumbnails: the canvas's preset nodes first, then the browser's tiles.
     if (state.thumbnails != nullptr)
@@ -273,6 +331,80 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     ImGui::DockBuilderDockWindow(kGraph, graph);
     ImGui::DockBuilderFinish(dockspace);
     m_showBrowserTab = 2; // the browser, not the last docked tab, should be in front (after docking settles)
+}
+
+void Shell::DrawCollapsedStrips(ShellState& state, AppActions& actions)
+{
+    // A thin strip on the window's edge for each collapsed area, with a button that brings it back.
+    PaneLayout& panes = state.settings->panes;
+    constexpr PaneArea kOrder[] = {PaneArea::Bottom, PaneArea::Left, PaneArea::Right}; // the bottom strip spans the width
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(3, 3));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 4));
+    for (const PaneArea area : kOrder)
+    {
+        if (!panes.IsCollapsed(area))
+            continue;
+        const PaneAreaInfo& info = kPaneAreas[static_cast<size_t>(area)];
+        const float thickness = ImGui::GetFrameHeight() + 6.f;
+        const std::string stripName = "##collapsed" + std::to_string(static_cast<int>(area)); // window names ignore PushID
+        if (ImGui::BeginViewportSideBar(stripName.c_str(), ImGui::GetMainViewport(), info.hideArrow, thickness,
+                                        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDecoration))
+        {
+            if (ImGui::ArrowButton("##show", Opposite(info.hideArrow)))
+            {
+                panes.Toggle(area);
+                actions.SettingsChanged();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Show %s (%s)", info.name, info.shortcut);
+            if (area == PaneArea::Bottom)
+            {
+                ImGui::SameLine();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(kDim, "%s", info.name);
+            }
+        }
+        ImGui::End();
+    }
+    ImGui::PopStyleVar(2);
+}
+
+void Shell::DrawHideButtons(ShellState& state, AppActions& actions)
+{
+    // A trailing button in the tab bar of every dock node holding an open area's windows.
+    PaneLayout& panes = state.settings->panes;
+    std::vector<ImGuiID> amended;
+    for (int a = 0; a < kPaneAreaCount; ++a)
+    {
+        const auto area = static_cast<PaneArea>(a);
+        if (panes.IsCollapsed(area))
+            continue;
+        for (const char* name : kPaneWindows[a])
+        {
+            ImGuiWindow* window = ImGui::FindWindowByName(name);
+            ImGuiDockNode* node = window != nullptr ? window->DockNode : nullptr;
+            if (node == nullptr || std::find(amended.begin(), amended.end(), node->ID) != amended.end() || !ImGui::DockNodeBeginAmendTabBar(node))
+                continue;
+            amended.push_back(node->ID);
+            ImGui::PushID(a);
+            const bool hide = ImGui::TabItemButton("   ", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip);
+            const bool hovered = ImGui::IsItemHovered();
+            const ImVec2 min = ImGui::GetItemRectMin();
+            const ImVec2 max = ImGui::GetItemRectMax();
+            const float size = ImGui::GetFontSize();
+            ImGui::RenderArrow(ImGui::GetWindowDrawList(), ImVec2((min.x + max.x - size * 0.7f) * 0.5f, (min.y + max.y - size * 0.7f) * 0.5f),
+                               ImGui::GetColorU32(hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled), kPaneAreas[a].hideArrow, 0.7f);
+            if (hovered)
+                ImGui::SetTooltip("Hide %s (%s)", kPaneAreas[a].name, kPaneAreas[a].shortcut);
+            ImGui::PopID();
+            ImGui::DockNodeEndAmendTabBar();
+            if (hide)
+            {
+                panes.Toggle(area);
+                actions.SettingsChanged();
+            }
+        }
+    }
 }
 
 void Shell::DrawPreview(const ShellState& state, AppActions& actions)
@@ -655,18 +787,24 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
             }
         }
     }
-    // Left/Right trigger the previous/next scene from anywhere (not while typing).
+
+    HandleDrops(state, actions, hoveredScene);
+    ImGui::End();
+}
+
+void Shell::HandleSceneStepKeys(const ShellState& state, AppActions& actions)
+{
+    // Left/Right trigger the previous/next scene from anywhere (not while typing), even with the scene list hidden.
+    const int count = static_cast<int>(state.document->Get().scenes.size());
     if (!ImGui::GetIO().WantTextInput && count > 0)
     {
-        const int current = pending >= 0 ? pending : live;
+        const int pending = state.engine->PendingScene();
+        const int current = pending >= 0 ? pending : state.engine->LiveScene();
         if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false) || ImGui::IsKeyPressed(ImGuiKey_PageDown, false))
             actions.Trigger(std::min(current + 1, count - 1));
         if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) || ImGui::IsKeyPressed(ImGuiKey_PageUp, false))
             actions.Trigger(std::max(current - 1, 0));
     }
-
-    HandleDrops(state, actions, hoveredScene);
-    ImGui::End();
 }
 
 void Shell::HandleDrops(ShellState& state, AppActions& actions, int hoveredScene)
@@ -1657,7 +1795,7 @@ void Shell::DrawMessages(const ShellState& state)
     ImGui::End();
 }
 
-void Shell::DrawStatusBar(const ShellState& state)
+void Shell::DrawStatusBar(ShellState& state, AppActions& actions)
 {
     const float height = ImGui::GetFrameHeight() + 6.f;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 3));
@@ -1715,6 +1853,19 @@ void Shell::DrawStatusBar(const ShellState& state)
                 ImGui::SameLine(0, 28);
                 ImGui::TextColored(kAmber, "Unsaved changes");
             }
+
+            // Focus mode, at the right end.
+            PaneLayout& panes = state.settings->panes;
+            const char* focusLabel = panes.focus ? "Show Panels" : "Focus";
+            const float focusWidth = ImGui::CalcTextSize(focusLabel).x + ImGui::GetStyle().FramePadding.x * 2.f;
+            ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 28.f, ImGui::GetWindowContentRegionMax().x - focusWidth));
+            if (ImGui::SmallButton(focusLabel))
+            {
+                panes.ToggleFocus();
+                actions.SettingsChanged();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(panes.focus ? "Bring back the panels that were open (Cmd+0)" : "Hide every panel around the Preview and Graph (Cmd+0)");
             ImGui::EndMenuBar();
         }
     }

@@ -22,6 +22,10 @@ enum class MenuCommand
     TriggerSelected,
     Fullscreen,
     ClearRecent,
+    ToggleLeftPanes,   //!< Scenes.
+    ToggleRightPanes,  //!< Scene, Setup.
+    ToggleBottomPanes, //!< Presets, Videos, Status, Messages.
+    FocusMode,         //!< Hide all three; again: bring back what was open.
     OpenRecent = 1000, //!< OpenRecent + n opens the n-th recent file.
 };
 
@@ -34,6 +38,9 @@ auto TakeMenuCommands() -> std::vector<int>;
 
 /// Enables or disables a command's menu item.
 void SetMenuEnabled(MenuCommand command, bool enabled);
+
+/// Shows a check mark next to a command's menu item.
+void SetMenuChecked(MenuCommand command, bool checked);
 
 /// Shows "Undo <label>" / "Redo <label>" (empty label: plain "Undo"/"Redo").
 void SetUndoRedoLabels(const std::string& undo, const std::string& redo);
