@@ -108,14 +108,11 @@ public:
     {
         return !m_editor.m_liveVideoNode.empty() && node.id == m_editor.m_liveVideoNode;
     }
-    auto SwitcherState(const model::Node& node) const -> std::optional<SwitcherNow> override
+    auto Switcher(const model::Node& node) const -> std::optional<engine::SwitcherState> override
     {
         if (m_state.engine == nullptr)
             return std::nullopt;
-        const auto info = m_state.engine->Switcher(m_scene, node.id);
-        if (!info)
-            return std::nullopt;
-        return SwitcherNow{info->passing, info->next, info->secondsToNext, info->beatsToNext, info->waitingForClock};
+        return m_state.engine->Switcher(m_scene, node.id);
     }
     void JumpSwitcher(const model::Node& node, int input) override
     {

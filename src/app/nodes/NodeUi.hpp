@@ -6,6 +6,7 @@
 // Nodes draw through NodeContext, an interface: GraphEditor implements it for the canvas, and the tests in
 // tests/nodes/ implement it with a fake to check each node's title, state, inputs and controls.
 
+#include "engine/SwitcherClock.hpp"
 #include "model/Graph.hpp"
 #include "model/Performance.hpp"
 
@@ -63,16 +64,6 @@ struct SyphonServer
     std::string serverName;
 };
 
-/// A live switcher, as it's running (the engine's clock for it).
-struct SwitcherNow
-{
-    int passing{-1};             //!< The input passing now.
-    int next{-1};                //!< The input coming next, or -1.
-    double secondsToNext{-1.0};  //!< Counting seconds: time until it moves on.
-    double beatsToNext{-1.0};    //!< Counting beats/bars: beats until it moves on.
-    bool waitingForClock{false}; //!< Counting beats/bars, but the MIDI clock isn't running.
-};
-
 /// What a node draws with and what it may do. Everything about the app around the canvas (the engine,
 /// library, file dialogs, Syphon) comes through here, so a node can be tested without it.
 class NodeContext
@@ -93,7 +84,7 @@ public:
     /// The live scene's video, as "Video: <state>" text, and whether it's playing. Nullopt: none.
     virtual auto VideoState() const -> std::optional<std::pair<bool, std::string>> = 0;
     /// Switcher `node`, while its scene is live. Nullopt: not live (or not running).
-    virtual auto SwitcherState(const model::Node& node) const -> std::optional<SwitcherNow> = 0;
+    virtual auto Switcher(const model::Node& node) const -> std::optional<engine::SwitcherState> = 0;
     /// The live preset's render time in ms, and whether that's too heavy for 60 fps. Nullopt: not measured.
     virtual auto FrameTime() const -> std::optional<std::pair<double, bool>> = 0;
     virtual auto FileExists(const std::filesystem::path& path) const -> bool = 0;

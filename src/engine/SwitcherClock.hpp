@@ -9,6 +9,16 @@
 
 namespace gv::engine {
 
+/// A switcher of the live scene, as it's running: what the editor shows on its node.
+struct SwitcherState
+{
+    int passing{-1};             //!< The input passing now.
+    int next{-1};                //!< The input coming next, or -1.
+    double secondsToNext{-1.0};  //!< Counting seconds: time until it moves on.
+    double beatsToNext{-1.0};    //!< Counting beats/bars: beats until it moves on.
+    bool waitingForClock{false}; //!< Counting beats/bars, but the MIDI clock isn't running.
+};
+
 /// Times one switcher: the input passing now, the one coming next, and when it moves on.
 ///
 /// Inputs are the switcher's input numbers, which never change when other inputs are wired or unwired.

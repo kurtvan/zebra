@@ -74,13 +74,16 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
     switch (control.kind)
     {
         case Control::Kind::Inputs:
+            // One row per input: its pin and label (drawn by the canvas), then its tooltip on hover. A
+            // double-click on the row goes to the node type's handler, if it has one (a switcher jumps to
+            // that input).
             for (const auto& spec : NodeInputs(node, context))
             {
                 const bool doubleClicked = context.InputRow(node, spec);
                 if (!spec.tooltip.empty())
                     context.Tooltip(spec.tooltip.c_str());
-                if (doubleClicked && Ui(node.type).inputDoubleClicked != nullptr)
-                    Ui(node.type).inputDoubleClicked(node, spec.input, context);
+                if (const auto& onDoubleClick = Ui(node.type).inputDoubleClicked; doubleClicked && onDoubleClick != nullptr)
+                    onDoubleClick(node, spec.input, context);
             }
             break;
         case Control::Kind::Slider:

@@ -338,7 +338,7 @@ void Engine::JumpVideo(int index, const std::string& switcherId, int input)
     GV_LOG_INFO(kLogCategory, "scene %d (%s): video switcher %s jumped to input %d", index, scene.DisplayName().c_str(), switcherId.c_str(), input + 1);
 }
 
-auto Engine::Switcher(int index, const std::string& switcherId) const -> std::optional<SwitcherInfo>
+auto Engine::Switcher(int index, const std::string& switcherId) const -> std::optional<SwitcherState>
 {
     if (index < 0 || index != m_switchers.scene || index != m_pool.LiveScene())
         return std::nullopt;
@@ -347,7 +347,7 @@ auto Engine::Switcher(int index, const std::string& switcherId) const -> std::op
     if (clock == m_switchers.clocks.end() || node == nullptr || node->type != model::NodeType::Switcher)
         return std::nullopt;
     const auto& params = model::ParamsOf<model::SwitcherParams>(*node);
-    SwitcherInfo info;
+    SwitcherState info;
     info.passing = clock->second.Current();
     info.next = clock->second.Next();
     if (params.unit == model::IntervalUnit::Seconds)

@@ -14,7 +14,7 @@ using model::SwitcherParams;
 constexpr const char* kUnits[] = {"seconds", "beats", "bars"}; // by IntervalUnit
 
 /// ", 12 s" / ", 3 beats" until the passing input moves on; ", waiting for the MIDI clock".
-auto Countdown(const SwitcherNow& now) -> std::string
+auto Countdown(const engine::SwitcherState& now) -> std::string
 {
     char text[48] = "";
     if (now.waitingForClock)
@@ -45,7 +45,7 @@ auto SwitcherUi() -> NodeUi
     // Double-clicking a wired input switches to it.
     ui.inputs = [](const model::Node& node, NodeContext& context) {
         const auto& params = model::ParamsOf<SwitcherParams>(node);
-        const auto now = context.SwitcherState(node);
+        const auto now = context.Switcher(node);
         const bool presets = params.kind == model::PortKind::Frame;
         std::vector<InputSpec> inputs;
         for (int i = 0; i < params.inputCount; ++i)

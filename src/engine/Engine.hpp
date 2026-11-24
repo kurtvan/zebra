@@ -80,16 +80,6 @@ public:
         bool waitingForClock{false};    //!< Live, switching presets on beats/bars, but the MIDI clock isn't running.
     };
 
-    /// A switcher of the live scene, as it's running.
-    struct SwitcherInfo
-    {
-        int passing{-1};              //!< The input passing now.
-        int next{-1};                 //!< The input coming next, or -1.
-        double secondsToNext{-1.0};   //!< Counting seconds: time until it moves on.
-        double beatsToNext{-1.0};     //!< Counting beats/bars: beats until it moves on.
-        bool waitingForClock{false};  //!< Counting beats/bars, but the MIDI clock isn't running.
-    };
-
     struct Stats
     {
         long long ticks{0};
@@ -203,7 +193,7 @@ public:
         return m_livePlan;
     }
     /// Switcher `switcherId` of scene `index`, if that's the live scene.
-    auto Switcher(int index, const std::string& switcherId) const -> std::optional<SwitcherInfo>;
+    auto Switcher(int index, const std::string& switcherId) const -> std::optional<SwitcherState>;
     /// The video scene `index` shows: the live scene's now, any other's when it starts. Nullopt: no video.
     auto VideoSourceOf(int index) const -> std::optional<model::VideoSource>;
     auto PendingScene() const -> int

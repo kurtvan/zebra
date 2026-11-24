@@ -86,7 +86,7 @@ public:
     std::string liveVideo;
     bool ready{false};
     std::optional<std::pair<bool, std::string>> videoState;
-    std::map<std::string, app::SwitcherNow> switchers;    //!< Running switchers, by node id.
+    std::map<std::string, engine::SwitcherState> switchers;    //!< Running switchers, by node id.
     std::set<int> doubleClickedInputs;                    //!< Input rows whose label is double-clicked.
     std::optional<std::pair<double, bool>> frameTime;
     std::set<std::string> files;                          //!< Paths that exist.
@@ -128,7 +128,7 @@ public:
     {
         return node.id == liveVideo;
     }
-    auto SwitcherState(const model::Node& node) const -> std::optional<app::SwitcherNow> override
+    auto Switcher(const model::Node& node) const -> std::optional<engine::SwitcherState> override
     {
         if (auto it = switchers.find(node.id); it != switchers.end())
             return it->second;
