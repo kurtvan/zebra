@@ -136,6 +136,10 @@ TEST_CASE("video source: its dot says whether a video is chosen, found and playi
     CHECK(state(file.scene.Add(NodeType::VideoSource)) == app::NodeState::Empty);
     CHECK(state(file.id) == app::NodeState::Ready);
     context.live = true;
+    // Live, but its video switcher passes another input: not on screen.
+    CHECK(app::NodeStatusOf(file.scene.Node(file.id), context) ==
+          app::NodeStatus{app::NodeState::Ready, "Not on screen now."});
+    context.liveVideo = file.id;
     CHECK(state(file.id) == app::NodeState::Live);
     context.videoState = std::pair<bool, std::string>{false, "Video: opening"};
     CHECK(app::NodeStatusOf(file.scene.Node(file.id), context) == app::NodeStatus{app::NodeState::Waiting, "Video: opening"});

@@ -18,8 +18,8 @@ target_link_libraries(gv_common PRIVATE gv_warnings "-framework Foundation")
 add_library(gv_model STATIC
     model/Graph.cpp
     model/Graph.hpp
-    model/Classic.cpp
-    model/Classic.hpp
+    model/LegacyScene.cpp
+    model/LegacyScene.hpp
     model/Performance.cpp
     model/Performance.hpp
     model/PerformanceJson.cpp
@@ -78,8 +78,8 @@ add_library(gv_engine STATIC
     engine/Lane.hpp
     engine/Engine.cpp
     engine/Engine.hpp
-    engine/CycleTimer.cpp
-    engine/CycleTimer.hpp
+    engine/SwitcherClock.cpp
+    engine/SwitcherClock.hpp
     engine/BeatHit.cpp
     engine/BeatHit.hpp
     engine/VideoChain.cpp

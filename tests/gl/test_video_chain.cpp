@@ -344,7 +344,7 @@ private:
     std::unique_ptr<VideoChain> m_chain;
 };
 
-/// The chain a converted scene compiles to (model/Classic.cpp): contrast, saturation, gate, mix.
+/// The chain a converted scene compiles to (model/LegacyScene.cpp): contrast, saturation, gate, mix.
 auto Chain(const Look& look) -> std::vector<EffectPass>
 {
     return {{NodeType::Contrast, look.contrast, 0.0f, false},

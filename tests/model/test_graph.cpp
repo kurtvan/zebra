@@ -1,5 +1,8 @@
-#include "model/Classic.hpp"
+#include "model/LegacyScene.hpp"
 #include "model/Graph.hpp"
+#include "model/Performance.hpp"
+
+#include "model/ClassicView.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -277,7 +280,7 @@ TEST_CASE("classic scenes convert to valid graphs and read back unchanged")
     {
         const Graph graph = GraphFromClassic(classic);
         CHECK(ValidateGraph(graph).empty());
-        const auto back = ClassicFromGraph(graph);
+        const auto back = gv::test::ClassicFromGraph(graph);
         REQUIRE(back.has_value());
         CHECK(*back == NormalizeClassic(classic));
         CHECK(GraphFromClassic(*back) == graph); // deterministic ids and layout
@@ -338,29 +341,29 @@ TEST_CASE("the conversion follows the product doc's table")
 TEST_CASE("graphs that aren't classic-shaped are reported as such")
 {
     Graph graph = GraphFromClassic(Cases()[1]);
-    CHECK(ClassicFromGraph(graph).has_value());
+    CHECK(gv::test::ClassicFromGraph(graph).has_value());
     // An extra effect in the chain.
     const auto extra = AddNode(graph, NodeType::Contrast, 0, 0);
     const Node* mix = graph.Upstream("milkdrop-1", Feedback());
     const std::string mixId = mix->id;
     Connect(graph, mixId, extra, 0);
     Connect(graph, extra, "milkdrop-1", Feedback());
-    CHECK_FALSE(ClassicFromGraph(graph).has_value());
+    CHECK_FALSE(gv::test::ClassicFromGraph(graph).has_value());
 
     // Nothing wired into the viewport: an empty classic scene.
     Graph empty;
     AddNode(empty, NodeType::Viewport, 0, 0);
-    CHECK(ClassicFromGraph(empty) == ClassicScene{});
+    CHECK(gv::test::ClassicFromGraph(empty) == ClassicScene{});
 }
 
-TEST_CASE("scenes the classic view can't read still find their presets, playlist and video")
+TEST_CASE("a scene's preset entries come from its graph, whatever its shape")
 {
     ClassicScene classic;
     classic.playlist = {true, {"/a.milk", "/b.milk"}, {VideoLook{}, VideoLook{}}, IntervalUnit::Seconds, 10, 4, true};
     classic.video.enabled = true;
     classic.video.playlist = {true, {"x", "y"}, IntervalUnit::Seconds, 12, 4, false};
     Graph graph = GraphFromClassic(classic);
-    REQUIRE(ClassicFromGraph(graph).has_value());
+    REQUIRE(gv::test::ClassicFromGraph(graph).has_value());
 
     // Every chain moves from the feedback input into a texture input: no longer a classic scene.
     for (auto& wire : graph.wires)
@@ -373,21 +376,30 @@ TEST_CASE("scenes the classic view can't read still find their presets, playlist
         }
     }
     CHECK(ValidateGraph(graph).empty());
-    CHECK_FALSE(ClassicFromGraph(graph).has_value());
+    CHECK_FALSE(gv::test::ClassicFromGraph(graph).has_value());
 
-    const ClassicScene view = RuntimeViewFromGraph(graph);
-    CHECK(view.presetPath == "/a.milk");
-    CHECK(view.playlist.enabled);
-    CHECK(view.playlist.presets == std::vector<std::filesystem::path>{"/a.milk", "/b.milk"});
-    CHECK(view.playlist.intervalSeconds == 10);
-    CHECK(view.playlist.shuffle);
-    CHECK(view.video.enabled);
-    CHECK(view.video.playlist.enabled);
-    CHECK(view.video.playlist.videos == std::vector<std::string>{"x", "y"});
-    CHECK(view.video.playlist.intervalSeconds == 12);
-    CHECK(view.video.source.videoId == "x");
+    Scene scene;
+    scene.graph = graph;
+    scene.Refresh();
+    CHECK(scene.SwitchesPresets());
+    CHECK(scene.Presets() == std::vector<std::filesystem::path>{"/a.milk", "/b.milk"});
+    CHECK(scene.presetEntries[1].input == 1);
+    CHECK(scene.EntryOfInput(1) == 1);
+    CHECK(scene.EntryOfInput(7) == -1);
 
-    // A preset alone, with nothing wired into it.
-    CHECK(RuntimeViewFromGraph(Basic()).presetPath == "/a.milk");
-    CHECK_FALSE(RuntimeViewFromGraph(Basic()).video.enabled);
+    // A preset straight into the viewport: one entry, no switcher.
+    scene.graph = Basic();
+    scene.Refresh();
+    CHECK_FALSE(scene.SwitchesPresets());
+    CHECK(scene.FirstPreset() == "/a.milk");
+    CHECK(scene.presetEntries[0].input == -1);
+
+    // Nothing reaches the viewport: one empty entry.
+    Graph empty;
+    AddNode(empty, NodeType::Viewport, 0, 0);
+    scene.graph = empty;
+    scene.Refresh();
+    REQUIRE(scene.presetEntries.size() == 1);
+    CHECK(scene.FirstPreset().empty());
+    CHECK(scene.presetEntries[0].node.empty());
 }

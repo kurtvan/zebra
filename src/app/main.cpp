@@ -405,13 +405,29 @@ public:
 
     void Trigger(int scene) override
     {
-        m_video.OnTrigger(scene, m_engine.LiveScene());
+        m_video.OnTrigger(scene, 0, m_engine.LiveScene());
         m_engine.Trigger(scene);
+    }
+
+    void JumpSwitcher(int scene, const std::string& switcherId, int input) override
+    {
+        const auto& scenes = m_document.Get().scenes;
+        if (scene < 0 || scene >= static_cast<int>(scenes.size()))
+            return;
+        const auto& target = scenes[static_cast<size_t>(scene)];
+        if (switcherId == target.presetSwitcher)
+        {
+            // A preset switcher's input is a preset entry: go live on it, as from the Scenes list.
+            if (const int entry = target.EntryOfInput(input); entry >= 0)
+                TriggerItem(scene, entry);
+            return;
+        }
+        m_engine.JumpVideo(scene, switcherId, input);
     }
 
     void TriggerItem(int scene, int item) override
     {
-        m_video.OnTrigger(scene, m_engine.LiveScene()); // only restarts when entering another scene
+        m_video.OnTrigger(scene, item, m_engine.LiveScene()); // only restarts when entering another scene
         m_engine.TriggerItem(scene, item);
     }
 
@@ -784,8 +800,7 @@ public:
         m_video.SetCanvasSize(m_engine.RenderWidth(), m_engine.RenderHeight());
         const auto midiClock = m_midi->Clock();
         const gv::engine::ClockInput clock{midiClock.receiving, midiClock.running, midiClock.positionKnown, midiClock.pulses, midiClock.totalPulses};
-        m_video.BeginFrame(m_engine.LiveScene(), m_engine.PendingScene(), m_engine.HandoverScene(), clock);
-        m_engine.SetClock(clock);
+        m_engine.SetClock(clock); // Tick moves the switchers on, then tells the video sources what to play
         m_engine.SetSampleRate(m_audio.SampleRate());
         m_engine.Tick(m_pcm.data(), samples / 2, m_settings.gain);
 
@@ -1051,7 +1066,8 @@ private:
             {
                 const auto info = m_engine.Scene(i);
                 const auto held = stats.heldByScene.count(i) ? stats.heldByScene.at(i) : 0;
-                const auto video = m_video.StateFor(i);
+                const auto source = m_engine.VideoSourceOf(i);
+                const auto video = source ? m_video.StateOf(*source) : std::nullopt;
                 char dropped[32] = "never live long enough";
                 if (info.droppedFraction >= 0.0)
                     std::snprintf(dropped, sizeof(dropped), "%.1f%% of its live frames", info.droppedFraction * 100.0);
@@ -1332,9 +1348,9 @@ private:
             case 5:
             case 7:
             {
-                // Playlist jumps: into a playlist scene at its third entry, then within it to the second
-                // (with that entry's look changed while live).
-                const auto playlist = std::find_if(edited.scenes.begin(), edited.scenes.end(), [](const auto& s) { return s.IsPlaylist() && s.classic.playlist.presets.size() >= 3; });
+                // Preset switcher jumps: into a scene switching presets at its third entry, then within it to
+                // the second (with that entry's look changed while live).
+                const auto playlist = std::find_if(edited.scenes.begin(), edited.scenes.end(), [](const auto& s) { return s.SwitchesPresets() && s.presetEntries.size() >= 3; });
                 if (playlist == edited.scenes.end())
                     break;
                 const int scene = static_cast<int>(playlist - edited.scenes.begin());
@@ -1355,12 +1371,12 @@ private:
                 break;
             }
             case 11:
-                // Dropping a preset on the preview: replaces the playlist entry on screen in the live scene.
-                if (live >= 0 && edited.scenes[static_cast<size_t>(live)].IsPlaylist())
+                // Dropping a preset on the preview: replaces the preset entry on screen in the live scene.
+                if (live >= 0 && edited.scenes[static_cast<size_t>(live)].SwitchesPresets())
                 {
                     const auto preset = edited.scenes[0].FirstPreset();
                     const int item = gv::model::ReplacePreset(edited, live, m_engine.LiveItem(), preset);
-                    Edit(std::move(edited), "Replace Playlist Preset", {});
+                    Edit(std::move(edited), "Replace Switcher Preset", {});
                     if (item > 0)
                         TriggerItem(live, item);
                     GV_LOG_INFO(kLogCategory, "smoke edit: replaced preset %d of live scene %d with %s", item + 1, live, preset.filename().c_str());
@@ -1382,7 +1398,7 @@ private:
             case 13:
                 for (int scene = 0; scene < static_cast<int>(edited.scenes.size()); ++scene)
                 {
-                    if (edited.scenes[static_cast<size_t>(scene)].IsPlaylist())
+                    if (edited.scenes[static_cast<size_t>(scene)].SwitchesPresets())
                         GV_LOG_INFO(kLogCategory, "smoke edit: scene %d live=%d on preset %d", scene, m_engine.LiveScene(), m_engine.Scene(scene).playlistItem + 1);
                 }
                 break;

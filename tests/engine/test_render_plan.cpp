@@ -1,6 +1,8 @@
 #include "engine/RenderPlan.hpp"
 #include "model/PerformanceJson.hpp"
 
+#include "model/ClassicView.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
@@ -69,7 +71,7 @@ TEST_CASE("the real show converts to valid graphs that draw exactly what format 
         const auto& scene = scenes[i];
         const auto& source = json["scenes"][i];
         CHECK(ValidateGraph(scene.graph).empty());
-        REQUIRE(scene.classicShape);
+        REQUIRE(gv::test::ClassicFromGraph(scene.graph));
 
         // Presets, entry by entry.
         const auto playlist = source.value("playlist", nlohmann::json::object());

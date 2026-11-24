@@ -6,6 +6,7 @@
 // Nodes draw through NodeContext, an interface: GraphEditor implements it for the canvas, and the tests in
 // tests/nodes/ implement it with a fake to check each node's title, state, inputs and controls.
 
+#include "engine/SwitcherClock.hpp"
 #include "model/Graph.hpp"
 #include "model/Performance.hpp"
 
@@ -29,6 +30,8 @@ struct InputSpec
     std::string texture; //!< Preset texture inputs only.
     model::PortKind kind{model::PortKind::Video};
     std::string label;
+    bool passing{false}; //!< Drawn highlighted: a live switcher passes this input.
+    std::string tooltip{}; //!< Shown when the row is hovered; empty: none.
 
     auto operator==(const InputSpec&) const -> bool = default;
 };
@@ -76,9 +79,12 @@ public:
     virtual auto SceneGraph() const -> const model::Graph& = 0;
     virtual auto Live() const -> bool = 0;                                //!< The scene is live.
     virtual auto IsLivePreset(const model::Node& node) const -> bool = 0; //!< This preset node is on screen.
+    virtual auto IsLiveVideo(const model::Node& node) const -> bool = 0;  //!< This video source node is on screen.
     virtual auto SceneReady() const -> bool = 0;                          //!< Loaded, ready to go live.
     /// The live scene's video, as "Video: <state>" text, and whether it's playing. Nullopt: none.
     virtual auto VideoState() const -> std::optional<std::pair<bool, std::string>> = 0;
+    /// Switcher `node`, while its scene is live. Nullopt: not live (or not running).
+    virtual auto Switcher(const model::Node& node) const -> std::optional<engine::SwitcherState> = 0;
     /// The live preset's render time in ms, and whether that's too heavy for 60 fps. Nullopt: not measured.
     virtual auto FrameTime() const -> std::optional<std::pair<double, bool>> = 0;
     virtual auto FileExists(const std::filesystem::path& path) const -> bool = 0;
@@ -109,9 +115,14 @@ public:
     virtual void Reveal(const std::filesystem::path& path) = 0;
     virtual auto SyphonServers() -> std::vector<SyphonServer> = 0;
 
+    // Playing.
+    /// Switches switcher `node` to `input` now: a preset switcher goes live on that preset (entering its
+    /// scene if needed), a video switcher of the live scene jumps to that video.
+    virtual void JumpSwitcher(const model::Node& node, int input) = 0;
+
     // The canvas.
-    /// A row with input pin `spec` of `node` at the left and its label.
-    virtual void InputRow(const model::Node& node, const InputSpec& spec) = 0;
+    /// A row with input pin `spec` of `node` at the left and its label. True if the label was double-clicked.
+    virtual auto InputRow(const model::Node& node, const InputSpec& spec) -> bool = 0;
     /// Opens the list of control `kind` (its index) of `node`: DrawNodePopup draws it, outside the zoomed canvas.
     virtual void OpenPopup(const model::Node& node, int kind) = 0;
     /// Shows `text` as a tooltip if the last item is hovered.
@@ -187,6 +198,8 @@ struct NodeUi
     /// The input rows, in order. Null: one row per input, labelled `inputLabel`.
     std::vector<InputSpec> (*inputs)(const model::Node&, NodeContext&){nullptr};
     const char* inputLabel{"Input"};
+    /// An input row's label was double-clicked. Null: nothing happens.
+    void (*inputDoubleClicked)(const model::Node&, int input, NodeContext&){nullptr};
 
     std::vector<Control> controls; //!< The body below the title bar, top to bottom.
     std::vector<AddItem> addItems; //!< Empty: not in the Add menu.

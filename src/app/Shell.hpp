@@ -46,7 +46,9 @@ public:
 
     // Playback and setup
     virtual void Trigger(int scene) = 0;
-    virtual void TriggerItem(int scene, int item) = 0; //!< Go live on a playlist entry.
+    virtual void TriggerItem(int scene, int item) = 0; //!< Go live on a preset entry (Scene::presetEntries).
+    /// Switches switcher `switcherId` of scene `scene` to `input` now (see NodeContext::JumpSwitcher).
+    virtual void JumpSwitcher(int scene, const std::string& switcherId, int input) = 0;
     virtual void ToggleFullscreen() = 0;
     virtual void SetAudioDevice(const std::string& deviceName) = 0; //!< Empty: system default.
     virtual void SetMidiChannel(int channel) = 0;
@@ -104,7 +106,7 @@ private:
     void DrawBrowser(ShellState& state, AppActions& actions);
     void DrawPresetGrid(ShellState& state, AppActions& actions);
     void AssignPreset(ShellState& state, AppActions& actions, const std::filesystem::path& preset, int scene);
-    /// Puts the preset in the live scene, in place of the playlist entry on screen if it's a playlist.
+    /// Puts the preset in the live scene, in place of the preset entry on screen if it switches presets.
     /// Returns false when nothing is live.
     auto ReplaceLivePreset(const ShellState& state, AppActions& actions, const std::filesystem::path& preset) -> bool;
     void DoubleClickPreset(const ShellState& state, AppActions& actions, const std::filesystem::path& preset);

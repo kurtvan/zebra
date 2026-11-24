@@ -1,6 +1,7 @@
 #include "model/PerformanceJson.hpp"
 
 #include "model/Document.hpp"
+#include "model/LegacyScene.hpp"
 #include "model/nodes/NodeDef.hpp"
 #include "model/nodes/NodeJson.hpp"
 
@@ -670,24 +671,24 @@ auto CheckFiles(Performance& performance) -> std::vector<Issue>
         const std::string path = "/scenes/" + std::to_string(i);
         std::error_code ec;
         scene.Refresh();
-        const auto& classic = scene.classic;
 
-        scene.presetMissing = !scene.FirstPreset().empty() && !std::filesystem::is_regular_file(scene.FirstPreset(), ec);
-        if (scene.presetMissing && !scene.IsPlaylist())
+        // The presets the viewport can show (unreachable preset nodes play nothing, so they don't count).
+        scene.presetsMissing.assign(scene.presetEntries.size(), false);
+        for (size_t p = 0; p < scene.presetEntries.size(); ++p)
         {
-            issues.push_back(Warning(path + "/graph", "preset file not found: " + classic.presetPath.string()));
-        }
-        scene.playlistMissing.assign(classic.playlist.presets.size(), false);
-        for (size_t p = 0; p < classic.playlist.presets.size(); ++p)
-        {
-            const auto& preset = classic.playlist.presets[p];
-            scene.playlistMissing[p] = !preset.empty() && !std::filesystem::is_regular_file(preset, ec);
-            if (scene.playlistMissing[p] && classic.playlist.enabled)
+            const auto& preset = scene.presetEntries[p].path;
+            scene.presetsMissing[p] = !preset.empty() && !std::filesystem::is_regular_file(preset, ec);
+            if (scene.presetsMissing[p])
                 issues.push_back(Warning(path + "/graph", "preset file not found: " + preset.string()));
         }
+        scene.presetMissing = scene.presetsMissing.front();
 
-        const PoolVideo* video = performance.VideoFor(scene);
-        scene.videoMissing = classic.video.enabled && video != nullptr && !std::filesystem::is_regular_file(video->path, ec);
+        scene.videoMissing = false;
+        for (const auto& id : VideoIdsOf(scene.graph))
+        {
+            if (const PoolVideo* video = performance.FindVideo(id); video != nullptr && video->missing)
+                scene.videoMissing = true;
+        }
     }
     return issues;
 }

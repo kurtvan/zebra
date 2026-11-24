@@ -140,6 +140,7 @@ private:
     std::map<std::string, std::vector<std::string>> m_textures; //!< PresetTextures, by path.
     std::vector<thumbnails::Request> m_wantedThumbnails;
     std::string m_livePresetNode;
+    std::string m_liveVideoNode; //!< The video source node on screen, when this scene is live.
     std::vector<std::string> m_hoverErrorNodes; //!< Outlined while a refused wire is hovered.
     std::string m_hoverTooltip;
     std::string m_bodyTooltip;

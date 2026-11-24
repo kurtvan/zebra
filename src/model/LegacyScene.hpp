@@ -11,9 +11,7 @@
 namespace gv::model {
 
 // Format 1-2 scene settings ("classic" scenes): a preset or preset playlist, plus one video with its look.
-// Shows in those formats are converted to graphs when they load (GraphFromClassic). Until switchers run in the
-// engine (N5), the engine, the video manager and the read-only Scene panel read graphs back through
-// ClassicFromGraph. N5 deletes everything here except what the format-2 parser needs.
+// Only the loader uses them: shows in those formats are converted to graphs when they load (GraphFromClassic).
 
 /// How the video is blended into a preset.
 struct VideoLook
@@ -89,18 +87,7 @@ constexpr float kFeedbackGateSoftness = 0.1f;
 /// deterministic ids and a column layout.
 auto GraphFromClassic(const ClassicScene& scene) -> Graph;
 
-/// Reads a graph back as a classic scene, or nullopt if it isn't shaped like one (only possible once the node
-/// canvas exists). The inverse of GraphFromClassic for everything it keeps.
-auto ClassicFromGraph(const Graph& graph) -> std::optional<ClassicScene>;
-
-/// What the engine and the video manager need from any graph, for scenes ClassicFromGraph can't read (video
-/// into a texture or before the composite, or other chains): the presets in playlist order and the playlist
-/// timing (a Frame switcher feeding the viewport), and the video source or Video switcher the presets' inputs
-/// come from. Looks are left at their defaults; lanes draw from the compiled plan. Removed in N5 with the rest
-/// of the classic view.
-auto RuntimeViewFromGraph(const Graph& graph) -> ClassicScene;
-
-/// `scene` as GraphFromClassic keeps it, so that ClassicFromGraph(GraphFromClassic(s)) == NormalizeClassic(s):
+/// `scene` as GraphFromClassic keeps it (the tests read a converted graph back and compare it with this):
 /// disabled video and Syphon video playlists dropped, a playlist scene's own look set to its first entry's.
 auto NormalizeClassic(ClassicScene scene) -> ClassicScene;
 

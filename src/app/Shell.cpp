@@ -19,6 +19,15 @@ namespace gv::app {
 
 namespace {
 
+/// True if a switcher in `graph` switches videos.
+auto HasVideoSwitcher(const model::Graph& graph) -> bool
+{
+    return std::any_of(graph.nodes.begin(), graph.nodes.end(), [&](const model::Node& node) {
+        return node.type == model::NodeType::Switcher && model::ParamsOf<model::SwitcherParams>(node).kind == model::PortKind::Video &&
+               !model::TakesAnyKind(graph, node);
+    });
+}
+
 constexpr const char* kPreview = "Preview";
 constexpr const char* kScenes = "Scenes";
 constexpr const char* kProperties = "Scene";
@@ -503,7 +512,7 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                     auto edited = performance;
                     model::AssignVideo(edited, i, static_cast<const char*>(payload->Data));
                     selected = i;
-                    actions.Edit(std::move(edited), scene.IsVideoPlaylist() ? "Add to Video Playlist" : "Assign Video");
+                    actions.Edit(std::move(edited), HasVideoSwitcher(scene.graph) ? "Add to Video Switcher" : "Assign Video");
                 }
                 ImGui::EndDragDropTarget();
             }
@@ -535,21 +544,22 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
 
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
-            if (scene.IsPlaylist())
+            if (scene.SwitchesPresets())
             {
-                // Playlist: the entry showing (when live) or the number of presets.
+                // Switching presets: the entry showing (when live) or the number of presets.
+                const auto& entries = scene.presetEntries;
                 const int item = i == live ? info.playlistItem : -1;
-                if (item >= 0 && item < static_cast<int>(scene.classic.playlist.presets.size()))
-                    ImGui::TextColored(kAccent, "%d/%zu %s", item + 1, scene.classic.playlist.presets.size(), scene.classic.playlist.presets[static_cast<size_t>(item)].stem().c_str());
+                if (item >= 0 && item < static_cast<int>(entries.size()))
+                    ImGui::TextColored(kAccent, "%d/%zu %s", item + 1, entries.size(), entries[static_cast<size_t>(item)].path.stem().c_str());
                 else
-                    ImGui::TextColored(scene.presetMissing ? kRed : kAccent, "Playlist: %zu presets", scene.classic.playlist.presets.size());
-                if (ImGui::IsItemHovered())
+                    ImGui::TextColored(scene.presetMissing ? kRed : kAccent, "Switcher: %zu presets", entries.size());
+                const model::Node* switcher = scene.graph.Find(scene.presetSwitcher);
+                if (ImGui::IsItemHovered() && switcher != nullptr)
                 {
                     std::string list;
-                    for (size_t p = 0; p < scene.classic.playlist.presets.size(); ++p)
-                        list += std::to_string(p + 1) + ". " + scene.classic.playlist.presets[p].stem().string() + "\n";
-                {
-                    const auto& p = scene.classic.playlist;
+                    for (size_t p = 0; p < entries.size(); ++p)
+                        list += std::to_string(p + 1) + ". " + entries[p].path.stem().string() + "\n";
+                    const auto& p = model::ParamsOf<model::SwitcherParams>(*switcher);
                     char every[48];
                     if (p.unit == model::IntervalUnit::Seconds)
                         std::snprintf(every, sizeof(every), "%.3g s", p.intervalSeconds);
@@ -557,13 +567,13 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                         std::snprintf(every, sizeof(every), "%d %s", p.intervalCount, p.unit == model::IntervalUnit::Bars ? (p.intervalCount == 1 ? "bar" : "bars") : (p.intervalCount == 1 ? "beat" : "beats"));
                     ImGui::SetTooltip("Every %s%s:\n%s", every, p.shuffle ? ", shuffled" : "", list.c_str());
                 }
-                }
             }
             else
             {
-                ImGui::TextColored(scene.presetMissing ? kRed : kDim, "%s", scene.classic.presetPath.stem().c_str());
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s%s", scene.classic.presetPath.c_str(), scene.presetMissing ? "\n(file not found)" : "");
+                const auto& preset = scene.FirstPreset();
+                ImGui::TextColored(scene.presetMissing ? kRed : kDim, "%s", preset.empty() ? "(no preset)" : preset.stem().c_str());
+                if (ImGui::IsItemHovered() && !preset.empty())
+                    ImGui::SetTooltip("%s%s", preset.c_str(), scene.presetMissing ? "\n(file not found)" : "");
             }
 
             ImGui::TableNextColumn();
@@ -584,20 +594,20 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                                       info.heavy ? ": can't reach 60 fps on this machine.\n" : ".\n",
                                       std::max(0.0, info.droppedFraction) * 100.0);
             }
-            if (scene.classic.video.enabled && state.video != nullptr)
+            // The video it shows now (live) or starts with: V for a file, S for Syphon.
+            if (const auto source = state.engine != nullptr ? state.engine->VideoSourceOf(i) : std::nullopt; source && state.video != nullptr)
             {
-                const auto videoState = state.video->StateFor(i);
+                const auto videoState = state.video->StateOf(*source);
                 const bool bad = !videoState || *videoState == io::VideoState::Missing || *videoState == io::VideoState::Failed;
                 const bool waiting = videoState && *videoState == io::VideoState::Disconnected;
                 ImGui::SameLine(0, 4);
-                ImGui::TextColored(bad ? kRed : (waiting ? kAmber : kDim), "%s", scene.classic.video.source.type == model::VideoSourceType::Syphon ? "S" : "V");
+                ImGui::TextColored(bad ? kRed : (waiting ? kAmber : kDim), "%s", source->type == model::VideoSourceType::Syphon ? "S" : "V");
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Video: %s (%s)%s\n%s%s%s", state.video->DescribeFor(i).c_str(), videoState ? io::ToString(*videoState) : "none",
-                                      scene.IsVideoPlaylist() ? ("\nVideo playlist of " + std::to_string(scene.classic.video.playlist.videos.size())).c_str() : "",
-                                      scene.IsPlaylist() ? "look per preset"
-                                                         : ("mix " + std::to_string(scene.classic.video.look.mix).substr(0, 4) + ", luma gate " +
-                                                            std::to_string(scene.classic.video.look.lumaMin).substr(0, 4)).c_str(),
-                                      scene.classic.video.restartOnEnter ? ", restarts on entry" : "", scene.classic.video.loop ? "" : ", plays once");
+                {
+                    const std::string described = state.video->Describe(*source);
+                    ImGui::SetTooltip("Video: %s (%s)%s", described.empty() ? "none chosen" : described.c_str(), videoState ? io::ToString(*videoState) : "none",
+                                      HasVideoSwitcher(scene.graph) ? "\nSwitched by a video switcher" : "");
+                }
             }
             ImGui::PopID();
         }
@@ -1038,12 +1048,12 @@ auto Shell::ReplaceLivePreset(const ShellState& state, AppActions& actions, cons
     if (live < 0 || live >= static_cast<int>(edited.scenes.size()))
         return false;
     const auto& scene = edited.scenes[static_cast<size_t>(live)];
-    const bool playlist = scene.IsPlaylist();
+    const bool playlist = scene.SwitchesPresets();
     const std::string sceneId = scene.id;
     const int item = model::ReplacePreset(edited, live, state.engine->LiveItem(), preset);
-    actions.Edit(std::move(edited), playlist ? "Replace Playlist Preset" : "Change Preset");
+    actions.Edit(std::move(edited), playlist ? "Replace Switcher Preset" : "Change Preset");
     actions.EndEdit();
-    // The engine swaps in a changed first preset by itself; any other playlist entry needs a jump to it.
+    // The engine swaps in a changed first preset by itself; any other entry needs a jump to it.
     if (item > 0)
         actions.TriggerItem(live, item);
     *state.selectedScene = live;

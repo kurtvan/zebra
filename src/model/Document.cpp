@@ -1,5 +1,6 @@
 #include "model/Document.hpp"
 
+#include "model/LegacyScene.hpp"
 #include "model/PerformanceJson.hpp"
 
 #include <algorithm>
@@ -245,9 +246,10 @@ auto AddScene(Performance& performance, int after, const std::filesystem::path& 
         return -1;
     Scene scene;
     scene.id = UniqueSceneId(performance);
-    ClassicScene classic;
-    classic.presetPath = presetPath;
-    scene.graph = GraphFromClassic(classic);
+    // One preset into the viewport, where a converted show puts them.
+    const std::string preset = AddNode(scene.graph, NodeType::MilkdropPreset, 1500.0f, 0.0f);
+    ParamsOf<MilkdropPresetParams>(*scene.graph.Find(preset)).path = presetPath;
+    Connect(scene.graph, preset, AddNode(scene.graph, NodeType::Viewport, 2080.0f, 0.0f), 0);
     scene.Refresh();
     scene.cc20Value = *cc;
     const int index = (after >= 0 && after < static_cast<int>(performance.scenes.size())) ? after + 1 : static_cast<int>(performance.scenes.size());

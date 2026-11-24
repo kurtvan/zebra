@@ -1,6 +1,5 @@
 #pragma once
 
-#include "model/Classic.hpp"
 #include "model/Graph.hpp"
 
 #include <algorithm>
@@ -84,6 +83,16 @@ struct PoolVideo
     }
 };
 
+/// One preset a scene can show: what reaches the viewport, through the switcher feeding it if there is one.
+struct PresetEntry
+{
+    std::string node;           //!< The Milkdrop preset node; empty when nothing reaches the viewport.
+    std::filesystem::path path; //!< Empty: no file chosen (or nothing connected).
+    int input{-1};              //!< Its input on the scene's preset switcher; -1 without one.
+
+    auto operator==(const PresetEntry&) const -> bool = default;
+};
+
 struct Scene
 {
     std::string id;   //!< Stable and unique within the performance.
@@ -92,41 +101,51 @@ struct Scene
     BeatHit beatHit;
     int cc20Value{0}; //!< 0..127, unique within the performance. Doesn't change when scenes are reordered.
 
-    /// Derived from `graph` by Refresh(), not serialized. Until switchers run in the engine (N5), the engine,
-    /// the video manager and the Scene panel read the graph through this classic view.
-    ClassicScene classic;
-    bool classicShape{true}; //!< False if the graph can't be read as a classic scene (not before the node canvas).
+    /// Derived from `graph` by Refresh(), not serialized: the presets the viewport can show, in the order
+    /// of the switcher feeding it (its wired inputs), or the one preset wired straight in. Never empty.
+    /// The engine prepares a scene one entry at a time; entry 0 is where it starts.
+    std::vector<PresetEntry> presetEntries{PresetEntry{}};
+    std::string presetSwitcher; //!< The switcher feeding the viewport, when it has a preset wired in.
 
     /// Set by the loader / file checks, not serialized.
-    bool presetMissing{false};          //!< The first preset (see Presets()) is missing.
-    bool videoMissing{false};
-    std::vector<bool> playlistMissing;  //!< Per playlist entry.
+    bool presetMissing{false};         //!< The first entry's file is missing.
+    bool videoMissing{false};          //!< A pool video the scene uses is missing.
+    std::vector<bool> presetsMissing;  //!< Per entry of presetEntries.
 
-    /// Recomputes `classic` from `graph`. Called by the loader, CheckFiles and the edit helpers, so every
-    /// scene the document holds is up to date.
+    /// Recomputes presetEntries and presetSwitcher from `graph`. Called by the loader, CheckFiles and the
+    /// edit helpers, so every scene the document holds is up to date.
     void Refresh();
 
-    /// True if the scene cycles through a playlist.
-    auto IsPlaylist() const -> bool
+    /// True if a switcher feeds the viewport: the scene switches between presets.
+    auto SwitchesPresets() const -> bool
     {
-        return classic.playlist.enabled && !classic.playlist.presets.empty();
+        return !presetSwitcher.empty();
     }
 
-    /// True if the scene's video cycles through a playlist of pool videos.
-    auto IsVideoPlaylist() const -> bool
+    /// The presets' files, by entry.
+    auto Presets() const -> std::vector<std::filesystem::path>
     {
-        const auto& video = classic.video;
-        return video.source.type == VideoSourceType::File && video.playlist.enabled && !video.playlist.videos.empty();
+        std::vector<std::filesystem::path> paths;
+        for (const auto& entry : presetEntries)
+            paths.push_back(entry.path);
+        return paths;
     }
 
-    /// The pool videos the scene shows: the video playlist, or just the chosen one (none for Syphon).
-    auto VideoIds() const -> std::vector<std::string>
+    /// The preset shown when the scene starts.
+    auto FirstPreset() const -> const std::filesystem::path&
     {
-        if (IsVideoPlaylist())
-            return classic.video.playlist.videos;
-        if (classic.video.source.type == VideoSourceType::File && !classic.video.source.videoId.empty())
-            return {classic.video.source.videoId};
-        return {};
+        return presetEntries.front().path;
+    }
+
+    /// The entry on input `input` of the preset switcher, or -1.
+    auto EntryOfInput(int input) const -> int
+    {
+        for (size_t i = 0; i < presetEntries.size(); ++i)
+        {
+            if (presetEntries[i].input == input && !presetSwitcher.empty())
+                return static_cast<int>(i);
+        }
+        return -1;
     }
 
     /// Whether any video source node of the scene uses pool video `id`.
@@ -134,26 +153,6 @@ struct Scene
     {
         const auto ids = VideoIdsOf(graph);
         return std::find(ids.begin(), ids.end(), id) != ids.end();
-    }
-
-    /// The presets the scene shows: the playlist, or just the one.
-    auto Presets() const -> std::vector<std::filesystem::path>
-    {
-        return IsPlaylist() ? classic.playlist.presets : std::vector<std::filesystem::path>{classic.presetPath};
-    }
-
-    /// The video look for entry `item` (playlists), or the scene's.
-    auto LookFor(int item) const -> const VideoLook&
-    {
-        if (IsPlaylist() && item >= 0 && item < static_cast<int>(classic.playlist.looks.size()))
-            return classic.playlist.looks[static_cast<size_t>(item)];
-        return classic.video.look;
-    }
-
-    /// The preset shown when the scene starts.
-    auto FirstPreset() const -> const std::filesystem::path&
-    {
-        return IsPlaylist() ? classic.playlist.presets.front() : classic.presetPath;
     }
 
     auto DisplayName() const -> const std::string&
@@ -171,10 +170,6 @@ struct Performance
     std::vector<PoolVideo> videos;
 
     auto FindVideo(const std::string& id) const -> const PoolVideo*;
-
-    /// The pool video a scene's video starts with (the first of a video playlist), if it's a file source
-    /// that exists in the pool.
-    auto VideoFor(const Scene& scene) const -> const PoolVideo*;
 
     /// Index of the scene triggered by CC 20 value `value`, if any.
     auto SceneForCc20(int value) const -> std::optional<size_t>;

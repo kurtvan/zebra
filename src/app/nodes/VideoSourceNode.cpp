@@ -143,6 +143,8 @@ auto VideoSourceUi() -> NodeUi
         }
         if (context.Live())
         {
+            if (!context.IsLiveVideo(node))
+                return {NodeState::Ready, "Not on screen now."};
             if (const auto video = context.VideoState())
                 return {video->first ? NodeState::Live : NodeState::Waiting, video->second};
             return {NodeState::Live, "The scene is live."};
