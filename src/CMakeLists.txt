@@ -8,7 +8,8 @@ add_library(gv_common STATIC
     common/memory.cpp
     common/memory.hpp
     common/SpscRingBuffer.hpp
-    common/FitRect.hpp)
+    common/FitRect.hpp
+    common/ThumbnailVisible.hpp)
 target_include_directories(gv_common PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -49,7 +50,8 @@ target_link_libraries(gv_library PUBLIC gv_common PRIVATE gv_warnings nlohmann_j
 
 add_library(gv_thumbnails STATIC
     thumbnails/ThumbnailService.cpp
-    thumbnails/ThumbnailService.hpp)
+    thumbnails/ThumbnailService.hpp
+    thumbnails/SlotPlan.hpp)
 target_include_directories(gv_thumbnails SYSTEM PRIVATE "${stb_SOURCE_DIR}")
 target_compile_definitions(gv_thumbnails PRIVATE GL_SILENCE_DEPRECATION)
 target_link_libraries(gv_thumbnails PUBLIC gv_common SDL2::SDL2 OpenGL::GL libprojectM::projectM PRIVATE gv_warnings)

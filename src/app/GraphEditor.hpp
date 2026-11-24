@@ -54,14 +54,22 @@ public:
     /// Adds a preset or video source node for each dropped file, where the mouse was, as one undo step.
     void DropFiles(ShellState& state, AppActions& actions, int scene, const std::vector<std::filesystem::path>& files);
 
-    /// The preset thumbnails the canvas showed this frame, for ThumbnailService::SetWanted. Cleared by Draw.
+    /// The preset thumbnails the canvas showed this frame big enough to see, for ThumbnailService::SetWanted.
+    /// Cleared by Draw.
     auto WantedThumbnails() const -> const std::vector<thumbnails::Request>&
     {
         return m_wantedThumbnails;
     }
+    /// The preset thumbnails the canvas showed this frame too small or off screen: they keep their last
+    /// picture without rendering new frames.
+    auto KeptThumbnails() const -> const std::vector<thumbnails::Request>&
+    {
+        return m_keptThumbnails;
+    }
     void ClearWantedThumbnails()
     {
         m_wantedThumbnails.clear();
+        m_keptThumbnails.clear();
     }
 
 private:
@@ -101,8 +109,8 @@ private:
     void Scroll(ImVec2 wheel, bool zoom, ImVec2 pointer, ImVec2 size);
 
     // Drawing.
-    void DrawNode(const model::Node& node, NodeContext& context, bool compact);
-    void DrawTitleRow(const model::Node& node, NodeContext& context, bool compact, const std::vector<InputSpec>& inputs);
+    void DrawNode(const model::Node& node, NodeContext& context);
+    void DrawTitleRow(const model::Node& node, NodeContext& context, const std::vector<InputSpec>& inputs);
     void DrawPin(const model::Node& node, bool output, const InputSpec* spec, model::PortKind kind, float height);
     void DrawLinks(const model::Graph& graph);
     void HandleCreate(ShellState& state, AppActions& actions, int scene, const model::Graph& graph);
@@ -139,6 +147,7 @@ private:
     std::map<uint64_t, bool> m_accepts; //!< Accepts() results this frame, by pin key.
     std::map<std::string, std::vector<std::string>> m_textures; //!< PresetTextures, by path.
     std::vector<thumbnails::Request> m_wantedThumbnails;
+    std::vector<thumbnails::Request> m_keptThumbnails;
     std::string m_livePresetNode;
     std::string m_liveVideoNode; //!< The video source node on screen, when this scene is live.
     std::vector<std::string> m_hoverErrorNodes; //!< Outlined while a refused wire is hovered.

@@ -13,6 +13,7 @@ add_executable(gv_tests
     common/test_log.cpp
     common/test_ring_buffer.cpp
     common/test_fit_rect.cpp
+    common/test_thumbnail_visible.cpp
     model/test_performance_json.cpp
     model/test_document.cpp
     model/test_graph.cpp
@@ -24,6 +25,7 @@ add_executable(gv_tests
     engine/test_beat_hit.cpp
     engine/test_render_plan.cpp
     library/test_library.cpp
+    thumbnails/test_slot_plan.cpp
     nodes/test_node_types.cpp
     ${GV_NODE_TESTS})
 target_include_directories(gv_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

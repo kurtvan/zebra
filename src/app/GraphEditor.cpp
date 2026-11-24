@@ -5,6 +5,7 @@
 #include "app/macos/FileDialog.hpp"
 #include "io/VideoSource.hpp"
 #include "common/FitRect.hpp"
+#include "common/ThumbnailVisible.hpp"
 #include "library/PresetParsing.hpp"
 
 #include <imgui_internal.h>
@@ -23,7 +24,6 @@ namespace {
 const ImVec4 kVideoWire{0.42f, 0.64f, 0.98f, 1.f};
 const ImVec4 kFrameWire{0.96f, 0.62f, 0.30f, 1.f};
 const ImVec4 kAnyKindPin{0.70f, 0.70f, 0.70f, 1.f}; //!< An unwired switcher's ports: either kind.
-constexpr float kCompactZoom = 0.75f; //!< Below this zoom, nodes show only their title bar (N4.3).
 constexpr float kPinSize = 12.f;
 constexpr float kArrowWidth = 14.f;
 constexpr float kNodeRounding = 6.f;
@@ -161,7 +161,7 @@ public:
     {
         return m_state.preview;
     }
-    auto Thumbnail(const std::filesystem::path& preset) -> unsigned int override
+    auto Thumbnail(const std::filesystem::path& preset, ImVec2 min, ImVec2 max) -> unsigned int override
     {
         if (m_state.library == nullptr || m_state.thumbnails == nullptr || preset.empty())
             return 0;
@@ -169,7 +169,13 @@ public:
         const library::PresetInfo* info = id.empty() ? nullptr : m_state.library->Find(id);
         if (info == nullptr)
             return 0;
-        m_editor.m_wantedThumbnails.push_back({id, preset, std::to_string(info->modified) + ":" + std::to_string(info->size)});
+        // Too small or off the canvas: keep the last picture, but don't render new frames.
+        const ImVec2 screenMin = ed::CanvasToScreen(min);
+        const ImVec2 screenMax = ed::CanvasToScreen(max);
+        const ScreenRect picture{screenMin.x, screenMin.y, screenMax.x, screenMax.y};
+        const ScreenRect canvas{m_editor.m_canvasMin.x, m_editor.m_canvasMin.y, m_editor.m_canvasMax.x, m_editor.m_canvasMax.y};
+        auto& list = ThumbnailVisible(picture, canvas, kMinThumbnailWidth) ? m_editor.m_wantedThumbnails : m_editor.m_keptThumbnails;
+        list.push_back({id, preset, std::to_string(info->modified) + ":" + std::to_string(info->size)});
         const auto tile = m_state.thumbnails->Get(id);
         return tile ? tile->texture : 0;
     }
@@ -471,7 +477,6 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
         Scroll(wheel, zoomKey, ImVec2(io.MousePos.x - origin.x, io.MousePos.y - origin.y), size);
     }
     m_zoom = ed::GetCurrentZoom();
-    const bool compact = m_zoom < kCompactZoom;
     m_mouseCanvas = ImGui::GetMousePos(); // inside the canvas, ImGui's mouse is in canvas coordinates
     m_pins.clear();
     m_nodeIds.clear();
@@ -516,7 +521,7 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
             ed::PushStyleColor(ed::StyleColor_NodeBorder, kRed);
             ed::PushStyleVar(ed::StyleVar_NodeBorderWidth, 2.5f);
         }
-        DrawNode(node, context, compact);
+        DrawNode(node, context);
         if (red)
         {
             ed::PopStyleVar();
@@ -641,17 +646,17 @@ void GraphEditor::FitView(const model::Graph& graph, ImVec2 size)
     ed::SetViewState({ImVec2(left, top), ImVec2(left + visible.x, top + visible.y)});
 }
 
-void GraphEditor::DrawNode(const model::Node& node, NodeContext& context, bool compact)
+void GraphEditor::DrawNode(const model::Node& node, NodeContext& context)
 {
     const uint64_t key = NodeKey(node.id);
     const ImVec4 padding = ed::GetStyle().NodePadding;
     context.width = Ui(node.type).width - padding.x - padding.z;
     const auto inputs = NodeInputs(node, context);
-    const bool titleOnly = compact || !node.expanded;
+    const bool titleOnly = !node.expanded;
 
     ed::BeginNode(key);
     const float titleTop = ImGui::GetCursorScreenPos().y;
-    DrawTitleRow(node, context, titleOnly, inputs);
+    DrawTitleRow(node, context, inputs);
     const float titleBottom = titleTop + ImGui::GetFrameHeight();
     if (!titleOnly)
     {
@@ -683,14 +688,14 @@ void GraphEditor::DrawNode(const model::Node& node, NodeContext& context, bool c
     }
 }
 
-void GraphEditor::DrawTitleRow(const model::Node& node, NodeContext& context, bool compact, const std::vector<InputSpec>& inputs)
+void GraphEditor::DrawTitleRow(const model::Node& node, NodeContext& context, const std::vector<InputSpec>& inputs)
 {
     const float height = ImGui::GetFrameHeight();
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const auto output = model::OutputKind(node);
 
     // Collapsed nodes keep their input pins, in a row before the title.
-    if (compact)
+    if (!node.expanded)
     {
         for (const auto& spec : inputs)
         {

@@ -72,9 +72,10 @@ public:
 
     void SetTexturePaths(std::vector<std::string> texturePaths);
 
-    /// The tiles to show, most important first, plus ones to prepare quietly (e.g. just off screen).
+    /// The tiles to show, most important first, plus ones to prepare quietly (e.g. just off screen), plus
+    /// ones to keep showing without rendering (e.g. too small to see: they keep their last picture).
     /// Everything else is dropped. Cheap to call every frame.
-    void SetWanted(std::vector<Request> visible, std::vector<Request> prefetch);
+    void SetWanted(std::vector<Request> visible, std::vector<Request> prefetch, std::vector<Request> kept = {});
 
     /// Pauses all work (e.g. during a fullscreen performance).
     void SetPaused(bool paused);
@@ -102,6 +103,7 @@ private:
     void WarmUp(Slot& slot);
     void RenderFrame(Slot& slot);
     void DestroySlot(const std::string& id);
+    void StopInstance(Slot& slot);
     void Publish(const std::string& id, const Slot& slot);
     auto CacheFile(const Request& request) const -> std::filesystem::path;
     void TrimCache();
@@ -119,6 +121,7 @@ private:
     uint64_t m_wantedVersion{0};
     std::vector<Request> m_visible;
     std::vector<Request> m_prefetch;
+    std::vector<Request> m_kept;
     std::vector<std::string> m_texturePaths;
     std::map<std::string, Tile> m_published;
     GLsync m_latestFence{nullptr};
