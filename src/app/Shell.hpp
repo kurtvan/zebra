@@ -111,6 +111,8 @@ private:
     auto ReplaceLivePreset(const ShellState& state, AppActions& actions, const std::filesystem::path& preset) -> bool;
     void DoubleClickPreset(const ShellState& state, AppActions& actions, const std::filesystem::path& preset);
     void DrawVideos(ShellState& state, AppActions& actions);
+    /// The selected scene's nodes; clicking one selects it on the canvas and centres the view on it.
+    void DrawNodes(ShellState& state, AppActions& actions);
     void DrawStatus(const ShellState& state);
     void DrawMessages(const ShellState& state);
     void DrawStatusBar(ShellState& state, AppActions& actions);
@@ -132,6 +134,7 @@ private:
     int m_canvasWidthField{-1};  //!< Canvas size being typed (-1: not editing).
     int m_canvasHeightField{-1};
     bool m_videosHovered{false}; //!< Last frame: Finder drops add to the pool instead of a scene.
+    std::string m_nodeFilter;    //!< The Nodes pane's filter.
     GraphEditor m_graph;
     std::vector<thumbnails::Request> m_gridVisible; //!< The browser's thumbnails this frame.
     std::vector<thumbnails::Request> m_gridPrefetch;

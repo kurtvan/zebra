@@ -99,7 +99,7 @@ void InstallMenus()
         [view addItem:[NSMenuItem separatorItem]];
         AddItem(view, @"Scenes Panel", MenuCommand::ToggleLeftPanes, @"1");
         AddItem(view, @"Scene and Setup Panels", MenuCommand::ToggleRightPanes, @"2");
-        AddItem(view, @"Presets, Videos, Status and Messages", MenuCommand::ToggleBottomPanes, @"3");
+        AddItem(view, @"Presets, Videos, Nodes, Status and Messages", MenuCommand::ToggleBottomPanes, @"3");
         AddItem(view, @"Focus Mode", MenuCommand::FocusMode, @"0");
 
         SetRecentFiles({});

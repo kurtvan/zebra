@@ -3,6 +3,7 @@
 #include "app/Widgets.hpp"
 #include "app/macos/FileDialog.hpp"
 #include "common/FitRect.hpp"
+#include "model/NodeList.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -36,6 +37,7 @@ constexpr const char* kBrowser = "Presets";
 constexpr const char* kStatus = "Status";
 constexpr const char* kMessages = "Messages";
 constexpr const char* kVideos = "Videos";
+constexpr const char* kNodes = "Nodes";
 constexpr const char* kGraph = "Graph";
 constexpr const char* kSceneDragPayload = "GV_SCENE";
 
@@ -43,7 +45,7 @@ constexpr const char* kSceneDragPayload = "GV_SCENE";
 const std::vector<const char*> kPaneWindows[kPaneAreaCount] = {
     {kScenes},
     {kProperties, kSetup},
-    {kBrowser, kVideos, kStatus, kMessages},
+    {kBrowser, kVideos, kNodes, kStatus, kMessages},
 };
 
 struct PaneAreaInfo
@@ -55,7 +57,7 @@ struct PaneAreaInfo
 constexpr PaneAreaInfo kPaneAreas[kPaneAreaCount] = {
     {"Scenes", "Cmd+1", ImGuiDir_Left},
     {"Scene and Setup", "Cmd+2", ImGuiDir_Right},
-    {"Presets, Videos, Status and Messages", "Cmd+3", ImGuiDir_Down},
+    {"Presets, Videos, Nodes, Status and Messages", "Cmd+3", ImGuiDir_Down},
 };
 
 auto Opposite(ImGuiDir dir) -> ImGuiDir
@@ -279,6 +281,7 @@ void Shell::Draw(ShellState& state, AppActions& actions)
     {
         DrawBrowser(state, actions);
         DrawVideos(state, actions);
+        DrawNodes(state, actions);
         DrawStatus(state);
         DrawMessages(state);
     }
@@ -325,6 +328,7 @@ void Shell::BuildDefaultLayout(unsigned int dockspace)
     ImGui::DockBuilderDockWindow(kSetup, right);
     ImGui::DockBuilderDockWindow(kBrowser, bottom);
     ImGui::DockBuilderDockWindow(kVideos, bottom);
+    ImGui::DockBuilderDockWindow(kNodes, bottom);
     ImGui::DockBuilderDockWindow(kStatus, bottom);
     ImGui::DockBuilderDockWindow(kMessages, bottom);
     ImGui::DockBuilderDockWindow(kPreview, center);
@@ -1750,6 +1754,68 @@ void Shell::DrawVideos(ShellState& state, AppActions& actions)
         auto edited = performance;
         if (model::RemovePoolVideo(edited, removeId))
             actions.Edit(std::move(edited), "Remove Video");
+    }
+    ImGui::End();
+}
+
+void Shell::DrawNodes(ShellState& state, AppActions& actions)
+{
+    // Layouts saved before this panel existed don't place it: put it with the preset browser.
+    if (ImGui::FindWindowSettingsByID(ImHashStr(kNodes)) == nullptr)
+    {
+        if (ImGuiWindow* browser = ImGui::FindWindowByName(kBrowser); browser != nullptr && browser->DockId != 0)
+            ImGui::SetNextWindowDockID(browser->DockId, ImGuiCond_FirstUseEver);
+    }
+    if (!ImGui::Begin(kNodes))
+    {
+        ImGui::End();
+        return;
+    }
+    const auto& performance = state.document->Get();
+    const int index = *state.selectedScene;
+    if (index < 0 || index >= static_cast<int>(performance.scenes.size()))
+    {
+        ImGui::TextColored(kDim, "Select a scene to see its nodes.");
+        ImGui::End();
+        return;
+    }
+    const model::Scene& scene = performance.scenes[static_cast<size_t>(index)];
+    const auto rows = model::ListNodes(scene.graph, m_nodeFilter,
+                                       [&](const model::Node& node) { return m_graph.TitleOf(state, actions, index, node); });
+
+    ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x, 260.f));
+    ImGui::InputTextWithHint("##node-filter", "Filter by name or type", &m_nodeFilter);
+    ImGui::SameLine();
+    ImGui::TextColored(kDim, "%zu of %zu nodes in \"%s\"", rows.size(), scene.graph.nodes.size(), scene.DisplayName().c_str());
+
+    const std::string selected = m_graph.SelectedNode(scene.id);
+    if (ImGui::BeginTable("nodes", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp))
+    {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 3.f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 1.5f);
+        ImGui::TableSetupColumn("Viewport", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+        for (const auto& row : rows)
+        {
+            ImGui::PushID(row.id.c_str());
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (!row.connected)
+                ImGui::PushStyleColor(ImGuiCol_Text, kDim);
+            if (ImGui::Selectable(row.label.c_str(), row.id == selected, ImGuiSelectableFlags_SpanAllColumns))
+                m_graph.FocusNode(scene.id, row.id);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s\nClick to find it on the canvas.", row.connected ? "Reaches the viewport." : "Doesn't reach the viewport.");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(row.type.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(row.connected ? "Yes" : "No");
+            if (!row.connected)
+                ImGui::PopStyleColor();
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
     }
     ImGui::End();
 }

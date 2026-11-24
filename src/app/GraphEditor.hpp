@@ -46,6 +46,11 @@ public:
     /// The only node selected on scene `sceneId`'s canvas, or empty.
     auto SelectedNode(const std::string& sceneId) const -> std::string;
 
+    /// On scene `sceneId`'s next draw: selects only `node` and centres the view on it, keeping the zoom.
+    void FocusNode(const std::string& sceneId, const std::string& node);
+    /// What `node`'s title bar on scene `scene`'s canvas says.
+    auto TitleOf(ShellState& state, AppActions& actions, int scene, const model::Node& node) -> std::string;
+
     /// Whether the mouse was over the canvas last frame (Finder drops then add nodes there).
     auto Hovered() const -> bool
     {
@@ -103,6 +108,8 @@ private:
     };
 
     auto CanvasFor(const std::string& sceneId) -> Canvas&;
+    /// Applies a FocusNode request for the scene being drawn, between ed::Begin and ed::End.
+    void ApplyFocus(const model::Graph& graph, ImVec2 size);
     void Configure();
     void FitView(const model::Graph& graph, ImVec2 size);
     /// Pans by a scroll (two fingers or the wheel), or zooms at `pointer` (relative to the canvas) when `zoom`.
@@ -172,6 +179,8 @@ private:
     std::vector<model::GraphError> m_pendingErrors;
     bool m_hovered{false};
     bool m_fitRequested{false};
+    std::string m_focusScene; //!< FocusNode: the scene and node to focus on its next draw.
+    std::string m_focusNode;
     bool m_previewBehind{false}; //!< The live output is drawn behind the nodes this frame.
     bool m_choosePreset{false}; //!< The add menu's "Milkdrop preset..." was picked: ask for a file after the canvas.
     const model::Graph* m_graph{nullptr};
