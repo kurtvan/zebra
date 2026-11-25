@@ -73,6 +73,10 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
                 branch.passes.push_back(model::Def(node->type).pass(*node));
                 node = graph.Upstream(node->id, 0);
             }
+            else if (node->type == NodeType::IsfShader)
+            {
+                node = graph.Upstream(node->id, 0); // not drawn yet: its first input's video passes through
+            }
             else if (node->type == NodeType::Switcher)
             {
                 node = ThroughSwitchers(graph, node, selection);

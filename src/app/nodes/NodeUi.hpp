@@ -156,8 +156,8 @@ struct Control
     Kind kind{Kind::Custom};
     const char* id{"##control"}; //!< The ImGui id, unique in the node.
 
-    double (*get)(const model::Node&){nullptr};
-    void (*set)(model::Node&, double){nullptr};
+    std::function<double(const model::Node&)> get{};   //!< Per-node controls (NodeUi::controlsFor) may capture.
+    std::function<void(model::Node&, double)> set{};
     double min{0.0};
     double max{1.0};
     bool integer{false};
@@ -213,6 +213,8 @@ struct NodeUi
     void (*inputDoubleClicked)(const model::Node&, int input, NodeContext&){nullptr};
 
     std::vector<Control> controls; //!< The body below the title bar, top to bottom.
+    /// The body for this node, in place of `controls` (an ISF shader's come from its file). Null: `controls`.
+    std::vector<Control> (*controlsFor)(const model::Node&, NodeContext&){nullptr};
     std::vector<AddItem> addItems; //!< Empty: not in the Add menu.
 };
 
@@ -225,6 +227,8 @@ auto NodeUis() -> std::span<const NodeUi>;
 auto NodeTitle(const model::Node& node, NodeContext& context) -> std::string;
 auto NodeStatusOf(const model::Node& node, NodeContext& context) -> NodeStatus;
 auto NodeInputs(const model::Node& node, NodeContext& context) -> std::vector<InputSpec>;
+/// The node's controls: its type's controlsFor, else its controls.
+auto NodeControls(const model::Node& node, NodeContext& context) -> std::vector<Control>;
 /// The node's controls (and input rows), below its title bar.
 void DrawNodeBody(const model::Node& node, NodeContext& context);
 /// The list control `kind` opened (Choice or Custom).
@@ -240,6 +244,7 @@ auto OpacityUi() -> NodeUi;
 auto MilkdropPresetUi() -> NodeUi;
 auto SwitcherUi() -> NodeUi;
 auto ViewportUi() -> NodeUi;
+auto IsfShaderUi() -> NodeUi;
 
 /// Control get/set for one field of `Params` (a pointer to member): a number, or a bool as 0 or 1.
 template <class Params, auto Member>

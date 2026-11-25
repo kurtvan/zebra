@@ -106,7 +106,7 @@ auto Label(const Node& node) -> std::string;
 void CheckRange(std::vector<GraphError>& errors, const Node& node, const char* what, double value, double low, double high,
                 const char* range);
 
-/// Walks upstream from `node` through effect nodes to the node the chain starts from (a video source or
+/// Walks upstream from `node` through effect nodes (and ISF shaders' first input) to the node the chain starts from (a video source or
 /// a Video switcher). Null if the chain has no start yet or loops.
 auto ChainStart(const Graph& graph, const Node* node) -> const Node*;
 
@@ -121,6 +121,7 @@ auto OpacityDef() -> NodeDef;
 auto MilkdropPresetDef() -> NodeDef;
 auto SwitcherDef() -> NodeDef;
 auto ViewportDef() -> NodeDef;
+auto IsfShaderDef() -> NodeDef;
 
 /// The parts every effect shares: one video input, one video output.
 auto EffectBase(NodeType type, const char* jsonName, const char* idPrefix, const char* displayName, NodeParams defaults) -> NodeDef;

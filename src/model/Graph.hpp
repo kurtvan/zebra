@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <variant>
@@ -50,9 +51,10 @@ enum class NodeType
     Opacity,
     MilkdropPreset,
     Switcher,
-    Viewport
+    Viewport,
+    IsfShader
 };
-constexpr int kNodeTypeCount = 8; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
+constexpr int kNodeTypeCount = 9; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
 
 /// What travels along a wire: a video picture, or a preset's finished frame.
 enum class PortKind
@@ -119,9 +121,19 @@ struct ViewportParams
 {
     auto operator==(const ViewportParams&) const -> bool = default;
 };
+struct IsfShaderParams
+{
+    std::filesystem::path path; //!< The .fs file; its header gives the node's inputs and controls.
+    /// The controls' values, by ISF input name (1 number for float, bool and long). Values for inputs the file
+    /// no longer has are kept but unused.
+    std::map<std::string, std::vector<float>> values;
+    /// Not saved: 1 + the highest wired input (FollowWires), so a missing or edited file keeps its wires.
+    int wiredInputs{0};
+    auto operator==(const IsfShaderParams&) const -> bool = default;
+};
 
 using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, OpacityParams, MilkdropPresetParams,
-                                SwitcherParams, ViewportParams>;
+                                SwitcherParams, ViewportParams, IsfShaderParams>;
 
 struct Node
 {

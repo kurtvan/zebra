@@ -39,9 +39,12 @@ add_library(gv_model STATIC
     model/nodes/OpacityNode.cpp
     model/nodes/MilkdropPresetNode.cpp
     model/nodes/SwitcherNode.cpp
-    model/nodes/ViewportNode.cpp)
-# Public: model/nodes/NodeDef.hpp names nlohmann::json in the node definitions' signatures.
-target_link_libraries(gv_model PUBLIC gv_common nlohmann_json::nlohmann_json PRIVATE gv_warnings)
+    model/nodes/ViewportNode.cpp
+    model/nodes/IsfShaderNode.cpp
+    model/nodes/IsfShaderNode.hpp)
+# Public: model/nodes/NodeDef.hpp names nlohmann::json in the node definitions' signatures, and
+# model/nodes/IsfShaderNode.hpp the parsed ISF header.
+target_link_libraries(gv_model PUBLIC gv_common gv_isf nlohmann_json::nlohmann_json PRIVATE gv_warnings)
 
 add_library(gv_library STATIC
     library/PresetParsing.cpp
@@ -121,7 +124,8 @@ add_library(gv_app_nodes STATIC
     app/nodes/OpacityNode.cpp
     app/nodes/MilkdropPresetNode.cpp
     app/nodes/SwitcherNode.cpp
-    app/nodes/ViewportNode.cpp)
+    app/nodes/ViewportNode.cpp
+    app/nodes/IsfShaderNode.cpp)
 target_link_libraries(gv_app_nodes PUBLIC gv_common gv_model gv_library imgui PRIVATE gv_warnings)
 
 # The user's settings, including which editor areas are collapsed: pure, so tests can round-trip them.
