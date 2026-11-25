@@ -45,8 +45,9 @@ auto IsfFileAt(const std::filesystem::path& path) -> IsfFile
     static std::mutex mutex;
     static std::map<std::filesystem::path, Cached> cache;
     std::lock_guard<std::mutex> lock(mutex);
-    if (auto it = cache.find(path); it != cache.end() && it->second.modified == modified)
-        return it->second.file;
+    const auto cached = cache.find(path);
+    if (cached != cache.end() && cached->second.modified == modified)
+        return cached->second.file;
 
     IsfFile file;
     std::ifstream in(path, std::ios::binary);
@@ -59,6 +60,8 @@ auto IsfFileAt(const std::filesystem::path& path) -> IsfFile
         file.shader = std::make_shared<const isf::IsfShader>(std::move(*shader));
     else
         file.error = "line " + std::to_string(std::get<isf::IsfError>(parsed).line) + ": " + std::get<isf::IsfError>(parsed).message;
+    if (file.shader == nullptr && cached != cache.end())
+        file.shader = cached->second.file.shader; // a bad edit keeps the last version that could be read
     cache[path] = {modified, file};
     return file;
 }

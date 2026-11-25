@@ -750,20 +750,35 @@ void Lane::CompileShaders(const LanePlan& plan)
             if (!step.isf || m_programs.contains(step.isf->shader))
                 continue;
             const auto start = Clock::now();
-            auto program = std::make_unique<isf::IsfProgram>(*step.isf->shader);
             LaneEvent event;
             event.type = LaneEvent::Type::ShaderCompiled;
             event.lane = m_id;
             event.shaderPath = step.isf->path.string();
-            event.ok = program->Ok();
-            event.error = program->Error();
+            event.error = CompileIsf(m_programs, step.isf->shader, LastGoodShader(step.isf->path));
+            event.ok = event.error.empty();
             event.prepareMs = MillisecondsSince(start);
             if (!event.ok)
                 GV_LOG_WARN(kLogCategory, "lane %d: ISF shader didn't compile: %s: %s", m_id, event.shaderPath.c_str(), event.error.c_str());
-            m_programs.emplace(step.isf->shader, std::move(program));
             m_sink(std::move(event));
         }
     }
+}
+
+auto Lane::LastGoodShader(const std::filesystem::path& path) const -> std::shared_ptr<const isf::IsfShader>
+{
+    for (const auto& [id, hosted] : m_instances)
+    {
+        for (const auto& branch : hosted.plan.branches)
+        {
+            for (const auto& step : branch.steps)
+            {
+                const auto program = step.isf && step.isf->path == path ? m_programs.find(step.isf->shader) : m_programs.end();
+                if (program != m_programs.end() && program->second->Ok())
+                    return step.isf->shader;
+            }
+        }
+    }
+    return nullptr;
 }
 
 void Lane::DropUnusedPrograms()

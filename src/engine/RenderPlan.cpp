@@ -39,7 +39,8 @@ auto ThroughSwitchers(const Graph& graph, const Node* node, const SwitcherSelect
 }
 
 /// Appends `node` to `steps`: an effect joins the effects before it, an ISF shader is a step of its own. A
-/// shader whose file is missing or broken is left out, so the video passes through it.
+/// shader whose file is missing, or broken with no earlier version (model::IsfFileAt), is left out, so the
+/// video passes through it.
 void AddStep(std::vector<VideoStep>& steps, const Node& node)
 {
     if (node.type == NodeType::IsfShader)

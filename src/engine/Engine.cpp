@@ -325,6 +325,43 @@ void Engine::RefreshLivePlans()
         m_lanes[static_cast<size_t>(hosted.lane)]->SetPlan(hosted.instance, PlanFor(live, scene, hosted.item));
 }
 
+void Engine::ReloadChangedShaders()
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (now - m_shadersPolled < std::chrono::milliseconds(250))
+        return;
+    m_shadersPolled = now;
+    auto shaderPaths = [](const model::Scene& scene) {
+        std::set<std::filesystem::path> paths;
+        for (const auto& node : scene.graph.nodes)
+        {
+            if (node.type == model::NodeType::IsfShader && !model::ParamsOf<model::IsfShaderParams>(node).path.empty())
+                paths.insert(model::ParamsOf<model::IsfShaderParams>(node).path);
+        }
+        return paths;
+    };
+    std::set<std::filesystem::path> watched;
+    for (const auto& scene : m_performance.scenes)
+        watched.merge(shaderPaths(scene));
+    const auto changed = m_shaderFiles.Poll(watched);
+    if (changed.empty())
+        return;
+
+    // Plans hold the parsed file, so a new one compiles on the lanes as a plan change does (between frames).
+    for (int index = 0; index < static_cast<int>(m_performance.scenes.size()); ++index)
+    {
+        const auto& scene = m_performance.scenes[static_cast<size_t>(index)];
+        const auto paths = shaderPaths(scene);
+        if (std::none_of(changed.begin(), changed.end(), [&](const auto& path) { return paths.contains(path); }))
+            continue;
+        GV_LOG_INFO(kLogCategory, "scene %d (%s): an ISF shader file changed, reloading it", index, scene.DisplayName().c_str());
+        for (const auto& hosted : m_pool.InstancesOf(index))
+            m_lanes[static_cast<size_t>(hosted.lane)]->SetPlan(hosted.instance, PlanFor(index, scene, hosted.item));
+        if (m_handover.instance != 0 && m_handover.scene == index && !scene.SwitchesPresets())
+            m_lanes[static_cast<size_t>(m_handover.lane)]->SetPlan(m_handover.instance, PlanFor(index, scene, 0));
+    }
+}
+
 void Engine::JumpVideo(int index, const std::string& switcherId, int input)
 {
     if (index != m_pool.LiveScene() || index != m_switchers.scene)
@@ -437,6 +474,7 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
     }
 
     UpdateSwitchers();
+    ReloadChangedShaders();
     if (m_videoProvider != nullptr)
         m_videoProvider->BeginFrame(Needs());
 

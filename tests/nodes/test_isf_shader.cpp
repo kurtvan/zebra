@@ -267,5 +267,51 @@ TEST_CASE("ISF shader: a shader that doesn't compile is an error on the node, wi
     CHECK(status.tooltip.ends_with("ERROR: 0:14: 'colour' : undeclared identifier\nERROR: 1 compilation error"));
     const auto texts = Controls(scene.Node(id), context, app::Control::Kind::Text);
     REQUIRE(texts.size() == 1);
-    CHECK(texts[0].text(scene.Node(id), context) == "Doesn't compile, so the video passes through: ERROR: 0:14: 'colour' : undeclared identifier");
+    CHECK(texts[0].text(scene.Node(id), context) == "Doesn't compile: ERROR: 0:14: 'colour' : undeclared identifier");
+}
+
+TEST_CASE("ISF shader: an edit the parser can't read keeps the last version, with the error on the node", "[node:isf-shader]")
+{
+    const auto file = TempDir() / "edited.fs";
+    WriteShader(file, R"({"NAME": "inputImage", "TYPE": "image"}, {"NAME": "amount", "TYPE": "float"})");
+    const auto good = model::IsfFileAt(file).shader;
+    REQUIRE(good != nullptr);
+
+    const auto before = std::filesystem::last_write_time(file);
+    std::ofstream(file) << "/*{ \"INPUTS\": [ }*/\nvoid main() {}\n";
+    std::filesystem::last_write_time(file, before + std::chrono::seconds(1));
+    const auto broken = model::IsfFileAt(file);
+    CHECK(broken.shader == good);
+    CHECK(broken.error.starts_with("line 1: "));
+
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::IsfShader, WithPath(file));
+    test::FakeNodeContext context(scene);
+    CHECK(model::InputCount(scene.Node(id)) == 1);
+    CHECK(app::NodeStatusOf(scene.Node(id), context).tooltip.ends_with("The last version that could be read keeps running."));
+
+    WriteShader(file, R"({"NAME": "inputImage", "TYPE": "image"})");
+    CHECK(model::IsfFileAt(file).shader != good);
+    CHECK(model::IsfFileAt(file).error.empty());
+}
+
+TEST_CASE("ISF shader: a value set on an input an edit removes is kept, and comes back with the input", "[node:isf-shader]")
+{
+    const auto file = TempDir() / "comeback.fs";
+    WriteShader(file, R"({"NAME": "amount", "TYPE": "float"})");
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::IsfShader, [&](model::Node& n) { model::ParamsOf<IsfShaderParams>(n) = {file, {{"amount", {0.75f}}}}; });
+    test::FakeNodeContext context(scene);
+    REQUIRE(Controls(scene.Node(id), context, app::Control::Kind::Slider).size() == 1);
+
+    WriteShader(file, R"({"NAME": "other", "TYPE": "float"})");
+    const auto sliders = Controls(scene.Node(id), context, app::Control::Kind::Slider);
+    REQUIRE(sliders.size() == 1);
+    CHECK(std::string(sliders[0].field) == "other");
+    CHECK(test::RoundTrip(scene.Node(id)) == scene.Node(id)); // saved, though hidden
+
+    WriteShader(file, R"({"NAME": "amount", "TYPE": "float"})");
+    const auto back = Controls(scene.Node(id), context, app::Control::Kind::Slider);
+    REQUIRE(back.size() == 1);
+    CHECK(back[0].get(scene.Node(id)) == 0.75);
 }

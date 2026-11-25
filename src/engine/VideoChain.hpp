@@ -7,12 +7,20 @@
 
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace gv::engine {
 
-/// The compiled ISF shaders a lane draws with, by parsed file (IsfStep::shader).
-using IsfPrograms = std::map<std::shared_ptr<const isf::IsfShader>, std::unique_ptr<isf::IsfProgram>>;
+/// The compiled ISF shaders a lane draws with, by parsed file (IsfStep::shader). Versions of a file that don't
+/// compile can share an earlier version's program (CompileIsf).
+using IsfPrograms = std::map<std::shared_ptr<const isf::IsfShader>, std::shared_ptr<isf::IsfProgram>>;
+
+/// Compiles `shader` into `programs`, unless it's there already. When it doesn't compile but `lastGood` (an
+/// earlier version of the same file) has a working program, `shader` is drawn with that one, so a bad edit
+/// keeps the old version on screen. Returns the compiler's message, or "" when it compiled.
+auto CompileIsf(IsfPrograms& programs, const std::shared_ptr<const isf::IsfShader>& shader,
+                const std::shared_ptr<const isf::IsfShader>& lastGood = nullptr) -> std::string;
 
 /// A texture and the framebuffer that draws into it.
 struct RenderTarget
