@@ -17,6 +17,8 @@ target_compile_features(gv_common PUBLIC cxx_std_20)
 target_link_libraries(gv_common PRIVATE gv_warnings "-framework Foundation")
 
 add_library(gv_model STATIC
+    model/Arrange.cpp
+    model/Arrange.hpp
     model/Graph.cpp
     model/Graph.hpp
     model/LegacyScene.cpp

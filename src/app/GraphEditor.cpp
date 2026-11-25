@@ -4,6 +4,7 @@
 #include "app/Widgets.hpp"
 #include "app/macos/FileDialog.hpp"
 #include "io/VideoSource.hpp"
+#include "model/Arrange.hpp"
 #include "common/FitRect.hpp"
 #include "common/ThumbnailVisible.hpp"
 #include "library/PresetParsing.hpp"
@@ -441,6 +442,11 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     if (ImGui::SmallButton("Fit"))
         m_fitRequested = true;
     ImGui::SameLine();
+    if (ImGui::SmallButton("Arrange"))
+        m_arrangeRequested = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Lays out the whole scene from its wires: sources on the left, the viewport on the right. Cmd+Z undoes it.");
+    ImGui::SameLine();
     ImGui::TextColored(kDim, "%.0f%%", m_zoom * 100.f);
     Settings* settings = state.settings;
     if (settings != nullptr)
@@ -590,6 +596,11 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     HandleCreate(state, actions, sceneIndex, graph);
     HandleDelete(actions, sceneIndex, graph);
     HandleEdits(actions, sceneIndex, graph);
+    if (m_arrangeRequested)
+    {
+        m_arrangeRequested = false;
+        Arrange(actions, sceneIndex, graph);
+    }
 
     canvas.selectedNodes.clear();
     canvas.selectedLinks.clear();
@@ -1067,6 +1078,39 @@ void GraphEditor::HandleEdits(AppActions& actions, int scene, const model::Graph
             }
         },
         moved.size() == 1 ? "Move Node" : "Move Nodes");
+}
+
+void GraphEditor::Arrange(AppActions& actions, int scene, const model::Graph& graph)
+{
+    std::map<std::string, model::ArrangeSize> sizes;
+    for (const auto& node : graph.nodes)
+    {
+        const ImVec2 extent = ed::GetNodeSize(NodeKey(node.id));
+        if (extent.x > 0.f && extent.y > 0.f)
+            sizes[node.id] = {extent.x, extent.y};
+    }
+    const auto positions = model::ArrangeLayered(graph, sizes);
+    const bool moves = std::any_of(graph.nodes.begin(), graph.nodes.end(), [&](const model::Node& node) {
+        const auto& at = positions.at(node.id);
+        return at.x != node.x || at.y != node.y;
+    });
+    if (moves)
+    {
+        actions.EditGraph(
+            scene,
+            [&](model::Graph& g) {
+                for (auto& node : g.nodes)
+                {
+                    if (auto it = positions.find(node.id); it != positions.end())
+                    {
+                        node.x = it->second.x;
+                        node.y = it->second.y;
+                    }
+                }
+            },
+            "Arrange");
+    }
+    m_fitRequested = true; // next frame, once the nodes are at their new places
 }
 
 void GraphEditor::DrawPopups(NodeContext& context, AppActions& actions, const model::Graph& graph, int scene)
