@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/EditorView.hpp"
+#include "app/PinPill.hpp"
 #include "app/WireRoute.hpp"
 #include "app/nodes/NodeUi.hpp"
 #include "model/Graph.hpp"
@@ -90,6 +91,8 @@ private:
         std::string texture;
         model::PortKind kind{model::PortKind::Video};
         ImVec2 center{0, 0}; //!< In canvas coordinates.
+        PinSide side{PinSide::Left};
+        int wires{0}; //!< How many wires meet here: two or more draw it as a pill (PinPill.hpp).
     };
 
     /// Per scene: the editor (with its zoom and pan) and what we last told it about node positions.
@@ -120,8 +123,11 @@ private:
 
     // Drawing.
     void DrawNode(const model::Node& node, NodeContext& context);
-    void DrawTitleRow(const model::Node& node, NodeContext& context, const std::vector<InputSpec>& inputs);
+    /// The title bar's row; returns its height, which grows to fit a pin's pill.
+    auto DrawTitleRow(const model::Node& node, NodeContext& context, const std::vector<InputSpec>& inputs) -> float;
     void DrawPin(const model::Node& node, bool output, const InputSpec* spec, model::PortKind kind, float height);
+    /// How many wires meet at `node`'s output, or at its input `spec`.
+    [[nodiscard]] auto WiresAt(const model::Node& node, bool output, const InputSpec* spec) const -> int;
     /// The wires, as routed polylines (see WireRoute.hpp), and which one is under the pointer.
     void DrawLinks(const model::Graph& graph);
     /// After ed::End: a click on the wire under the pointer selects it (Cmd or Ctrl: adds or removes it).
@@ -181,6 +187,7 @@ private:
     std::vector<WireEnds> m_wireEnds;
     std::vector<std::vector<ImVec2>> m_wireLines; //!< The routes, in m_wireEnds' order.
     std::map<std::string, int> m_wireBox;         //!< Each node's index in m_wireBoxes.
+    std::map<uint64_t, ImVec2> m_wireFrom;        //!< Where each wire (by link id) leaves its output's pin.
     ImVec2 m_canvasMin{0, 0}; //!< The canvas on screen.
     ImVec2 m_canvasMax{0, 0};
     std::string m_popupNode;        //!< The node whose popup is open, and which one.

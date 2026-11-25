@@ -1,3 +1,4 @@
+#include "app/PinPill.hpp"
 #include "app/WireRoute.hpp"
 #include "app/nodes/NodeUi.hpp"
 #include "model/PerformanceJson.hpp"
@@ -133,6 +134,25 @@ auto Overlap(const std::vector<ImVec2>& a, const std::vector<ImVec2>& b, bool sa
         }
     }
     return false;
+}
+
+/// `wires` with each one's output end moved to its own point on its output's pill, as the canvas does.
+auto OnPills(std::vector<WireEnds> wires) -> std::vector<WireEnds>
+{
+    std::map<int, std::vector<size_t>> byOutput;
+    for (size_t i = 0; i < wires.size(); ++i)
+        byOutput[wires[i].fromBox].push_back(i);
+    for (const auto& [box, list] : byOutput)
+    {
+        std::vector<ImVec2> others;
+        for (size_t i : list)
+            others.push_back(wires[i].to);
+        const auto slots = gv::app::AttachSlots(others, gv::app::PinSide::Right);
+        const auto points = gv::app::AttachPoints(wires[list[0]].from, static_cast<int>(list.size()), gv::app::PinSide::Right);
+        for (size_t k = 0; k < list.size(); ++k)
+            wires[list[k]].from = points[static_cast<size_t>(slots[k])];
+    }
+    return wires;
 }
 
 auto Fixture(const char* name) -> std::string
@@ -341,6 +361,38 @@ TEST_CASE("Routing round nodes is deterministic, and wires take their own lanes"
     }
 }
 
+TEST_CASE("Wires out of a shared output start at points of their own and never share a run")
+{
+    // One output feeding three nodes: above, level, and below it, plus one behind it.
+    const std::vector<WireBox> boxes = {Node(0.f, 200.f), Node(500.f, 0.f), Node(500.f, 200.f), Node(500.f, 420.f), Node(-400.f, 260.f)};
+    for (const bool behind : {false, true})
+    {
+        INFO((behind ? "and one behind" : "three ahead"));
+        std::vector<WireEnds> wires = {Wire(boxes, 0, 2), Wire(boxes, 0, 1), Wire(boxes, 0, 3)};
+        if (behind)
+            wires.push_back(Wire(boxes, 0, 4));
+        wires = OnPills(wires);
+        const auto lines = RouteWires(boxes, wires);
+        REQUIRE(lines.size() == wires.size());
+        for (size_t i = 0; i < wires.size(); ++i)
+        {
+            INFO("wire " << i);
+            CHECK(RightAngles(lines[i]));
+            CheckEnds(lines[i], wires[i].from, wires[i].to);
+            CheckClear(lines[i], boxes, wires[i]);
+            for (size_t k = 0; k < i; ++k)
+            {
+                INFO("and wire " << k);
+                CHECK(lines[i].front().y != lines[k].front().y); // a point each
+                CHECK_FALSE(Overlap(lines[i], lines[k], false));
+            }
+        }
+        // The highest input takes the top point.
+        CHECK(lines[1].front().y < lines[0].front().y);
+        CHECK(lines[0].front().y < lines[2].front().y);
+    }
+}
+
 TEST_CASE("A wire with no way round gets the simple route")
 {
     // The input node's left side is covered by another node: no way into the input.
@@ -389,6 +441,7 @@ TEST_CASE("Every wire of the real show goes round every node")
         std::vector<WireEnds> ends;
         for (const auto& wire : scene.graph.wires)
             ends.push_back(Wire(boxes, index.at(wire.fromNode), index.at(wire.toNode), std::min(wire.toInput, 5)));
+        ends = OnPills(ends);
         const auto lines = RouteWires(boxes, ends);
         REQUIRE(lines.size() == ends.size());
         for (size_t i = 0; i < ends.size(); ++i)
@@ -397,6 +450,11 @@ TEST_CASE("Every wire of the real show goes round every node")
             CHECK(RightAngles(lines[i]));
             CheckEnds(lines[i], ends[i].from, ends[i].to);
             CheckClear(lines[i], boxes, ends[i]);
+            for (size_t k = 0; k < i; ++k)
+            {
+                if (ends[k].fromBox == ends[i].fromBox) // wires out of one pill each keep their own runs
+                    CHECK_FALSE(Overlap(lines[i], lines[k], false));
+            }
         }
         wires += static_cast<int>(ends.size());
     }
