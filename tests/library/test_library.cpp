@@ -1,5 +1,6 @@
 #include "library/Library.hpp"
 #include "library/PresetParsing.hpp"
+#include "library/PresetStepping.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -175,6 +176,85 @@ TEST_CASE("favourites toggle and persist")
     REQUIRE(loaded.Load(file));
     CHECK(loaded.Ids() == std::set<std::string>{"A/b.milk"});
     std::filesystem::remove(file);
+}
+
+namespace {
+
+/// A scanned library of `files` (ids) in a fresh temp folder `name`; `broken` ones are recorded as broken.
+auto SteppingLibrary(const char* name, const std::vector<std::string>& files, const std::vector<std::string>& broken = {}) -> Library
+{
+    const auto dir = std::filesystem::temp_directory_path() / name;
+    std::filesystem::remove_all(dir);
+    for (const auto& file : files)
+    {
+        std::filesystem::create_directories((dir / file).parent_path());
+        std::ofstream(dir / file) << "[preset00]\n";
+    }
+    auto library = Library::Scan(dir, Library());
+    for (const auto& file : broken)
+        library.Record(dir / file, 0.0, "Could not parse");
+    std::filesystem::remove_all(dir);
+    return library;
+}
+
+} // namespace
+
+TEST_CASE("stepping goes through the preset's own folder, wrapping at both ends and skipping broken presets")
+{
+    const auto library = SteppingLibrary("gv_test_stepping", {"A/1.milk", "A/2.milk", "A/3.milk", "A/4.milk", "A/sub/5.milk", "B/6.milk"}, {"A/3.milk"});
+    const auto at = [&](const char* id) { return library.PathForId(id); };
+    CHECK(StepPreset(library, at("A/1.milk"), 1) == at("A/2.milk"));
+    CHECK(StepPreset(library, at("A/2.milk"), 1) == at("A/4.milk")); // 3 is broken
+    CHECK(StepPreset(library, at("A/4.milk"), 1) == at("A/1.milk")); // wraps; not into A/sub
+    CHECK(StepPreset(library, at("A/1.milk"), -1) == at("A/4.milk")); // wraps back
+    CHECK(StepPreset(library, at("A/4.milk"), -1) == at("A/2.milk"));
+    CHECK(StepPreset(library, at("A/3.milk"), 1) == at("A/4.milk")); // a broken current preset steps on from its place
+    CHECK(StepPreset(library, at("A/3.milk"), -1) == at("A/2.milk"));
+    CHECK(FolderOf(library, at("A/sub/5.milk")) == "A/sub");
+    CHECK(FolderOf(library, "/elsewhere/x.milk") == std::nullopt);
+
+    // Not in the library: nothing to step through. No preset chosen: the whole library.
+    CHECK(StepPreset(library, "/elsewhere/x.milk", 1) == std::nullopt);
+    CHECK(StepPreset(library, std::filesystem::path(), 1) == at("A/1.milk"));
+    CHECK(StepPreset(library, std::filesystem::path(), -1) == at("B/6.milk"));
+
+    // A given folder (for a folder picker): a preset outside it starts at its first or last.
+    CHECK(StepPreset(library, "A", at("B/6.milk"), 1) == at("A/1.milk"));
+    CHECK(StepPreset(library, "A", at("B/6.milk"), -1) == at("A/4.milk"));
+    CHECK(StepPreset(library, "nowhere", at("A/1.milk"), 1) == std::nullopt);
+}
+
+TEST_CASE("stepping in a folder holding only the current preset gives nothing")
+{
+    const auto library = SteppingLibrary("gv_test_stepping_one", {"A/only.milk", "A/broken.milk", "B/other.milk"}, {"A/broken.milk"});
+    CHECK(StepPreset(library, library.PathForId("A/only.milk"), 1) == std::nullopt);
+    CHECK(StepPreset(library, library.PathForId("A/only.milk"), -1) == std::nullopt);
+    CHECK(StepPreset(library, library.PathForId("B/other.milk"), 1) == std::nullopt);
+}
+
+TEST_CASE("random picks from the whole library, never the current or a broken preset, and repeats with the same seed")
+{
+    const auto library = SteppingLibrary("gv_test_random", {"A/1.milk", "A/2.milk", "B/3.milk", "C/x/4.milk"}, {"A/2.milk"});
+    const auto current = library.PathForId("A/1.milk");
+    std::mt19937 random(7);
+    std::set<std::filesystem::path> seen;
+    std::vector<std::filesystem::path> picks;
+    for (int i = 0; i < 50; ++i)
+    {
+        const auto pick = RandomPreset(library, current, random);
+        REQUIRE(pick);
+        picks.push_back(*pick);
+        seen.insert(*pick);
+    }
+    CHECK(seen == std::set<std::filesystem::path>{library.PathForId("B/3.milk"), library.PathForId("C/x/4.milk")});
+
+    std::mt19937 again(7);
+    for (const auto& pick : picks)
+        CHECK(RandomPreset(library, current, again) == pick);
+
+    const auto alone = SteppingLibrary("gv_test_random_one", {"A/1.milk", "A/2.milk"}, {"A/2.milk"});
+    CHECK(RandomPreset(alone, alone.PathForId("A/1.milk"), random) == std::nullopt);
+    CHECK(RandomPreset(alone, std::filesystem::path(), random) == alone.PathForId("A/1.milk"));
 }
 
 TEST_CASE("the real preset library indexes and searches fast", "[.][benchmark]")

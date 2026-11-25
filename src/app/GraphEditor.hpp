@@ -148,6 +148,7 @@ private:
     std::map<std::string, Canvas> m_canvases; //!< By scene id.
     Canvas* m_canvas{nullptr};                //!< The one being drawn.
     std::string m_sceneId;
+    std::mt19937 m_random{std::random_device{}()}; //!< For the preset node's Random button.
 
     // Rebuilt every frame while drawing.
     std::map<uint64_t, Pin> m_pins;

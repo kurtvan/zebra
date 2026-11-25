@@ -15,11 +15,16 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <random>
 #include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+namespace gv::library {
+class Library;
+}
 
 namespace gv::app {
 
@@ -100,6 +105,10 @@ public:
     // The library. Nullopt: the preset isn't in it.
     virtual auto IsFavourite(const std::filesystem::path& preset) const -> std::optional<bool> = 0;
     virtual void ToggleFavourite(const std::filesystem::path& preset) = 0;
+    /// The indexed library, to step through it. Null: not indexed yet.
+    virtual auto PresetLibrary() const -> const library::Library* = 0;
+    /// Random numbers (the Random preset button).
+    virtual auto Random() -> std::mt19937& = 0;
 
     // Edits.
     /// Edits `node` as one undo step; consecutive edits of the same field coalesce (a slider drag). Shows the

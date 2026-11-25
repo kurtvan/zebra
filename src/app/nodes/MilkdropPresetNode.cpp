@@ -1,6 +1,7 @@
 #include "app/nodes/NodeUi.hpp"
 
 #include "app/Widgets.hpp"
+#include "library/PresetStepping.hpp"
 
 #include <algorithm>
 
@@ -45,6 +46,37 @@ void DrawPicture(const model::Node& node, NodeContext& context)
     if (live)
         draw->AddRect(at, corner, ImGui::GetColorU32(kGreen), 4.f, 0, 2.f);
     context.Tooltip(live ? "On screen now." : path.string().c_str());
+}
+
+/// ◀ ▶ through the preset's folder and Random from the whole library, skipping broken presets. Each press is
+/// one undo step. ◀ ▶ need the preset to be in the library (with none chosen, they step through all of it).
+void DrawStepping(const model::Node& node, NodeContext& context)
+{
+    const library::Library* presets = context.PresetLibrary();
+    const auto& path = PathOf(node);
+    const bool any = presets != nullptr && !presets->Presets().empty();
+    const bool inLibrary = any && (path.empty() || library::FolderOf(*presets, path).has_value());
+    auto change = [&](const char* label, const std::optional<std::filesystem::path>& to) {
+        if (!to)
+            return;
+        const auto chosen = *to;
+        context.EditOnce(node, label, [&](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = chosen; });
+    };
+    ImGui::BeginDisabled(!inLibrary);
+    if (ImGui::ArrowButton("##previous", ImGuiDir_Left))
+        change("Previous preset", library::StepPreset(*presets, path, -1));
+    context.Tooltip("The previous preset in this folder.");
+    ImGui::SameLine();
+    if (ImGui::ArrowButton("##next", ImGuiDir_Right))
+        change("Next preset", library::StepPreset(*presets, path, 1));
+    context.Tooltip("The next preset in this folder.");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!any);
+    if (ImGui::Button("Random"))
+        change("Random preset", library::RandomPreset(*presets, path, context.Random()));
+    ImGui::EndDisabled();
+    context.Tooltip("A random preset from the whole library.");
 }
 
 /// Favourite (for presets in the library), Choose..., Reveal.
@@ -132,6 +164,9 @@ auto MilkdropPresetUi() -> NodeUi
     Control picture;
     picture.id = "##picture";
     picture.draw = DrawPicture;
+    Control stepping;
+    stepping.id = "##stepping";
+    stepping.draw = DrawStepping;
     Control buttons;
     buttons.id = "##buttons";
     buttons.draw = DrawButtons;
@@ -142,7 +177,7 @@ auto MilkdropPresetUi() -> NodeUi
     Control frameTime;
     frameTime.id = "##frame-time";
     frameTime.draw = DrawFrameTime;
-    ui.controls = {picture, buttons, missing, frameTime, {Control::Kind::Inputs}};
+    ui.controls = {picture, stepping, buttons, missing, frameTime, {Control::Kind::Inputs}};
     ui.addItems = {{"Milkdrop preset...", nullptr, "Or drag a preset from the Presets panel onto the canvas.", true}};
     return ui;
 }

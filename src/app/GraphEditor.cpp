@@ -193,6 +193,14 @@ public:
         if (const std::string id = LibraryId(preset); !id.empty())
             m_actions.ToggleFavourite(id);
     }
+    auto PresetLibrary() const -> const library::Library* override
+    {
+        return m_state.library;
+    }
+    auto Random() -> std::mt19937& override
+    {
+        return m_editor.m_random;
+    }
 
     void Edit(const model::Node& node, const char* label, const char* field, const std::function<void(model::Node&)>& change) override
     {
