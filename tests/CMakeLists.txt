@@ -31,6 +31,7 @@ add_executable(gv_tests
     library/test_library.cpp
     thumbnails/test_slot_plan.cpp
     nodes/test_node_types.cpp
+    isf/test_isf_header.cpp
     ${GV_NODE_TESTS})
 target_include_directories(gv_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gv_tests PRIVATE gv_warnings gv_common gv_model gv_io gv_engine gv_library gv_app_nodes gv_app_settings imgui_node_editor Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
@@ -47,3 +48,6 @@ target_include_directories(gv_gl_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gv_gl_tests PRIVATE gv_warnings gv_engine Catch2::Catch2WithMain)
 target_compile_definitions(gv_gl_tests PRIVATE GL_SILENCE_DEPRECATION)
 catch_discover_tests(gv_gl_tests PROPERTIES LABELS gl)
+
+# ISF shaders (D1): the parser and translator, reading tests/fixtures/isf.
+target_link_libraries(gv_tests PRIVATE gv_isf)
