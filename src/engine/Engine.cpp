@@ -225,6 +225,7 @@ void Engine::UpdatePerformance(const model::Performance& performance)
     std::vector<int> oldToNew(m_performance.scenes.size(), -1);
     std::vector<bool> presetChanged(performance.scenes.size(), true); // new scenes count as changed
     std::vector<bool> unusable;
+    std::vector<bool> liveEntriesChanged; // by entry of the live scene: it now loads another preset
     for (const auto& scene : performance.scenes)
         unusable.push_back(scene.presetMissing || scene.FirstPreset().empty());
 
@@ -244,6 +245,13 @@ void Engine::UpdatePerformance(const model::Performance& performance)
         {
             Execute(m_pool.ClearItem());
             m_switchers.presetInstance = 0;
+        }
+        if (old == m_pool.LiveScene())
+        {
+            const auto was = before.Presets();
+            const auto now = after.Presets();
+            for (size_t item = 0; item < now.size(); ++item)
+                liveEntriesChanged.push_back((item >= was.size() || was[item] != now[item]) && UsableEntry(after, item));
         }
 
         // Video changes apply to the existing instances (including the live one) right away: each gets the
@@ -274,6 +282,21 @@ void Engine::UpdatePerformance(const model::Performance& performance)
     for (const auto& scene : m_performance.scenes)
         m_entryPlans.push_back(CompilePlan(scene.graph, SelectionForItem(scene.graph, 0)));
     Execute(m_pool.Remap(static_cast<int>(performance.scenes.size()), oldToNew, unusable, presetChanged));
+
+    // The live scene is on another entry whose preset changed: it's reloaded there (the old one holds until
+    // the new one is ready). A stale prepared next entry is prepared again.
+    if (const int live = m_pool.LiveScene(); live >= 0 && !liveEntriesChanged.empty())
+    {
+        const bool wasJumping = m_pool.JumpPending();
+        Execute(m_pool.ReloadItems(liveEntriesChanged));
+        if (!wasJumping && m_pool.JumpPending())
+        {
+            const auto& scene = m_performance.scenes[static_cast<size_t>(live)];
+            const size_t item = static_cast<size_t>(m_pool.LiveItem()) < scene.presetEntries.size() ? static_cast<size_t>(m_pool.LiveItem()) : 0;
+            GV_LOG_INFO(kLogCategory, "scene %d (%s): preset %zu of %zu changed while live; cutting to it when it's ready", live,
+                        scene.DisplayName().c_str(), item + 1, scene.presetEntries.size());
+        }
+    }
 
     // Pre-warm presets that are new to this session (including every preset entry).
     std::set<std::string> queued;

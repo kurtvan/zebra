@@ -470,3 +470,121 @@ TEST_CASE("a trigger cancels a pending jump, and a cancelled jump is prepared ag
     CHECK(h.pool.OnPrepared(reprepare->instance, true).empty()); // finishing late does nothing
     CHECK(h.pool.LiveScene() == 1);
 }
+
+namespace {
+
+auto Released(const std::vector<PoolCommand>& commands, InstanceId instance) -> bool
+{
+    return std::any_of(commands.begin(), commands.end(), [&](const auto& c) { return c.type == Type::Release && c.instance == instance; });
+}
+
+/// Scene 1 of 5 is live on preset entry `item` (a switcher input double-clicked, or its clock moved on).
+void GoLiveOnEntry(Harness& h, int item)
+{
+    h.Run(h.pool.Reset(5, std::vector<bool>(5, false)));
+    h.Run(h.pool.Trigger(1));
+    h.Run(h.pool.TriggerItem(1, item));
+    REQUIRE(h.pool.LiveItem() == item);
+}
+
+} // namespace
+
+TEST_CASE("changing the preset of the live entry reloads that entry and cuts to it when ready")
+{
+    Harness h({3, 1, 3});
+    GoLiveOnEntry(h, 1);
+    const auto old = h.pool.LiveInstance();
+
+    auto commands = h.pool.ReloadItems({false, true, false});
+    const auto* prepare = Find(commands, Type::Prepare, 1);
+    REQUIRE(prepare != nullptr);
+    CHECK(prepare->item == 1);
+    CHECK(prepare->priority);
+    CHECK(prepare->lane != h.pool.LiveLane());
+    CHECK(h.pool.LiveInstance() == old); // the old preset holds meanwhile
+    CHECK(h.pool.PendingScene() == -1);
+
+    auto after = h.pool.OnPrepared(prepare->instance, true);
+    CHECK(Find(after, Type::Activate, 1) != nullptr);
+    CHECK(Released(after, old));
+    CHECK(h.pool.LiveScene() == 1);
+    CHECK(h.pool.LiveItem() == 1); // same switcher input, not back to entry 0
+    CHECK_FALSE(h.pool.JumpPending());
+}
+
+TEST_CASE("changing a prepared entry that isn't live prepares it again and leaves the live one alone")
+{
+    Harness h({3, 1, 3});
+    GoLiveOnEntry(h, 1);
+    const auto live = h.pool.LiveInstance();
+    auto next = h.pool.PrepareItem(1, 2);
+    const auto stale = next.back().instance;
+    h.pool.OnPrepared(stale, true);
+
+    auto commands = h.pool.ReloadItems({false, false, true});
+    CHECK(Released(commands, stale));
+    CHECK_FALSE(Released(commands, live));
+    CHECK(Find(commands, Type::Activate, 1) == nullptr);
+    const auto* prepare = Find(commands, Type::Prepare, 1);
+    REQUIRE(prepare != nullptr);
+    CHECK(prepare->item == 2);
+    CHECK_FALSE(prepare->priority); // in the background
+    CHECK(h.pool.NextItemInstance() == prepare->instance);
+    CHECK_FALSE(h.pool.JumpPending());
+
+    // Ready again: the switcher can still cut to it straight away.
+    CHECK(h.pool.OnPrepared(prepare->instance, true).empty());
+    CHECK(h.pool.LiveInstance() == live);
+    CHECK(Find(h.pool.ActivateItem(prepare->instance), Type::Activate, 1) != nullptr);
+    CHECK(h.pool.LiveItem() == 2);
+}
+
+TEST_CASE("changing an entry nothing has prepared does nothing")
+{
+    Harness h({3, 1, 3});
+    GoLiveOnEntry(h, 1);
+    CHECK(h.pool.ReloadItems({false, false, true}).empty());
+    CHECK(h.pool.LiveItem() == 1);
+}
+
+TEST_CASE("changing entry 0 while it's live is swapped in once, by Remap")
+{
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(4, std::vector<bool>(4, false)));
+    h.Run(h.pool.Trigger(1));
+
+    std::vector<bool> changed(4, false);
+    changed[1] = true;
+    auto commands = h.pool.Remap(4, {0, 1, 2, 3}, std::vector<bool>(4, false), changed);
+    REQUIRE(Find(commands, Type::Prepare, 1) != nullptr);
+    CHECK(h.pool.ReloadItems({true, false}).empty()); // not a second replacement
+    h.Run(commands);
+    CHECK(h.pool.LiveScene() == 1);
+    CHECK(h.pool.LiveItem() == 0);
+}
+
+TEST_CASE("changing entry 0 while another entry is live keeps that entry on screen")
+{
+    Harness h({3, 1, 3});
+    GoLiveOnEntry(h, 2);
+    const auto live = h.pool.LiveInstance();
+
+    std::vector<bool> changed(5, false);
+    changed[1] = true;
+    h.log.clear();
+    h.Run(h.pool.Remap(5, {0, 1, 2, 3, 4}, std::vector<bool>(5, false), changed));
+    h.Run(h.pool.ReloadItems({true, false, false}));
+    CHECK_FALSE(Released(h.log, live));
+    CHECK(Find(h.log, Type::Activate, 1) == nullptr);
+    CHECK(h.pool.LiveInstance() == live);
+    CHECK(h.pool.LiveItem() == 2);
+}
+
+TEST_CASE("the live entry was removed from the switcher: the scene cuts to entry 0")
+{
+    Harness h({3, 1, 3});
+    GoLiveOnEntry(h, 2);
+    h.Run(h.pool.ReloadItems({false, false})); // only two entries left
+    CHECK(h.pool.LiveScene() == 1);
+    CHECK(h.pool.LiveItem() == 0);
+}
