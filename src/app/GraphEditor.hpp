@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/EditorView.hpp"
+#include "app/WireRoute.hpp"
 #include "app/nodes/NodeUi.hpp"
 #include "model/Graph.hpp"
 #include "thumbnails/ThumbnailService.hpp"
@@ -125,6 +126,8 @@ private:
     void DrawLinks(const model::Graph& graph);
     /// After ed::End: a click on the wire under the pointer selects it (Cmd or Ctrl: adds or removes it).
     void SelectClickedWire();
+    /// The index of `node`'s box among the ones the wires route round, or -1.
+    [[nodiscard]] auto WireBoxOf(const std::string& node) const -> int;
     void HandleCreate(ShellState& state, AppActions& actions, int scene, const model::Graph& graph);
     /// A wire picked up by its input end: over `target` (an input or output), or over empty canvas.
     void HandleMove(AppActions& actions, int scene, const Pin* target);
@@ -172,7 +175,12 @@ private:
     std::optional<model::Graph> m_dragGraph; //!< The graph without the picked-up wire, to check where it may go.
     ImVec4 m_movingColor{1, 1, 1, 1}; //!< The wire being dragged: green or red over a pin it may or may not go to.
     ImVec2 m_dragEnd{0, 0};           //!< Where the wire being dragged ends: the pointer, or the pin under it.
+    std::string m_dragEndNode;        //!< The node of the pin the wire being dragged is over, or empty.
     uint64_t m_hoveredWire{0};        //!< The wire under the pointer (its link id), or 0.
+    std::vector<WireBox> m_wireBoxes; //!< What the wires were last routed round, and between: see RouteWires.
+    std::vector<WireEnds> m_wireEnds;
+    std::vector<std::vector<ImVec2>> m_wireLines; //!< The routes, in m_wireEnds' order.
+    std::map<std::string, int> m_wireBox;         //!< Each node's index in m_wireBoxes.
     ImVec2 m_canvasMin{0, 0}; //!< The canvas on screen.
     ImVec2 m_canvasMax{0, 0};
     std::string m_popupNode;        //!< The node whose popup is open, and which one.
