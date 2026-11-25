@@ -707,6 +707,14 @@ void Engine::Execute(std::vector<PoolCommand> commands)
 
 void Engine::HandleEvent(const LaneEvent& event)
 {
+    if (event.type == LaneEvent::Type::ShaderCompiled)
+    {
+        if (event.ok)
+            m_errorByShader.erase(event.shaderPath);
+        else
+            m_errorByShader[event.shaderPath] = event.error;
+        return;
+    }
     if (event.ok)
     {
         const bool firstMeasurement = m_frameMsByPreset.count(event.presetPath) == 0;

@@ -201,6 +201,12 @@ public:
         return m_pool.PendingScene();
     }
     auto Scene(int index) const -> SceneInfo;
+    /// Why the ISF shader at `path` didn't compile on its last try (the compiler's message), or "".
+    auto ShaderError(const std::string& path) const -> std::string
+    {
+        const auto it = m_errorByShader.find(path);
+        return it != m_errorByShader.end() ? it->second : std::string();
+    }
 
     struct PresetMeasurement
     {
@@ -281,6 +287,7 @@ private:
     std::map<std::string, double> m_frameMsByPreset; //!< Warm-up estimate of the frame time per preset path.
     std::map<std::string, double> m_liveMsByPreset;  //!< Average live render time per preset path.
     std::map<std::string, std::string> m_errorByPreset;
+    std::map<std::string, std::string> m_errorByShader; //!< ISF shaders that didn't compile, by path.
     int m_warmDone{0};
     int m_warmTotal{0};
     int m_nextWarmLane{0};

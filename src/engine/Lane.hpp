@@ -2,6 +2,7 @@
 
 #include "engine/RenderPlan.hpp"
 #include "engine/ScenePool.hpp"
+#include "engine/VideoChain.hpp"
 
 #include <projectM-4/projectM.h>
 
@@ -9,6 +10,7 @@
 
 #include <OpenGL/gl3.h>
 
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -21,8 +23,6 @@
 #include <vector>
 
 namespace gv::engine {
-
-class VideoChain;
 
 using PcmChunk = std::shared_ptr<const std::vector<float>>; //!< Interleaved stereo float samples.
 
@@ -40,6 +40,7 @@ struct LaneEvent
     {
         Prepared, //!< An instance is ready (or failed: ok == false).
         Warmed,   //!< A throwaway pre-warm finished.
+        ShaderCompiled, //!< An ISF shader compiled (ok) or didn't (error, the compiler's message).
     };
 
     Type type{Type::Prepared};
@@ -47,6 +48,7 @@ struct LaneEvent
     InstanceId instance{0};
     int scene{-1};
     std::string presetPath;
+    std::string shaderPath; //!< ShaderCompiled: the shader's file.
     bool ok{false};
     std::string error;
     double prepareMs{0.0};
@@ -176,7 +178,12 @@ private:
     /// `overrides` (hosted instances, not warm-ups). Returns the On top branch textures, to composite over the
     /// rendered frame.
     auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides) -> std::vector<GLuint>;
-    auto BranchTarget(size_t index) -> std::pair<GLuint, GLuint>; //!< (texture, fbo) at render size.
+    /// Targets[index] at render size, creating it (and those before it) if needed.
+    auto BranchTarget(std::vector<RenderTarget>& targets, size_t index) -> RenderTarget;
+    /// Compiles the plan's ISF shaders this lane doesn't have yet, reporting each one (ShaderCompiled).
+    void CompileShaders(const LanePlan& plan);
+    /// Deletes the programs no hosted instance's plan uses.
+    void DropUnusedPrograms();
     auto Override(InstanceId id, projectm_handle instance, const std::string& name, TextureOverrides& overrides) -> TextureOverride*;
     /// Restores the original images of the textures `plan` no longer draws into (all of them with an empty plan).
     void RestoreTextures(InstanceId id, const LanePlan& plan, TextureOverrides& overrides);
@@ -207,7 +214,11 @@ private:
     std::map<InstanceId, Hosted> m_instances;
     GLuint m_placeholderVideo{0}; //!< 1x1 black texture used while warming up video scenes (compiles the blends).
     std::unique_ptr<VideoChain> m_chain; //!< Created when the thread starts.
-    std::vector<std::pair<GLuint, GLuint>> m_branchTargets; //!< (texture, fbo) per branch index, RGBA8 straight alpha.
+    std::vector<RenderTarget> m_branchTargets; //!< Per branch index, RGBA8 straight alpha: the branch's picture.
+    std::vector<RenderTarget> m_branchScratch; //!< Per branch index: the other half of its ping-pong (ISF branches).
+    IsfPrograms m_programs;                    //!< The ISF shaders of the hosted instances' plans.
+    isf::IsfClock m_isfClock;                  //!< TIME etc., advanced on live ticks.
+    std::chrono::steady_clock::time_point m_isfStart{std::chrono::steady_clock::now()};
     static constexpr int kSlots = 3;
     GLuint m_slotTexture[kSlots]{};
     GLuint m_slotFbo[kSlots]{};

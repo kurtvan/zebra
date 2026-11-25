@@ -1,12 +1,25 @@
 #pragma once
 
 #include "engine/RenderPlan.hpp"
+#include "isf/IsfProgram.hpp"
 
 #include <OpenGL/gl3.h>
 
+#include <map>
+#include <memory>
 #include <vector>
 
 namespace gv::engine {
+
+/// The compiled ISF shaders a lane draws with, by parsed file (IsfStep::shader).
+using IsfPrograms = std::map<std::shared_ptr<const isf::IsfShader>, std::unique_ptr<isf::IsfProgram>>;
+
+/// A texture and the framebuffer that draws into it.
+struct RenderTarget
+{
+    GLuint texture{0};
+    GLuint fbo{0};
+};
 
 /// Runs a video branch's effects (contrast, saturation, luma gate, mix) in one draw, and composites finished
 /// branches over a frame.
@@ -29,6 +42,12 @@ public:
     /// Draws `video` (bottom-up GL_TEXTURE_2D) through `passes` into all of `fbo` (width x height), replacing
     /// its contents. The video's own alpha is ignored. Leaves blending off and framebuffer 0 bound.
     void Run(GLuint video, const std::vector<EffectPass>& passes, GLuint fbo, int width, int height);
+
+    /// Draws `video` through a branch's `steps` into all of `target` (width x height), ping-ponging through
+    /// `scratch` between steps (it may be empty when no step is an ISF shader). An ISF step whose program is
+    /// missing from `programs` or didn't compile passes its input through. Leaves framebuffer 0 bound.
+    void RunSteps(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
+                  RenderTarget target, RenderTarget scratch, int width, int height);
 
     /// Alpha-blends `texture` (straight alpha) over the bound framebuffer's viewport, keeping its alpha.
     void Composite(GLuint texture);

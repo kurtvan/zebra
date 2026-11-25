@@ -109,6 +109,10 @@ public:
     {
         return !m_editor.m_liveVideoNode.empty() && node.id == m_editor.m_liveVideoNode;
     }
+    auto ShaderError(const std::filesystem::path& shader) const -> std::string override
+    {
+        return m_state.engine != nullptr ? m_state.engine->ShaderError(shader.string()) : std::string();
+    }
     auto Switcher(const model::Node& node) const -> std::optional<engine::SwitcherState> override
     {
         if (m_state.engine == nullptr)

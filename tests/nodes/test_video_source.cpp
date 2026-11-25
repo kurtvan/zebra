@@ -112,7 +112,7 @@ TEST_CASE("video source: the plan plays its source", "[node:video-source]")
     CHECK(plan.source.type == VideoSourceType::Syphon);
     CHECK(plan.source.appName == "VDMX");
     REQUIRE(plan.branches.size() == 1);
-    CHECK(plan.branches[0].passes.empty());
+    CHECK(plan.branches[0].steps.empty());
 }
 
 TEST_CASE("video source: titled by its video or Syphon sender", "[node:video-source]")

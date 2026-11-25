@@ -92,6 +92,7 @@ public:
     std::optional<std::pair<double, bool>> frameTime;
     std::set<std::string> files;                          //!< Paths that exist.
     std::map<std::string, std::vector<std::string>> textures; //!< By preset path.
+    std::map<std::string, std::string> shaderErrors;          //!< Compiler messages, by ISF shader path.
     std::map<std::string, bool> favourites;               //!< Library presets, by path.
     std::optional<std::filesystem::path> chosenFile;      //!< What the file dialog returns.
     const library::Library* presetLibrary{nullptr};
@@ -157,6 +158,11 @@ public:
     auto FileExists(const std::filesystem::path& path) const -> bool override
     {
         return files.contains(path.string());
+    }
+    auto ShaderError(const std::filesystem::path& shader) const -> std::string override
+    {
+        const auto it = shaderErrors.find(shader.string());
+        return it != shaderErrors.end() ? it->second : std::string();
     }
     auto TexturesOf(const std::filesystem::path& preset) -> const std::vector<std::string>& override
     {

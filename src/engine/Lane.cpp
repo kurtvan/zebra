@@ -1,7 +1,6 @@
 #include "engine/Lane.hpp"
 
 #include "common/log.hpp"
-#include "engine/VideoChain.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -329,8 +328,10 @@ void Lane::Run()
             case Job::Type::SetPlan:
                 if (auto hosted = m_instances.find(job.instance); hosted != m_instances.end())
                 {
+                    CompileShaders(job.plan);
                     hosted->second.plan = job.plan;
                     RestoreTextures(job.instance, job.plan, hosted->second.textures);
+                    DropUnusedPrograms();
                 }
                 break;
             case Job::Type::Shutdown:
@@ -341,6 +342,7 @@ void Lane::Run()
                     projectm_destroy(hosted.handle);
                 }
                 m_instances.clear();
+                m_programs.clear();
                 if (m_placeholderVideo != 0)
                     glDeleteTextures(1, &m_placeholderVideo);
                 m_chain.reset();
@@ -419,6 +421,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     std::vector<GLuint> onTop;
     if (DrawsVideo(job.plan))
     {
+        CompileShaders(job.plan);
         if (m_placeholderVideo == 0)
         {
             const unsigned char black[4] = {0, 0, 0, 255};
@@ -436,6 +439,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     if (failure.failed)
     {
         projectm_destroy(instance);
+        DropUnusedPrograms();
         event.error = failure.message;
         event.prepareMs = MillisecondsSince(start);
         GV_LOG_WARN(kLogCategory, "lane %d: preset failed to load: %s: %s", m_id, job.presetPath.c_str(), failure.message.c_str());
@@ -469,6 +473,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     if (!keep)
     {
         projectm_destroy(instance);
+        DropUnusedPrograms();
         m_sink(std::move(event));
         return;
     }
@@ -481,6 +486,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     if (releasedMeanwhile)
     {
         projectm_destroy(instance);
+        DropUnusedPrograms();
         return;
     }
     m_instances[job.instance] = {instance, job.plan, {}};
@@ -496,6 +502,7 @@ void Lane::DoRelease(InstanceId id)
             DeleteOverride(override);
         projectm_destroy(it->second.handle);
         m_instances.erase(it);
+        DropUnusedPrograms();
     }
     std::lock_guard<std::mutex> lock(m_mutex);
     m_released.erase(id);
@@ -551,6 +558,9 @@ void Lane::DoTick(PendingTick tick)
     }
 
     const auto start = Clock::now();
+    const float now = std::chrono::duration<float>(start - m_isfStart).count();
+    m_isfClock.timeDelta = m_isfClock.frameIndex == 0 ? 0.f : now - m_isfClock.time;
+    m_isfClock.time = now;
     const int slot = static_cast<int>(tick.tick % kSlots);
 
     // GPU time of earlier frames, read without waiting once the result is available.
@@ -582,6 +592,7 @@ void Lane::DoTick(PendingTick tick)
         glBeginQuery(GL_TIME_ELAPSED, m_timerQuery[slot]);
 
     const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video, &it->second.textures);
+    m_isfClock.frameIndex++;
     glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
     glViewport(0, 0, m_width, m_height);
     projectm_opengl_render_frame_fbo(it->second.handle, m_slotFbo[slot]);
@@ -635,8 +646,12 @@ auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint vi
             const VideoBranch& branch = plan.branches[i];
             if (branch.layer == model::PresetLayer::Texture && overrides == nullptr)
                 continue; // warm-ups: blits need no compiling
-            const auto [texture, fbo] = BranchTarget(i);
-            m_chain->Run(video, branch.passes, fbo, m_width, m_height);
+            const RenderTarget picture = BranchTarget(m_branchTargets, i);
+            const bool ping = std::any_of(branch.steps.begin(), branch.steps.end(), [](const VideoStep& step) { return step.isf.has_value(); });
+            const RenderTarget scratch = ping ? BranchTarget(m_branchScratch, i) : RenderTarget{};
+            m_chain->RunSteps(video, branch.steps, m_programs, m_isfClock, picture, scratch, m_width, m_height);
+            const GLuint texture = picture.texture;
+            const GLuint fbo = picture.fbo;
             switch (branch.layer)
             {
                 case model::PresetLayer::Feedback: feedback = texture; break;
@@ -713,18 +728,54 @@ void Lane::RestoreTextures(InstanceId id, const LanePlan& plan, TextureOverrides
     }
 }
 
-auto Lane::BranchTarget(size_t index) -> std::pair<GLuint, GLuint>
+auto Lane::BranchTarget(std::vector<RenderTarget>& targets, size_t index) -> RenderTarget
 {
-    while (m_branchTargets.size() <= index)
+    while (targets.size() <= index)
     {
-        GLuint texture = 0;
-        GLuint fbo = 0;
-        glGenTextures(1, &texture);
-        glGenFramebuffers(1, &fbo);
-        CreateTarget(texture, fbo, m_width, m_height);
-        m_branchTargets.emplace_back(texture, fbo);
+        RenderTarget target;
+        glGenTextures(1, &target.texture);
+        glGenFramebuffers(1, &target.fbo);
+        CreateTarget(target.texture, target.fbo, m_width, m_height);
+        targets.push_back(target);
     }
-    return m_branchTargets[index];
+    return targets[index];
+}
+
+void Lane::CompileShaders(const LanePlan& plan)
+{
+    for (const auto& branch : plan.branches)
+    {
+        for (const auto& step : branch.steps)
+        {
+            if (!step.isf || m_programs.contains(step.isf->shader))
+                continue;
+            const auto start = Clock::now();
+            auto program = std::make_unique<isf::IsfProgram>(*step.isf->shader);
+            LaneEvent event;
+            event.type = LaneEvent::Type::ShaderCompiled;
+            event.lane = m_id;
+            event.shaderPath = step.isf->path.string();
+            event.ok = program->Ok();
+            event.error = program->Error();
+            event.prepareMs = MillisecondsSince(start);
+            if (!event.ok)
+                GV_LOG_WARN(kLogCategory, "lane %d: ISF shader didn't compile: %s: %s", m_id, event.shaderPath.c_str(), event.error.c_str());
+            m_programs.emplace(step.isf->shader, std::move(program));
+            m_sink(std::move(event));
+        }
+    }
+}
+
+void Lane::DropUnusedPrograms()
+{
+    std::erase_if(m_programs, [&](const auto& entry) {
+        return std::none_of(m_instances.begin(), m_instances.end(), [&](const auto& hosted) {
+            return std::any_of(hosted.second.plan.branches.begin(), hosted.second.plan.branches.end(), [&](const VideoBranch& branch) {
+                return std::any_of(branch.steps.begin(), branch.steps.end(),
+                                   [&](const VideoStep& step) { return step.isf && step.isf->shader == entry.first; });
+            });
+        });
+    });
 }
 
 void Lane::CreateTargets()
@@ -755,12 +806,15 @@ void Lane::DestroyTargets()
         m_scratchFbo = 0;
         m_scratchTexture = 0;
     }
-    for (auto& [texture, fbo] : m_branchTargets)
+    for (auto* targets : {&m_branchTargets, &m_branchScratch})
     {
-        glDeleteFramebuffers(1, &fbo);
-        glDeleteTextures(1, &texture);
+        for (auto& target : *targets)
+        {
+            glDeleteFramebuffers(1, &target.fbo);
+            glDeleteTextures(1, &target.texture);
+        }
+        targets->clear();
     }
-    m_branchTargets.clear();
 }
 
 } // namespace gv::engine
