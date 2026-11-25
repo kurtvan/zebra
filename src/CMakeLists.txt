@@ -40,6 +40,8 @@ add_library(gv_model STATIC
     model/nodes/LumaGateNode.cpp
     model/nodes/OpacityNode.cpp
     model/nodes/LfoNode.cpp
+    model/nodes/AudioInNode.cpp
+    model/nodes/EnvelopeNode.cpp
     model/nodes/MilkdropPresetNode.cpp
     model/nodes/SwitcherNode.cpp
     model/nodes/ViewportNode.cpp
@@ -108,6 +110,8 @@ add_library(gv_engine STATIC
     engine/SwitcherClock.hpp
     engine/BeatHit.cpp
     engine/BeatHit.hpp
+    engine/EnvelopeFollower.cpp
+    engine/EnvelopeFollower.hpp
     engine/VideoChain.cpp
     engine/VideoChain.hpp
     engine/RenderPlan.cpp
@@ -128,6 +132,8 @@ add_library(gv_app_nodes STATIC
     app/nodes/LumaGateNode.cpp
     app/nodes/OpacityNode.cpp
     app/nodes/LfoNode.cpp
+    app/nodes/AudioInNode.cpp
+    app/nodes/EnvelopeNode.cpp
     app/nodes/MilkdropPresetNode.cpp
     app/nodes/SwitcherNode.cpp
     app/nodes/ViewportNode.cpp

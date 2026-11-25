@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <span>
+#include <variant>
 
 namespace gv::engine {
 
@@ -333,13 +335,49 @@ auto Engine::SelectionFor(int index, const model::Scene& scene, int item) const 
     return selection;
 }
 
-auto Engine::SignalInputsNow() const -> model::SignalInputs
+auto Engine::SignalInputsNow(int scene) const -> model::SignalInputs
 {
     model::SignalInputs inputs;
     if (m_clock.receiving && m_clock.running)
         inputs.beats = static_cast<double>(m_clock.positionKnown ? m_clock.songPulses : m_clock.totalPulses) / static_cast<double>(kPulsesPerBeat);
     inputs.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_signalStart).count();
+    if (scene >= 0 && scene < static_cast<int>(m_performance.scenes.size()))
+    {
+        if (const auto it = m_envelopes.find(m_performance.scenes[static_cast<size_t>(scene)].id); it != m_envelopes.end())
+        {
+            for (const auto& [node, follower] : it->second)
+                inputs.levels[node] = follower.Level();
+        }
+    }
     return inputs;
+}
+
+void Engine::FollowAudio(const PcmChunk& chunk)
+{
+    std::vector<float> silence;
+    if (!chunk)
+        silence.assign(static_cast<size_t>(m_sampleRate / 60) * 2, 0.f);
+    const std::span<const float> pcm = chunk ? std::span<const float>(*chunk) : std::span<const float>(silence);
+    std::map<std::string, std::map<std::string, EnvelopeFollower>> followers; // only the Envelopes still there
+    for (const auto& scene : m_performance.scenes)
+    {
+        auto& kept = m_envelopes[scene.id];
+        for (const auto& node : scene.graph.nodes)
+        {
+            if (node.type != model::NodeType::Envelope || !std::holds_alternative<model::EnvelopeParams>(node.params))
+                continue;
+            EnvelopeFollower follower = kept[node.id];
+            follower.SetParams(model::ParamsOf<model::EnvelopeParams>(node));
+            // The audio wired in: the whole range from Audio In (a Band would filter it first).
+            const model::Node* from = scene.graph.Upstream(node.id, 0);
+            if (from != nullptr && from->type == model::NodeType::AudioIn)
+                follower.Process(pcm, m_sampleRate);
+            else
+                follower.Reset();
+            followers[scene.id][node.id] = follower;
+        }
+    }
+    m_envelopes = std::move(followers);
 }
 
 auto Engine::PlanFor(int index, const model::Scene& scene, int item) const -> LanePlan
@@ -505,6 +543,7 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
         chunk = std::move(buffer);
     }
 
+    FollowAudio(chunk);
     UpdateSwitchers();
     ReloadChangedShaders();
     if (m_videoProvider != nullptr)
@@ -546,7 +585,7 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
         }
         model::SignalValues signals;
         if (i == m_liveLane && liveScene >= 0 && liveScene < static_cast<int>(m_performance.scenes.size()))
-            signals = model::EvaluateSignals(m_performance.scenes[static_cast<size_t>(liveScene)].graph, SignalInputsNow());
+            signals = model::EvaluateSignals(m_performance.scenes[static_cast<size_t>(liveScene)].graph, SignalInputsNow(liveScene));
         m_lanes[static_cast<size_t>(i)]->Tick(chunk, m_tick, video, i == m_liveLane ? liveChunk : nullptr, std::move(signals));
     }
 

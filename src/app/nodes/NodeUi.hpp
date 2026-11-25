@@ -273,6 +273,8 @@ auto SwitcherUi() -> NodeUi;
 auto ViewportUi() -> NodeUi;
 auto IsfShaderUi() -> NodeUi;
 auto LfoUi() -> NodeUi;
+auto AudioInUi() -> NodeUi;
+auto EnvelopeUi() -> NodeUi;
 
 /// Control get/set for one field of `Params` (a pointer to member): a number, or a bool as 0 or 1.
 template <class Params, auto Member>

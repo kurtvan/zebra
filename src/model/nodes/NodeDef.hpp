@@ -43,6 +43,8 @@ struct SignalInputs
 {
     std::optional<double> beats; //!< The MIDI clock's song position in beats, while it's running.
     double seconds{0.0};         //!< Time since the engine started.
+    /// What the engine's audio analysers measured this tick (0..1), by node id: each Envelope's level.
+    std::map<std::string, float> levels{};
 };
 
 /// Every Number output's value this frame (0..1), by node id.
@@ -154,6 +156,8 @@ auto SwitcherDef() -> NodeDef;
 auto ViewportDef() -> NodeDef;
 auto IsfShaderDef() -> NodeDef;
 auto LfoDef() -> NodeDef;
+auto AudioInDef() -> NodeDef;
+auto EnvelopeDef() -> NodeDef;
 
 /// The parts every effect shares: one video input, one video output.
 auto EffectBase(NodeType type, const char* jsonName, const char* idPrefix, const char* displayName, NodeParams defaults) -> NodeDef;

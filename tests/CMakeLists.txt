@@ -9,7 +9,9 @@ set(GV_NODE_TESTS
     nodes/test_switcher.cpp
     nodes/test_viewport.cpp
     nodes/test_isf_shader.cpp
-    nodes/test_lfo.cpp)
+    nodes/test_lfo.cpp
+    nodes/test_audio_in.cpp
+    nodes/test_envelope.cpp)
 
 add_executable(gv_tests
     common/test_log.cpp
@@ -34,6 +36,7 @@ add_executable(gv_tests
     engine/test_switcher_clock.cpp
     engine/test_file_watcher.cpp
     engine/test_beat_hit.cpp
+    engine/test_envelope_follower.cpp
     engine/test_render_plan.cpp
     library/test_library.cpp
     thumbnails/test_slot_plan.cpp

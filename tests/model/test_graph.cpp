@@ -318,7 +318,7 @@ TEST_CASE("number wires: only a Number output into a Number input; never part of
     CHECK(Has(ConnectErrors(graph, lfo, opacity, 0), "Opacity: this input takes a picture, not a number."));
     CHECK(Has(ConnectErrors(graph, lfo, preset, Feedback()), "takes a picture, not a number"));
     CHECK(Has(ConnectErrors(graph, lfo, "viewport", 0), "takes a picture, not a number"));
-    CHECK(Has(ConnectErrors(graph, video, opacity, modulation), "Opacity: this input takes a number (from an LFO), not a picture."));
+    CHECK(Has(ConnectErrors(graph, video, opacity, modulation), "Opacity: this input takes a number (from an LFO or an Envelope), not a picture."));
 
     // A wired number leaves the chain's start (the video) as it was.
     Connect(graph, lfo, opacity, modulation);
@@ -326,6 +326,37 @@ TEST_CASE("number wires: only a Number output into a Number input; never part of
     // Its depth is -1..1.
     graph.Find(opacity)->depths["opacity"] = 1.5f;
     CHECK(Has(ValidateGraph(graph), "Opacity: opacity depth must be between -1 and 1."));
+}
+
+TEST_CASE("audio wires: Audio only into Audio; an Envelope's number moves Opacity")
+{
+    Graph graph = Basic();
+    const auto preset = graph.nodes[0].id;
+    const auto video = AddNode(graph, NodeType::VideoSource, 0, 0);
+    const auto opacity = AddNode(graph, NodeType::Opacity, 0, 0);
+    const auto audio = AddNode(graph, NodeType::AudioIn, 0, 0);
+    const auto envelope = AddNode(graph, NodeType::Envelope, 0, 0);
+    const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
+    Connect(graph, video, opacity, 0);
+    Connect(graph, opacity, preset, Feedback());
+    REQUIRE(ValidateGraph(graph).empty());
+    const int modulation = ParamInput(*graph.Find(opacity), 0);
+
+    // Audio In -> Envelope -> Opacity's modulation input.
+    CHECK(ConnectErrors(graph, audio, envelope, 0).empty());
+    Connect(graph, audio, envelope, 0);
+    CHECK(ConnectErrors(graph, envelope, opacity, modulation).empty());
+
+    // Audio into a number or a picture input.
+    CHECK(Has(ConnectErrors(graph, audio, opacity, modulation), "Opacity: this input takes a number (from an LFO or an Envelope), not audio."));
+    CHECK(Has(ConnectErrors(graph, audio, opacity, 0), "Opacity: this input takes a picture, not audio."));
+    CHECK(Has(ConnectErrors(graph, audio, preset, Feedback()), "takes a picture, not audio"));
+    CHECK(Has(ConnectErrors(graph, audio, "viewport", 0), "takes a picture, not audio"));
+    // A picture or a number into the Envelope's audio input.
+    CHECK(Has(ConnectErrors(graph, video, envelope, 0), "Envelope: this input takes audio (from Audio In), not a picture."));
+    CHECK(Has(ConnectErrors(graph, lfo, envelope, 0), "Envelope: this input takes audio (from Audio In), not a number."));
+    // An Envelope's number isn't a picture either.
+    CHECK(Has(ConnectErrors(graph, envelope, opacity, 0), "Opacity: this input takes a picture, not a number."));
 }
 
 TEST_CASE("queries: presets and pool videos of a graph")

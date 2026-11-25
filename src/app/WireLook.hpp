@@ -4,7 +4,7 @@
 //
 // Picture wires are blue, with round pins in the node's input column. Number wires (modulation) are orange,
 // with diamond pins; a modulation input's pin sits at the start of the slider it moves (Control::param), so
-// the wire visibly plugs into that setting.
+// the wire visibly plugs into that setting. Audio wires are green, with small square pins.
 
 #include "app/PinPill.hpp"
 #include "model/Graph.hpp"
@@ -15,19 +15,36 @@ namespace gv::app {
 
 inline const ImVec4 kPictureWire{0.42f, 0.64f, 0.98f, 1.f}; //!< Blue.
 inline const ImVec4 kNumberWire{1.00f, 0.56f, 0.24f, 1.f};  //!< Orange.
+inline const ImVec4 kAudioWire{0.36f, 0.82f, 0.45f, 1.f};   //!< Green.
 
 inline auto WireColor(model::PortKind kind) -> ImVec4
 {
-    return kind == model::PortKind::Number ? kNumberWire : kPictureWire;
+    switch (kind)
+    {
+        case model::PortKind::Number: return kNumberWire;
+        case model::PortKind::Audio: return kAudioWire;
+        case model::PortKind::Picture: break;
+    }
+    return kPictureWire;
 }
 
-/// A pin at `center` with `wires` wires: a dot (a diamond for numbers), filled when wired, an outline when not;
-/// `pill` for two or more (PinPill).
+/// A pin at `center` with `wires` wires: a dot (a diamond for numbers, a small square for audio), filled when
+/// wired, an outline when not; `pill` for two or more (PinPill).
 inline void DrawPinShape(ImDrawList* draw, ImVec2 center, model::PortKind kind, int wires, const PinShape& pill, ImU32 color)
 {
     if (wires >= 2)
     {
-        draw->AddRectFilled(pill.min, pill.max, color, kind == model::PortKind::Number ? 1.f : pill.rounding);
+        draw->AddRectFilled(pill.min, pill.max, color, kind == model::PortKind::Picture ? pill.rounding : 1.f);
+        return;
+    }
+    if (kind == model::PortKind::Audio)
+    {
+        const float r = kPinDotRadius - 1.f;
+        const ImVec2 min(center.x - r, center.y - r), max(center.x + r, center.y + r);
+        if (wires == 1)
+            draw->AddRectFilled(min, max, color, 1.f);
+        else
+            draw->AddRect(min, max, color, 1.f, 0, 1.6f);
         return;
     }
     if (kind == model::PortKind::Number)
