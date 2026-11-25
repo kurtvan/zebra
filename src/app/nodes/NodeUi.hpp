@@ -104,6 +104,8 @@ public:
     /// The live preset's render time in ms, and whether that's too heavy for 60 fps. Nullopt: not measured.
     virtual auto FrameTime() const -> std::optional<std::pair<double, bool>> = 0;
     virtual auto FileExists(const std::filesystem::path& path) const -> bool = 0;
+    /// Why the ISF shader at `shader` didn't compile when its scene was prepared (the compiler's message), or "".
+    virtual auto ShaderError(const std::filesystem::path& shader) const -> std::string = 0;
     /// The texture names `preset` samples.
     virtual auto TexturesOf(const std::filesystem::path& preset) -> const std::vector<std::string>& = 0;
 

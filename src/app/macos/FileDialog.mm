@@ -1,5 +1,7 @@
 #include "app/macos/FileDialog.hpp"
 
+#include <algorithm>
+
 #import <AppKit/AppKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
@@ -39,6 +41,10 @@ auto ChooseFile(const std::string& title, const std::vector<std::string>& extens
                     [types addObject:type];
             }
             panel.allowedContentTypes = types;
+            // macOS claims ".fs" for file-system plug-in bundles, so an isf.video download (a folder
+            // named "X.fs" holding "X.fs.fs") shows as one greyed-out package. Let the panel open it.
+            if (std::find(extensions.begin(), extensions.end(), "fs") != extensions.end())
+                panel.treatsFilePackagesAsDirectories = YES;
         }
         return RunPanel(panel);
     }

@@ -23,13 +23,17 @@ auto NameOf(const isf::IsfInput& input) -> const std::string&
     return input.label.empty() ? input.name : input.label;
 }
 
-/// "Missing file" or "can't read it" as one line, or "" when the file is fine (or none is chosen).
-auto FileProblem(const model::Node& node, NodeContext&) -> std::string
+/// "Missing file", "can't read it" or "doesn't compile" as one line, or "" when the shader is fine (or none
+/// is chosen). The dot's tooltip has the compiler's whole message.
+auto FileProblem(const model::Node& node, NodeContext& context) -> std::string
 {
     const auto file = model::IsfFileAt(PathOf(node));
     if (file.missing)
         return "File not found.";
-    return file.error.empty() ? std::string() : "Can't read the shader: " + file.error;
+    if (!file.error.empty())
+        return "Can't read the shader: " + file.error;
+    const std::string error = context.ShaderError(PathOf(node));
+    return error.empty() ? std::string() : "Doesn't compile, so the video passes through: " + error.substr(0, error.find('\n'));
 }
 
 /// Choose... and Reveal.
@@ -164,6 +168,8 @@ auto IsfShaderUi() -> NodeUi
             return {NodeState::Missing, "File not found: " + PathOf(node).string()};
         if (!file.error.empty())
             return {NodeState::Missing, "Can't read the shader: " + file.error};
+        if (const std::string error = context.ShaderError(PathOf(node)); !error.empty())
+            return {NodeState::Missing, "The shader doesn't compile, so the video passes through it:\n" + error};
         if (context.Live())
             return {NodeState::Live, "The scene is live."};
         return {};

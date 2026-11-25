@@ -48,7 +48,7 @@ include(Catch)
 catch_discover_tests(gv_tests)
 
 # GPU tests (N2.6): need a GL 4.1 context from a hidden window; each test skips itself if there's none.
-add_executable(gv_gl_tests gl/test_video_chain.cpp gl/test_effect_nodes.cpp gl/test_isf_program.cpp)
+add_executable(gv_gl_tests gl/test_video_chain.cpp gl/test_effect_nodes.cpp gl/test_isf_program.cpp gl/test_video_steps.cpp)
 target_include_directories(gv_gl_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gv_gl_tests PRIVATE gv_warnings gv_engine Catch2::Catch2WithMain)
 target_compile_definitions(gv_gl_tests PRIVATE GL_SILENCE_DEPRECATION)

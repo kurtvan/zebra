@@ -237,12 +237,12 @@ TEST_CASE("ISF shader: Choose... sets the file in one undo step, and Reveal show
     CHECK(context.revealed == std::vector<std::filesystem::path>{kInvert});
 }
 
-TEST_CASE("ISF shader: until it's drawn (D2b), the video passes through it to the preset", "[node:isf-shader]")
+TEST_CASE("ISF shader: compiles to an ISF step with its file and values", "[node:isf-shader]")
 {
     test::NodeScene scene;
     const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
-    const std::string isf = scene.Add(NodeType::IsfShader, WithPath(kInvert));
+    const std::string isf = scene.Add(NodeType::IsfShader, [](model::Node& n) { model::ParamsOf<IsfShaderParams>(n) = {kInvert, {{"amount", {1.f}}}}; });
     model::Connect(scene.Graph(), preset, "viewport", 0);
     model::Connect(scene.Graph(), video, isf, 0);
     model::Connect(scene.Graph(), isf, preset, static_cast<int>(model::PresetLayer::Feedback));
@@ -250,4 +250,22 @@ TEST_CASE("ISF shader: until it's drawn (D2b), the video passes through it to th
     const auto plan = engine::CompilePlan(scene.Graph());
     REQUIRE(plan.branches.size() == 1);
     CHECK(plan.sourceNode == video);
+    REQUIRE(plan.branches[0].steps.size() == 1);
+    REQUIRE(plan.branches[0].steps[0].isf);
+    CHECK(plan.branches[0].steps[0].isf->node == isf);
+    CHECK(plan.branches[0].steps[0].isf->values.at("amount") == std::vector<float>{1.f});
+}
+
+TEST_CASE("ISF shader: a shader that doesn't compile is an error on the node, with the compiler's message", "[node:isf-shader]")
+{
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::IsfShader, WithPath(kInvert));
+    test::FakeNodeContext context(scene);
+    context.shaderErrors[kInvert.string()] = "ERROR: 0:14: 'colour' : undeclared identifier\nERROR: 1 compilation error";
+    const auto status = app::NodeStatusOf(scene.Node(id), context);
+    CHECK(status.state == app::NodeState::Missing);
+    CHECK(status.tooltip.ends_with("ERROR: 0:14: 'colour' : undeclared identifier\nERROR: 1 compilation error"));
+    const auto texts = Controls(scene.Node(id), context, app::Control::Kind::Text);
+    REQUIRE(texts.size() == 1);
+    CHECK(texts[0].text(scene.Node(id), context) == "Doesn't compile, so the video passes through: ERROR: 0:14: 'colour' : undeclared identifier");
 }
