@@ -27,11 +27,22 @@ struct IsfStep
     auto operator==(const IsfStep&) const -> bool = default;
 };
 
+/// An effect whose settings Number wires move: what the lane needs to redo its pass each frame (Modulated).
+struct PassModulation
+{
+    size_t effect{0}; //!< Its index in VideoStep::effects.
+    model::Node node; //!< The effect node's id, type, settings and depths (not its place on the canvas).
+    std::vector<std::pair<int, std::string>> signals; //!< Param index (NodeDef::params) -> the node it's wired from.
+
+    auto operator==(const PassModulation&) const -> bool = default;
+};
+
 /// One pass of a video branch: neighbouring built-in effects run together, or one ISF shader.
 struct VideoStep
 {
     std::vector<EffectPass> effects{}; //!< Without `isf`: in order, in one draw (VideoChain::Run).
     std::optional<IsfStep> isf{};
+    std::vector<PassModulation> modulations{}; //!< The effects Number wires move, redone each frame.
 
     auto operator==(const VideoStep&) const -> bool = default;
 };
@@ -72,6 +83,12 @@ using SwitcherSelection = std::map<std::string, int>;
 /// Walks back from the viewport, following only each switcher's selected input. `graph` must be valid
 /// (model::ValidateGraph); unfinished parts compile to nothing.
 auto CompilePlan(const model::Graph& graph, const SwitcherSelection& selection = {}) -> RenderPlan;
+
+/// `steps` with every modulated effect's pass redone from this frame's `signals`. A signal missing from
+/// `signals` leaves its setting as it is.
+auto Modulated(const std::vector<VideoStep>& steps, const model::SignalValues& signals) -> std::vector<VideoStep>;
+/// True if any of `steps` has a modulated effect.
+auto HasModulations(const std::vector<VideoStep>& steps) -> bool;
 
 /// The selection that passes the `item`-th wired input of the switcher feeding the viewport
 /// (Scene::presetEntries entry `item`). Empty when there's no such switcher.

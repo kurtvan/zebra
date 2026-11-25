@@ -41,7 +41,7 @@ auto ThroughSwitchers(const Graph& graph, const Node* node, const SwitcherSelect
 /// Appends `node` to `steps`: an effect joins the effects before it, an ISF shader is a step of its own. A
 /// shader whose file is missing, or broken with no earlier version (model::IsfFileAt), is left out, so the
 /// video passes through it.
-void AddStep(std::vector<VideoStep>& steps, const Node& node)
+void AddStep(std::vector<VideoStep>& steps, const Graph& graph, const Node& node)
 {
     if (node.type == NodeType::IsfShader)
     {
@@ -53,6 +53,14 @@ void AddStep(std::vector<VideoStep>& steps, const Node& node)
     if (steps.empty() || steps.back().isf)
         steps.emplace_back();
     steps.back().effects.push_back(model::Def(node.type).pass(node));
+    PassModulation modulation{steps.back().effects.size() - 1, {node.id, node.type, 0.f, 0.f, true, node.params, node.depths}, {}};
+    for (int param = 0; param < static_cast<int>(model::Def(node.type).params.size()); ++param)
+    {
+        if (const Node* from = graph.Upstream(node.id, model::ParamInput(node, param)); from != nullptr)
+            modulation.signals.emplace_back(param, from->id);
+    }
+    if (!modulation.signals.empty())
+        steps.back().modulations.push_back(std::move(modulation));
 }
 
 } // namespace
@@ -104,12 +112,37 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
         }
         if (node == nullptr || node->type != NodeType::VideoSource)
             continue; // an unfinished chain carries no video
-        std::for_each(filters.rbegin(), filters.rend(), [&](const Node* filter) { AddStep(branch.steps, *filter); });
+        std::for_each(filters.rbegin(), filters.rend(), [&](const Node* filter) { AddStep(branch.steps, graph, *filter); });
         plan.sourceNode = node->id;
         plan.source = model::ParamsOf<model::VideoSourceParams>(*node).source;
         plan.branches.push_back(std::move(branch));
     }
     return plan;
+}
+
+auto Modulated(const std::vector<VideoStep>& steps, const model::SignalValues& signals) -> std::vector<VideoStep>
+{
+    std::vector<VideoStep> modulated = steps;
+    for (auto& step : modulated)
+    {
+        for (const auto& modulation : step.modulations)
+        {
+            Node node = modulation.node;
+            const auto& params = model::Def(node.type).params;
+            for (const auto& [param, from] : modulation.signals)
+            {
+                if (const auto it = signals.find(from); it != signals.end())
+                    params[static_cast<size_t>(param)].set(node, model::Modulate(modulation.node, param, it->second));
+            }
+            step.effects.at(modulation.effect) = model::Def(node.type).pass(node);
+        }
+    }
+    return modulated;
+}
+
+auto HasModulations(const std::vector<VideoStep>& steps) -> bool
+{
+    return std::any_of(steps.begin(), steps.end(), [](const VideoStep& step) { return !step.modulations.empty(); });
 }
 
 auto SelectionForItem(const Graph& graph, int item) -> SwitcherSelection

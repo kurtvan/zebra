@@ -9,6 +9,7 @@
 #include "engine/SwitcherClock.hpp"
 #include "model/Graph.hpp"
 #include "model/Performance.hpp"
+#include "model/nodes/NodeDef.hpp"
 
 #include <imgui.h>
 
@@ -28,7 +29,8 @@ class Library;
 
 namespace gv::app {
 
-/// One input pin of a node: which input, what it takes, and its row label.
+/// One input pin of a node: which input, what it takes, and its row label. Modulation inputs aren't rows:
+/// their pins sit on their slider's row (Control::param).
 struct InputSpec
 {
     int input{0};
@@ -106,6 +108,8 @@ public:
     virtual auto FileExists(const std::filesystem::path& path) const -> bool = 0;
     /// Why the ISF shader at `shader` didn't compile when its scene was prepared (the compiler's message), or "".
     virtual auto ShaderError(const std::filesystem::path& shader) const -> std::string = 0;
+    /// This frame's value of every Number output in the scene (model::EvaluateSignals).
+    virtual auto Signals() const -> model::SignalValues = 0;
     /// The texture names `preset` samples.
     virtual auto TexturesOf(const std::filesystem::path& preset) -> const std::vector<std::string>& = 0;
 
@@ -147,6 +151,8 @@ public:
     // The canvas.
     /// A row with input pin `spec` of `node` at the left and its label. True if the label was double-clicked.
     virtual auto InputRow(const model::Node& node, const InputSpec& spec) -> bool = 0;
+    /// A modulation input's pin `spec`, alone at the start of its setting's row (a slider with Control::param).
+    virtual void ParamPin(const model::Node& node, const InputSpec& spec) = 0;
     /// Opens the list of control `kind` (its index) of `node`: DrawNodePopup draws it, outside the zoomed canvas.
     virtual void OpenPopup(const model::Node& node, int kind) = 0;
     /// Shows `text` as a tooltip if the last item is hovered.
@@ -181,6 +187,9 @@ struct Control
     bool integer{false};
     bool logarithmic{false};
     const char* format{"%.2f"};                 //!< Slider format; formatFor overrides it.
+    /// Sliders: the NodeDef::params entry it edits. Its modulation pin starts the row and, while wired, the row
+    /// also shows the modulated value (a marker on the slider) and the depth. -1: none.
+    int param{-1};
     const char* (*formatFor)(double){nullptr};  //!< The format for a value (contrast: decimals below 10).
 
     std::span<const char* const> options{}; //!< Choice labels, by index.
@@ -263,6 +272,7 @@ auto MilkdropPresetUi() -> NodeUi;
 auto SwitcherUi() -> NodeUi;
 auto ViewportUi() -> NodeUi;
 auto IsfShaderUi() -> NodeUi;
+auto LfoUi() -> NodeUi;
 
 /// Control get/set for one field of `Params` (a pointer to member): a number, or a bool as 0 or 1.
 template <class Params, auto Member>

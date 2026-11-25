@@ -39,6 +39,7 @@ add_library(gv_model STATIC
     model/nodes/SaturationNode.cpp
     model/nodes/LumaGateNode.cpp
     model/nodes/OpacityNode.cpp
+    model/nodes/LfoNode.cpp
     model/nodes/MilkdropPresetNode.cpp
     model/nodes/SwitcherNode.cpp
     model/nodes/ViewportNode.cpp
@@ -126,6 +127,7 @@ add_library(gv_app_nodes STATIC
     app/nodes/SaturationNode.cpp
     app/nodes/LumaGateNode.cpp
     app/nodes/OpacityNode.cpp
+    app/nodes/LfoNode.cpp
     app/nodes/MilkdropPresetNode.cpp
     app/nodes/SwitcherNode.cpp
     app/nodes/ViewportNode.cpp

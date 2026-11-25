@@ -136,7 +136,7 @@ TEST_CASE("every effect is one video in, one video out, with a pass and a shader
         if (def.effect)
         {
             CHECK(model::OutputKind(node) == model::PortKind::Picture);
-            CHECK(model::InputCount(node) == 1);
+            CHECK(model::InputCount(node) == 1 + static_cast<int>(def.params.size())); // and a modulation input per param
             CHECK(model::InputKind(node, 0) == model::PortKind::Picture);
             REQUIRE(def.pass != nullptr);
             CHECK(def.pass(node).type == type);
@@ -146,6 +146,26 @@ TEST_CASE("every effect is one video in, one video out, with a pass and a shader
         {
             CHECK(def.pass == nullptr);
             CHECK(def.shader == nullptr);
+        }
+    }
+}
+
+TEST_CASE("every param has a range, get and set, a modulation input, and a slider with its pin", "[node-types]")
+{
+    for (NodeType type : AllTypes())
+    {
+        const auto& def = model::Def(type);
+        INFO(def.displayName);
+        Lone lone(type);
+        const model::Node& node = lone.scene.Node(lone.id);
+        for (int param = 0; param < static_cast<int>(def.params.size()); ++param)
+        {
+            const auto& p = def.params[static_cast<size_t>(param)];
+            CHECK(p.low < p.high);
+            REQUIRE(p.get != nullptr);
+            REQUIRE(p.set != nullptr);
+            CHECK(model::InputKind(node, model::ParamInput(node, param)) == model::PortKind::Number);
+            CHECK(std::ranges::count_if(app::Ui(type).controls, [&](const app::Control& c) { return c.param == param; }) == 1);
         }
     }
 }

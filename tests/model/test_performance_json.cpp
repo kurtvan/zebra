@@ -218,6 +218,26 @@ TEST_CASE("the canvas round-trips, and Match screen isn't written")
     CHECK(ParsePerformance(R"({"version": 2, "scenes": []})").performance.canvas.matchScreen);
 }
 
+TEST_CASE("an LFO, its Number wire and a modulation depth round-trip; nodes without depths don't write any")
+{
+    Performance performance;
+    performance.scenes.push_back(MakeScene("a", 1));
+    Graph& graph = performance.scenes[0].graph;
+    const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
+    const auto opacity = AddNode(graph, NodeType::Opacity, 0, 0);
+    Connect(graph, lfo, opacity, ParamInput(*graph.Find(opacity), 0));
+    graph.Find(opacity)->depths["opacity"] = -0.5f;
+    ParamsOf<LfoParams>(*graph.Find(lfo)) = {LfoShape::Triangle, 4.f, 0.25f, 3.0};
+    const auto text = SerializePerformance(performance);
+    CHECK(text.find("\"depths\"") != std::string::npos);
+    const auto result = ParsePerformance(text);
+    REQUIRE(result.ok);
+    CHECK(result.performance.scenes.at(0).graph == graph);
+
+    graph.Find(opacity)->depths.clear();
+    CHECK(SerializePerformance(performance).find("depths") == std::string::npos);
+}
+
 TEST_CASE("canvas sizes must be even and within range")
 {
     auto check = [](int width, int height) {

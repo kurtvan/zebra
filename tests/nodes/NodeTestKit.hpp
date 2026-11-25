@@ -100,12 +100,14 @@ public:
     std::vector<app::SyphonServer> servers;
     float wheel{0.f};                                     //!< The scroll over any area under the pointer.
     std::map<std::string, app::PresetBrowserState> browsers; //!< By node id.
+    model::SignalValues signals;                          //!< Number outputs' values this frame.
 
     // What the node did.
     std::vector<RecordedEdit> edits;
     std::vector<std::vector<model::GraphError>> refused;
     int endedEdits{0};
     std::vector<app::InputSpec> inputRows;
+    std::vector<app::InputSpec> paramPins;                //!< Modulation pins, on their sliders' rows.
     std::vector<std::pair<std::string, int>> jumps;       //!< JumpSwitcher calls: node id, input.
     std::vector<int> popups;
     std::vector<std::string> tooltips;
@@ -169,6 +171,16 @@ public:
     auto TexturesOf(const std::filesystem::path& preset) -> const std::vector<std::string>& override
     {
         return textures[preset.string()];
+    }
+    auto Signals() const -> model::SignalValues override
+    {
+        return signals;
+    }
+    void ParamPin(const model::Node&, const app::InputSpec& spec) override
+    {
+        paramPins.push_back(spec);
+        if (ImGui::GetCurrentContext() != nullptr)
+            ImGui::Dummy(ImVec2(12.f, ImGui::GetFrameHeight()));
     }
     auto LivePicture() -> unsigned int override
     {

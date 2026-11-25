@@ -16,6 +16,7 @@ auto OpacityUi() -> NodeUi
     opacity.format = "opacity %.2f";
     opacity.undo = "Change Opacity";
     opacity.field = "opacity";
+    opacity.param = 0;
     opacity.tooltip = "How strongly the video goes into the input it's wired to.";
     ui.controls = {{Control::Kind::Inputs}, opacity};
     ui.addItems = {{"Opacity"}};

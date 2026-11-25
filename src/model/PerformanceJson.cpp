@@ -85,6 +85,8 @@ auto NodeJson(const Node& node) -> json
     json object = {{"id", node.id}, {"type", def.jsonName}, {"x", node.x}, {"y", node.y}, {"expanded", node.expanded}};
     if (def.write != nullptr)
         def.write(node, object);
+    if (!node.depths.empty())
+        object["depths"] = node.depths;
     return object;
 }
 
@@ -126,6 +128,7 @@ auto ParseNode(const json& object, const std::string& path, std::vector<Issue>& 
     ReadField(object, "x", node.x, path, issues);
     ReadField(object, "y", node.y, path, issues);
     ReadField(object, "expanded", node.expanded, path, issues);
+    ReadField(object, "depths", node.depths, path, issues);
     const auto known = NodeTypeFromJson(type);
     if (!known)
     {

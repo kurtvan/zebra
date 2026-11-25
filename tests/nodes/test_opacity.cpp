@@ -93,3 +93,76 @@ TEST_CASE("opacity: older show files call it \"mix\"; they open, and save it as 
     CHECK(saved.find("\"opacity\"") != std::string::npos);
     CHECK(saved.find("\"type\": \"mix\"") == std::string::npos);
 }
+
+namespace {
+
+/// video -> opacity (at `slider`) -> preset -> viewport, with a square LFO into the opacity's modulation input.
+struct Modulated
+{
+    explicit Modulated(float slider)
+    {
+        preset = scene.Add(NodeType::MilkdropPreset);
+        const std::string video = scene.Add(NodeType::VideoSource);
+        opacity = scene.Add(NodeType::Opacity, [&](model::Node& n) { model::ParamsOf<model::OpacityParams>(n).opacity = slider; });
+        lfo = scene.Add(NodeType::Lfo, [](model::Node& n) { model::ParamsOf<model::LfoParams>(n).shape = model::LfoShape::Square; });
+        model::Connect(scene.Graph(), preset, "viewport", 0);
+        model::Connect(scene.Graph(), video, opacity, 0);
+        model::Connect(scene.Graph(), opacity, preset, 0);
+        model::Connect(scene.Graph(), lfo, opacity, model::ParamInput(scene.Node(opacity), 0));
+        REQUIRE(model::ValidateGraph(scene.Graph()).empty());
+    }
+    /// The opacity pass at `beats` into the song.
+    auto At(double beats) -> float
+    {
+        const auto plan = engine::CompilePlan(scene.Graph());
+        const auto steps = engine::Modulated(plan.branches.at(0).steps, model::EvaluateSignals(scene.Graph(), {beats, 0.0}));
+        return steps.at(0).effects.at(0).a;
+    }
+    test::NodeScene scene;
+    std::string preset, opacity, lfo;
+};
+
+} // namespace
+
+TEST_CASE("opacity: a Number wire moves it around the slider by its depth, clamped to 0..1", "[node:opacity]")
+{
+    Modulated m(0.5f);
+    CHECK(model::InputCount(m.scene.Node(m.opacity)) == 2);
+    const auto plan = engine::CompilePlan(m.scene.Graph());
+    REQUIRE(plan.branches.at(0).steps.at(0).modulations.size() == 1);
+    CHECK(plan.branches[0].steps[0].modulations[0].signals == std::vector<std::pair<int, std::string>>{{0, m.lfo}});
+    CHECK(m.At(0.25) == 1.f); // square high: 0.5 + 0.5
+    CHECK(m.At(0.75) == 0.f); // square low: 0.5 - 0.5
+
+    m.scene.Node(m.opacity).depths["opacity"] = 0.5f;
+    CHECK(m.At(0.25) == 0.75f);
+    m.scene.Node(m.opacity).depths["opacity"] = -0.5f;
+    CHECK(m.At(0.25) == 0.25f);
+    m.scene.Node(m.opacity).depths.clear();
+    model::ParamsOf<model::OpacityParams>(m.scene.Node(m.opacity)).opacity = 0.9f;
+    CHECK(m.At(0.25) == 1.f);
+    // Without a value for the signal, the slider's value.
+    CHECK(engine::Modulated(engine::CompilePlan(m.scene.Graph()).branches[0].steps, {})[0].effects[0].a == 0.9f);
+
+    // Unwired, the slider alone again.
+    model::Disconnect(m.scene.Graph(), m.opacity, 1);
+    CHECK(engine::CompilePlan(m.scene.Graph()).branches[0].steps[0].modulations.empty());
+}
+
+TEST_CASE("opacity: its modulation pin starts the slider's row; wired, the row shows its depth", "[node:opacity]")
+{
+    Modulated m(0.5f);
+    test::FakeNodeContext context(m.scene);
+    context.signals[m.lfo] = 1.f;
+    test::HeadlessUi ui;
+    ui.Frame(context, m.opacity);
+    CHECK(app::NodeInputs(m.scene.Node(m.opacity), context).size() == 1); // only the video in the input column
+    REQUIRE(context.paramPins.size() == 1);
+    CHECK(context.paramPins[0] == app::InputSpec{1, {}, model::PortKind::Number, "Opacity"});
+    const auto rect = context.itemRects.at("How far the wire moves the setting either side of the slider (negative: the other way).");
+    ui.Click(context, m.opacity, ImVec2(rect.first.x + 2.f, (rect.first.y + rect.second.y) * 0.5f));
+    CHECK(model::DepthOf(m.scene.Node(m.opacity), 0) < -0.9f);
+    CHECK(context.LastEdit() == "Change Depth");
+    // The slider stays as it was, and still edits the centre.
+    CHECK(Opacity(m.scene.Node(m.opacity)) == 0.5f);
+}
