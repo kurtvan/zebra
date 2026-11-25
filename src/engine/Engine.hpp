@@ -2,6 +2,7 @@
 
 #include "engine/BeatGrid.hpp"
 #include "engine/BeatHit.hpp"
+#include "engine/FileWatcher.hpp"
 #include "engine/Lane.hpp"
 #include "engine/RenderPlan.hpp"
 #include "engine/ScenePool.hpp"
@@ -232,6 +233,9 @@ private:
     auto SelectionFor(int index, const model::Scene& scene, int item) const -> SwitcherSelection;
     auto PlanFor(int index, const model::Scene& scene, int item) const -> LanePlan;
     void RefreshLivePlans();
+    /// A few times a second: gives the instances of scenes whose ISF shader files were saved again new plans,
+    /// so their lanes compile the new versions (and keep the old ones if they don't compile).
+    void ReloadChangedShaders();
     auto Needs() const -> VideoNeeds;
     auto CurrentPreset(int scene) const -> std::filesystem::path;
     void CreatePresentTargets();
@@ -288,6 +292,8 @@ private:
     std::map<std::string, double> m_liveMsByPreset;  //!< Average live render time per preset path.
     std::map<std::string, std::string> m_errorByPreset;
     std::map<std::string, std::string> m_errorByShader; //!< ISF shaders that didn't compile, by path.
+    FileWatcher m_shaderFiles;                          //!< The ISF files of the loaded performance.
+    std::chrono::steady_clock::time_point m_shadersPolled;
     int m_warmDone{0};
     int m_warmTotal{0};
     int m_nextWarmLane{0};

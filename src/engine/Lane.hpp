@@ -182,6 +182,9 @@ private:
     auto BranchTarget(std::vector<RenderTarget>& targets, size_t index) -> RenderTarget;
     /// Compiles the plan's ISF shaders this lane doesn't have yet, reporting each one (ShaderCompiled).
     void CompileShaders(const LanePlan& plan);
+    /// A version of the shader at `path` that a hosted instance draws with a working program, or null: what a
+    /// version that doesn't compile is drawn with instead (CompileIsf).
+    auto LastGoodShader(const std::filesystem::path& path) const -> std::shared_ptr<const isf::IsfShader>;
     /// Deletes the programs no hosted instance's plan uses.
     void DropUnusedPrograms();
     auto Override(InstanceId id, projectm_handle instance, const std::string& name, TextureOverrides& overrides) -> TextureOverride*;

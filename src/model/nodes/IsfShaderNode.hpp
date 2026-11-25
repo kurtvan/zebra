@@ -15,9 +15,11 @@ namespace gv::model {
 /// An ISF file as the node sees it.
 struct IsfFile
 {
-    std::shared_ptr<const isf::IsfShader> shader; //!< Null: no file chosen, missing or broken.
-    bool missing{false};                          //!< A path is set but there's no file there.
-    std::string error;                            //!< Why the file can't be read ("line 3: ..."); empty if it can.
+    /// Null: no file chosen, missing, or broken since it was first read. A file that breaks after it was read
+    /// keeps the last version that could be, with `error` set, so a bad edit keeps the old version running.
+    std::shared_ptr<const isf::IsfShader> shader;
+    bool missing{false}; //!< A path is set but there's no file there.
+    std::string error;   //!< Why the file can't be read ("line 3: ..."); empty if it can.
 };
 
 /// The file at `path`, read and parsed again only when its modification time changes. Thread-safe.

@@ -101,6 +101,8 @@ add_library(gv_engine STATIC
     engine/Lane.hpp
     engine/Engine.cpp
     engine/Engine.hpp
+    engine/FileWatcher.cpp
+    engine/FileWatcher.hpp
     engine/SwitcherClock.cpp
     engine/SwitcherClock.hpp
     engine/BeatHit.cpp

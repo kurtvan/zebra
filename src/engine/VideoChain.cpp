@@ -170,6 +170,22 @@ void VideoChain::Run(GLuint video, const std::vector<EffectPass>& passes, GLuint
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+auto CompileIsf(IsfPrograms& programs, const std::shared_ptr<const isf::IsfShader>& shader,
+                const std::shared_ptr<const isf::IsfShader>& lastGood) -> std::string
+{
+    if (programs.contains(shader))
+        return {};
+    auto program = std::make_shared<isf::IsfProgram>(*shader);
+    std::string error = program->Ok() ? std::string() : program->Error().empty() ? "it didn't compile" : program->Error();
+    if (!program->Ok() && lastGood != nullptr)
+    {
+        if (const auto good = programs.find(lastGood); good != programs.end() && good->second->Ok())
+            program = good->second;
+    }
+    programs.emplace(shader, std::move(program));
+    return error;
+}
+
 void VideoChain::RunSteps(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
                           RenderTarget target, RenderTarget scratch, int width, int height)
 {

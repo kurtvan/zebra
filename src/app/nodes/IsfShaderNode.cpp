@@ -33,7 +33,7 @@ auto FileProblem(const model::Node& node, NodeContext& context) -> std::string
     if (!file.error.empty())
         return "Can't read the shader: " + file.error;
     const std::string error = context.ShaderError(PathOf(node));
-    return error.empty() ? std::string() : "Doesn't compile, so the video passes through: " + error.substr(0, error.find('\n'));
+    return error.empty() ? std::string() : "Doesn't compile: " + error.substr(0, error.find('\n'));
 }
 
 /// Choose... and Reveal.
@@ -167,9 +167,11 @@ auto IsfShaderUi() -> NodeUi
         if (file.missing)
             return {NodeState::Missing, "File not found: " + PathOf(node).string()};
         if (!file.error.empty())
-            return {NodeState::Missing, "Can't read the shader: " + file.error};
+            return {NodeState::Missing, "Can't read the shader: " + file.error +
+                                            (file.shader != nullptr ? "\nThe last version that could be read keeps running." : "")};
         if (const std::string error = context.ShaderError(PathOf(node)); !error.empty())
-            return {NodeState::Missing, "The shader doesn't compile, so the video passes through it:\n" + error};
+            return {NodeState::Missing, "The shader doesn't compile. The last version that did keeps running; without one, the "
+                                        "video passes through it:\n" + error};
         if (context.Live())
             return {NodeState::Live, "The scene is live."};
         return {};

@@ -180,3 +180,32 @@ TEST_CASE("an ISF step whose shader didn't compile, or wasn't compiled, passes t
     CHECK(branch.Run({IsfStep(broken, 1.f), {kLook}}) == plain);
     CHECK(branch.Run({{kLook}, IsfStep(Invert(), 1.f)}) == plain); // never compiled
 }
+
+TEST_CASE("a bad edit of a shader keeps drawing the last version that compiled, until a good one comes", "[gl]")
+{
+    REQUIRE_GL();
+    Branch branch;
+    const auto invert = Invert();
+    REQUIRE(engine::CompileIsf(branch.programs, invert).empty());
+    const Pixels inverted = branch.Run({IsfStep(invert, 1.f)});
+
+    // Saved with a mistake: an error to show on the node, but the old program draws it.
+    const auto broken = Shader("/*{ \"INPUTS\": [ { \"NAME\": \"inputImage\", \"TYPE\": \"image\" } ] }*/\nvoid main() { gl_FragColor = nope; }\n");
+    CHECK_FALSE(engine::CompileIsf(branch.programs, broken, invert).empty());
+    branch.programs.erase(invert); // the lane drops the old version once no plan uses it
+    CHECK(branch.Run({IsfStep(broken, 1.f)}) == inverted);
+
+    // Fixed: the new version draws.
+    const auto fixed = Shader("/*{ \"INPUTS\": [ { \"NAME\": \"inputImage\", \"TYPE\": \"image\" } ] }*/\n"
+                              "void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }\n");
+    CHECK(engine::CompileIsf(branch.programs, fixed, broken).empty());
+    const Pixels red = branch.Run({IsfStep(fixed, 1.f)});
+    CHECK(red != inverted);
+    CHECK(red[0] == 255);
+    CHECK(red[1] == 0);
+
+    // Without a working earlier version, a bad edit passes the video through.
+    engine::IsfPrograms fresh;
+    CHECK_FALSE(engine::CompileIsf(fresh, broken).empty());
+    CHECK_FALSE(fresh.at(broken)->Ok());
+}
