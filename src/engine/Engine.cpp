@@ -333,6 +333,15 @@ auto Engine::SelectionFor(int index, const model::Scene& scene, int item) const 
     return selection;
 }
 
+auto Engine::SignalInputsNow() const -> model::SignalInputs
+{
+    model::SignalInputs inputs;
+    if (m_clock.receiving && m_clock.running)
+        inputs.beats = static_cast<double>(m_clock.positionKnown ? m_clock.songPulses : m_clock.totalPulses) / static_cast<double>(kPulsesPerBeat);
+    inputs.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_signalStart).count();
+    return inputs;
+}
+
 auto Engine::PlanFor(int index, const model::Scene& scene, int item) const -> LanePlan
 {
     return {CompilePlan(scene.graph, SelectionFor(index, scene, item)).branches};
@@ -535,7 +544,10 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
             else if (i == m_handover.lane && m_handover.video)
                 video = m_videoProvider->FrameFor(m_handover.video->source);
         }
-        m_lanes[static_cast<size_t>(i)]->Tick(chunk, m_tick, video, i == m_liveLane ? liveChunk : nullptr);
+        model::SignalValues signals;
+        if (i == m_liveLane && liveScene >= 0 && liveScene < static_cast<int>(m_performance.scenes.size()))
+            signals = model::EvaluateSignals(m_performance.scenes[static_cast<size_t>(liveScene)].graph, SignalInputsNow());
+        m_lanes[static_cast<size_t>(i)]->Tick(chunk, m_tick, video, i == m_liveLane ? liveChunk : nullptr, std::move(signals));
     }
 
     // Once a scene has been live for half a second, its lane's average render time replaces the

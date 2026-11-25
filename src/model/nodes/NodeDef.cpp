@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <string>
 
 namespace gv::model {
 
@@ -14,7 +15,7 @@ auto BuildDefs() -> std::array<NodeDef, kNodeTypeCount>
     std::array<NodeDef, kNodeTypeCount> defs = {
         nodes::VideoSourceDef(), nodes::ContrastDef(), nodes::SaturationDef(), nodes::LumaGateDef(),
         nodes::OpacityDef(),         nodes::MilkdropPresetDef(),   nodes::SwitcherDef(),   nodes::ViewportDef(),
-        nodes::IsfShaderDef(),
+        nodes::IsfShaderDef(),  nodes::LfoDef(),
     };
     // Def() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < kNodeTypeCount; ++i)
@@ -74,6 +75,30 @@ auto ChainStart(const Graph& graph, const Node* node) -> const Node*
         node = graph.Upstream(node->id, 0);
     }
     return nullptr;
+}
+
+auto EvaluateSignals(const Graph& graph, const SignalInputs& inputs) -> SignalValues
+{
+    SignalValues values;
+    for (const auto& node : graph.nodes)
+    {
+        if (const auto signal = Def(node.type).signal; signal != nullptr && node.params.index() == Def(node.type).defaults.index())
+            values[node.id] = signal(node, inputs);
+    }
+    return values;
+}
+
+auto DepthOf(const Node& node, int param) -> float
+{
+    const auto it = node.depths.find(Def(node.type).params[static_cast<size_t>(param)].name);
+    return it != node.depths.end() ? it->second : 1.0f;
+}
+
+auto Modulate(const Node& node, int param, float signal) -> float
+{
+    const ParamDef& def = Def(node.type).params[static_cast<size_t>(param)];
+    const float value = def.get(node) + (signal - 0.5f) * DepthOf(node, param) * (def.high - def.low);
+    return std::clamp(value, def.low, def.high);
 }
 
 namespace nodes {

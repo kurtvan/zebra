@@ -1,9 +1,11 @@
 #include "app/nodes/NodeUi.hpp"
 
 #include "app/Widgets.hpp"
+#include "app/WireLook.hpp"
 #include "model/nodes/NodeDef.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstdlib>
 
 namespace gv::app {
@@ -17,7 +19,7 @@ auto BuildUis() -> std::array<NodeUi, model::kNodeTypeCount>
     std::array<NodeUi, model::kNodeTypeCount> uis = {
         nodes::VideoSourceUi(), nodes::ContrastUi(), nodes::SaturationUi(), nodes::LumaGateUi(),
         nodes::OpacityUi(),         nodes::MilkdropPresetUi(),   nodes::SwitcherUi(),   nodes::ViewportUi(),
-        nodes::IsfShaderUi(),
+        nodes::IsfShaderUi(),  nodes::LfoUi(),
     };
     // Ui() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < model::kNodeTypeCount; ++i)
@@ -53,6 +55,30 @@ auto RemainingWidth(const std::vector<Control>& controls, size_t index, const mo
     return std::max(rowStart + nodeWidth - ImGui::GetCursorScreenPos().x - after, 20.f);
 }
 
+/// After a modulated slider, on its row: the value the setting has this frame, as a marker on the slider, then
+/// the depth.
+void DrawModulation(const model::Node& node, const Control& control, const model::Node& modulator, float width, NodeContext& context)
+{
+    const auto signals = context.Signals();
+    if (const auto it = signals.find(modulator.id); it != signals.end())
+    {
+        const double value = model::Modulate(node, control.param, it->second);
+        const float grab = 2.f + ImGui::GetStyle().GrabMinSize * 0.5f; // where ImGui's grab centre stops at either end
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        const float x = min.x + grab + static_cast<float>((value - control.min) / (control.max - control.min)) * (max.x - min.x - 2.f * grab);
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(x, min.y + 1.f), ImVec2(x, max.y - 1.f), ImGui::GetColorU32(WireColor(model::PortKind::Number)), 2.f);
+    }
+    const std::string name = model::Def(node.type).params[static_cast<size_t>(control.param)].name;
+    float depth = model::DepthOf(node, control.param);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(width);
+    if (ImGui::SliderFloat("##depth", &depth, -1.f, 1.f, "depth %.2f"))
+        context.Edit(node, "Change Depth", ("depth:" + name).c_str(), [&](model::Node& n) { n.depths[name] = depth; });
+    context.EndEditIfReleased();
+    context.Tooltip("How far the wire moves the setting either side of the slider (negative: the other way).");
+}
+
 void DrawControl(const std::vector<Control>& controls, size_t index, const model::Node& node, NodeContext& context, float& rowStart)
 {
     const Control& control = controls[index];
@@ -69,8 +95,18 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
         ImGui::TextUnformatted(control.label);
         ImGui::SameLine();
     }
-    const float width = control.width > 0.f ? control.width : RemainingWidth(controls, index, node, rowStart, context.width);
     const auto set = control.set;
+    const model::Node* modulator = nullptr; // what's wired into the slider's modulation input
+    if (control.param >= 0)
+    {
+        const int input = model::ParamInput(node, control.param);
+        context.ParamPin(node, {input, {}, model::PortKind::Number, model::Def(node.type).params[static_cast<size_t>(control.param)].label});
+        ImGui::SameLine(0.f, 4.f);
+        modulator = context.SceneGraph().Upstream(node.id, input);
+    }
+    const float rest = control.width > 0.f ? control.width : RemainingWidth(controls, index, node, rowStart, context.width);
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float width = modulator != nullptr ? std::floor((rest - spacing) * 0.6f) : rest;
 
     switch (control.kind)
     {
@@ -108,6 +144,10 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
             if (changed)
                 context.Edit(node, control.undo, control.field != nullptr ? control.field : control.id, [&](model::Node& n) { set(n, value); });
             context.EndEditIfReleased();
+            if (modulator != nullptr && control.tooltip != nullptr)
+                context.Tooltip(control.tooltip);
+            if (modulator != nullptr)
+                DrawModulation(node, control, *modulator, rest - width - spacing, context);
             break;
         }
         case Control::Kind::Checkbox:
@@ -153,7 +193,7 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
             control.draw(node, context);
             break;
     }
-    if (control.tooltip != nullptr)
+    if (control.tooltip != nullptr && modulator == nullptr)
         context.Tooltip(control.tooltip);
     context.control = -1;
     ImGui::PopID();
@@ -211,7 +251,7 @@ auto NodeInputs(const model::Node& node, NodeContext& context) -> std::vector<In
     if (ui.inputs != nullptr)
         return ui.inputs(node, context);
     std::vector<InputSpec> inputs;
-    for (int i = 0; i < model::InputCount(node); ++i)
+    for (int i = 0; i < model::ParamInput(node, 0); ++i)
         inputs.push_back({i, {}, *model::InputKind(node, i), ui.inputLabel});
     return inputs;
 }

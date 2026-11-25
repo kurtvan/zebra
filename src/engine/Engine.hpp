@@ -128,6 +128,9 @@ public:
     /// point, and a whole interval before the next. Preset switchers jump with TriggerItem.
     void JumpVideo(int index, const std::string& switcherId, int input);
 
+    /// What LFOs and other Number outputs follow now: the running clock's song position, and the time.
+    auto SignalInputsNow() const -> model::SignalInputs;
+
     /// The MIDI clock, for switchers that count beats or bars. Call every frame before Tick().
     void SetClock(const ClockInput& clock)
     {
@@ -261,6 +264,7 @@ private:
     std::vector<RenderPlan> m_entryPlans;    //!< Per scene: what it shows when it starts.
     std::mt19937 m_random{std::random_device{}()};
     ClockInput m_clock;
+    std::chrono::steady_clock::time_point m_signalStart{std::chrono::steady_clock::now()}; //!< SignalInputs::seconds' zero.
     BeatHitClock m_beatHitClock;
     BeatHitSynth m_beatHitSynth;
     int m_sampleRate{48000};

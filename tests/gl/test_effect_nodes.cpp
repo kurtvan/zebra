@@ -1,6 +1,7 @@
 // Each effect node's shader (NodeDef::shader, run by engine/VideoChain), pixel by pixel against the formula it
 // promises, written out again here on the CPU. One effect per test case, over 256 colours.
 
+#include "engine/RenderPlan.hpp"
 #include "engine/VideoChain.hpp"
 #include "gl/GlTestContext.hpp"
 
@@ -12,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 using gv::engine::VideoChain;
@@ -182,6 +184,39 @@ TEST_CASE("mix: the video's alpha is the opacity, its colour unchanged", "[gl][n
     {
         INFO("opacity " << opacity);
         Compare({NodeType::Opacity, opacity, 0.f, false}, [&](const Rgba& c) { return Rgba{c.r, c.g, c.b, opacity}; });
+    }
+}
+
+TEST_CASE("an LFO driving opacity: a square at its high and low gives the pixels of opacity 1 and 0", "[gl][node:opacity][node:lfo]")
+{
+    REQUIRE_GL();
+    using namespace gv::model;
+    Graph graph;
+    const auto preset = AddNode(graph, NodeType::MilkdropPreset, 0, 0);
+    const auto video = AddNode(graph, NodeType::VideoSource, 0, 0);
+    const auto opacity = AddNode(graph, NodeType::Opacity, 0, 0);
+    const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
+    ParamsOf<OpacityParams>(*graph.Find(opacity)).opacity = 0.5f;
+    ParamsOf<LfoParams>(*graph.Find(lfo)).shape = LfoShape::Square;
+    Connect(graph, preset, AddNode(graph, NodeType::Viewport, 0, 0), 0);
+    Connect(graph, video, opacity, 0);
+    Connect(graph, opacity, preset, 0);
+    Connect(graph, lfo, opacity, ParamInput(*graph.Find(opacity), 0));
+    REQUIRE(ValidateGraph(graph).empty());
+    const auto steps = gv::engine::CompilePlan(graph).branches.at(0).steps;
+    for (const auto& [phase, still] : {std::pair{0.25f, 1.f}, std::pair{0.75f, 0.f}})
+    {
+        INFO("phase " << phase);
+        ParamsOf<LfoParams>(*graph.Find(lfo)).phase = phase;
+        const auto modulated = gv::engine::Modulated(steps, EvaluateSignals(graph, {0.0, 0.0}));
+        const auto got = Run(modulated.at(0).effects);
+        const auto want = Run({{NodeType::Opacity, still, 0.f, false}});
+        REQUIRE(got.size() == want.size());
+        for (size_t i = 0; i < got.size(); ++i)
+        {
+            CHECK(got[i].r == want[i].r);
+            CHECK(got[i].a == want[i].a);
+        }
     }
 }
 

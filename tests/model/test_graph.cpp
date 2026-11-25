@@ -3,6 +3,7 @@
 #include "model/Performance.hpp"
 
 #include "model/ClassicView.hpp"
+#include "model/nodes/NodeDef.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -295,6 +296,36 @@ TEST_CASE("one picture kind: every wire that was legal with two kinds still is")
             CHECK(ConnectErrors(graph, out.id, in.id, in.input).empty() == wasLegal);
         }
     }
+}
+
+TEST_CASE("number wires: only a Number output into a Number input; never part of a video's chain")
+{
+    Graph graph = Basic();
+    const auto preset = graph.nodes[0].id;
+    const auto video = AddNode(graph, NodeType::VideoSource, 0, 0);
+    const auto opacity = AddNode(graph, NodeType::Opacity, 0, 0);
+    const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
+    Connect(graph, video, opacity, 0);
+    Connect(graph, opacity, preset, Feedback());
+    REQUIRE(ValidateGraph(graph).empty());
+    const int modulation = ParamInput(*graph.Find(opacity), 0);
+    CHECK(modulation == 1);
+    CHECK(InputKind(*graph.Find(opacity), modulation) == PortKind::Number);
+
+    // An LFO into Opacity's modulation input.
+    CHECK(ConnectErrors(graph, lfo, opacity, modulation).empty());
+    // A number into a picture input, or a picture into a number input.
+    CHECK(Has(ConnectErrors(graph, lfo, opacity, 0), "Opacity: this input takes a picture, not a number."));
+    CHECK(Has(ConnectErrors(graph, lfo, preset, Feedback()), "takes a picture, not a number"));
+    CHECK(Has(ConnectErrors(graph, lfo, "viewport", 0), "takes a picture, not a number"));
+    CHECK(Has(ConnectErrors(graph, video, opacity, modulation), "Opacity: this input takes a number (from an LFO), not a picture."));
+
+    // A wired number leaves the chain's start (the video) as it was.
+    Connect(graph, lfo, opacity, modulation);
+    CHECK(ChainStart(graph, graph.Find(opacity))->id == video);
+    // Its depth is -1..1.
+    graph.Find(opacity)->depths["opacity"] = 1.5f;
+    CHECK(Has(ValidateGraph(graph), "Opacity: opacity depth must be between -1 and 1."));
 }
 
 TEST_CASE("queries: presets and pool videos of a graph")

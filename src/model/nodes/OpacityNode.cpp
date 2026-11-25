@@ -7,6 +7,11 @@ namespace {
 
 constexpr const char* kFormerJsonNames[] = {"mix"};
 
+constexpr ParamDef kParams[] = {
+    {"opacity", "Opacity", 0.0f, 1.0f, [](const Node& node) { return ParamsOf<OpacityParams>(node).opacity; },
+     [](Node& node, float value) { ParamsOf<OpacityParams>(node).opacity = value; }},
+};
+
 } // namespace
 
 /// How strongly a video goes into the preset input it's wired to.
@@ -14,6 +19,7 @@ auto OpacityDef() -> NodeDef
 {
     NodeDef def = EffectBase(NodeType::Opacity, "opacity", "opacity", "Opacity", OpacityParams{});
     def.formerJsonNames = kFormerJsonNames;
+    def.params = kParams;
     def.checkParams = [](const Node& node, std::vector<GraphError>& errors) {
         CheckRange(errors, node, "opacity", ParamsOf<OpacityParams>(node).opacity, 0.0, 1.0, "0 and 1");
     };

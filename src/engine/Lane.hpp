@@ -103,8 +103,9 @@ public:
 
     /// Feeds `pcm` to every hosted instance and, if live, renders one frame, drawing `video` through its plan.
     /// The live instance gets `livePcm` instead when it's set (the same audio plus beat hits).
-    /// Coalesces with an unprocessed tick (the newest video frame wins).
-    void Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm = nullptr);
+    /// `signals` move the live instance's modulated effects (Modulated). Coalesces with an unprocessed tick (the
+    /// newest video frame and signals win).
+    void Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm = nullptr, model::SignalValues signals = {});
 
     /// The newest published frame not yet taken, or tick -1.
     auto TakeLatest() -> PublishedFrame;
@@ -150,6 +151,7 @@ private:
         std::vector<PcmChunk> livePcm; //!< What the live instance hears: livePcm where given, else pcm.
         long long tick{-1};
         VideoFrame video;
+        model::SignalValues signals;
     };
 
     void Run();
@@ -177,7 +179,8 @@ private:
     /// Runs the plan's branches on `video` and sets the instance's layers. Texture branches are drawn only with
     /// `overrides` (hosted instances, not warm-ups). Returns the On top branch textures, to composite over the
     /// rendered frame.
-    auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides) -> std::vector<GLuint>;
+    auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides,
+                     const model::SignalValues& signals = {}) -> std::vector<GLuint>;
     /// Targets[index] at render size, creating it (and those before it) if needed.
     auto BranchTarget(std::vector<RenderTarget>& targets, size_t index) -> RenderTarget;
     /// Compiles the plan's ISF shaders this lane doesn't have yet, reporting each one (ShaderCompiled).

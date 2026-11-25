@@ -215,7 +215,7 @@ void Lane::SetLive(InstanceId instance)
     m_live = instance;
 }
 
-void Lane::Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm)
+void Lane::Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm, model::SignalValues signals)
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -230,6 +230,7 @@ void Lane::Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm
         }
         m_pendingTick.tick = tick;
         m_pendingTick.video = video;
+        m_pendingTick.signals = std::move(signals);
     }
     m_cv.notify_one();
 }
@@ -591,7 +592,7 @@ void Lane::DoTick(PendingTick tick)
     if (timeThisFrame)
         glBeginQuery(GL_TIME_ELAPSED, m_timerQuery[slot]);
 
-    const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video, &it->second.textures);
+    const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video, &it->second.textures, tick.signals);
     m_isfClock.frameIndex++;
     glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
     glViewport(0, 0, m_width, m_height);
@@ -634,7 +635,8 @@ void Lane::DeleteOverride(TextureOverride& override)
     override = {};
 }
 
-auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides) -> std::vector<GLuint>
+auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides,
+                       const model::SignalValues& signals) -> std::vector<GLuint>
 {
     GLuint feedback = 0;
     GLuint beforeComposite = 0;
@@ -649,7 +651,10 @@ auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint vi
             const RenderTarget picture = BranchTarget(m_branchTargets, i);
             const bool ping = std::any_of(branch.steps.begin(), branch.steps.end(), [](const VideoStep& step) { return step.isf.has_value(); });
             const RenderTarget scratch = ping ? BranchTarget(m_branchScratch, i) : RenderTarget{};
-            m_chain->RunSteps(video, branch.steps, m_programs, m_isfClock, picture, scratch, m_width, m_height);
+            if (HasModulations(branch.steps))
+                m_chain->RunSteps(video, Modulated(branch.steps, signals), m_programs, m_isfClock, picture, scratch, m_width, m_height);
+            else
+                m_chain->RunSteps(video, branch.steps, m_programs, m_isfClock, picture, scratch, m_width, m_height);
             const GLuint texture = picture.texture;
             const GLuint fbo = picture.fbo;
             switch (branch.layer)

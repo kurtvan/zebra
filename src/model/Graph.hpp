@@ -52,15 +52,18 @@ enum class NodeType
     MilkdropPreset,
     Switcher,
     Viewport,
-    IsfShader
+    IsfShader,
+    Lfo
 };
-constexpr int kNodeTypeCount = 9; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
+constexpr int kNodeTypeCount = 10; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
 
-/// What travels along a wire: a picture (a video's, an effect's, or a preset's finished frame). Every port
-/// takes one; what the engine can't render yet is refused by the picture rules in ValidateGraph.
+/// What travels along a wire: a picture (a video's, an effect's, or a preset's finished frame), or a number
+/// (0..1 this frame, an LFO's, say) that moves a setting. A wire joins two ports of the same kind; what the
+/// engine can't render yet is refused by the picture rules in ValidateGraph.
 enum class PortKind
 {
-    Picture
+    Picture,
+    Number
 };
 
 /// The video inputs of a preset node (Wire::toInput).
@@ -133,9 +136,25 @@ struct IsfShaderParams
     int wiredInputs{0};
     auto operator==(const IsfShaderParams&) const -> bool = default;
 };
+enum class LfoShape
+{
+    Sine,
+    Triangle,
+    Saw,
+    Square
+};
+constexpr float kLfoBeats[] = {0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f}; //!< The cycle lengths an LFO offers, in beats.
+struct LfoParams
+{
+    LfoShape shape{LfoShape::Sine};
+    float beats{1.0f};         //!< One of kLfoBeats: the cycle's length while the MIDI clock runs.
+    float phase{0.0f};         //!< 0..1: how far into its cycle the LFO starts.
+    double periodSeconds{2.0}; //!< 0.1..60: the cycle's length without a running clock.
+    auto operator==(const LfoParams&) const -> bool = default;
+};
 
 using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, OpacityParams, MilkdropPresetParams,
-                                SwitcherParams, ViewportParams, IsfShaderParams>;
+                                SwitcherParams, ViewportParams, IsfShaderParams, LfoParams>;
 
 struct Node
 {
@@ -145,6 +164,8 @@ struct Node
     float y{0.0f};
     bool expanded{true}; //!< False: shown as its title bar only.
     NodeParams params{ViewportParams{}};
+    /// How far each modulation input moves its setting, by ParamDef name: -1..1, missing is 1 (NodeDef::params).
+    std::map<std::string, float> depths;
 
     auto operator==(const Node&) const -> bool = default;
 };
@@ -198,8 +219,11 @@ auto DisplayName(NodeType type) -> const char*;
 
 /// The kind a node outputs, or nullopt (the viewport has no output).
 auto OutputKind(const Node& node) -> std::optional<PortKind>;
-/// How many inputs a node has (preset: kPresetInputs, with texture inputs keyed by name).
+/// How many inputs a node has (preset: kPresetInputs, with texture inputs keyed by name), its modulation
+/// inputs (one Number input per NodeDef::params entry, after the others) included.
 auto InputCount(const Node& node) -> int;
+/// The modulation input of `node`'s param `param` (an index into NodeDef::params).
+auto ParamInput(const Node& node, int param) -> int;
 /// The kind input `input` of `node` takes, or nullopt if out of range.
 auto InputKind(const Node& node, int input) -> std::optional<PortKind>;
 

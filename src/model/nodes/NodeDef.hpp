@@ -4,6 +4,7 @@
 
 #include <nlohmann/json_fwd.hpp>
 
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -37,6 +38,27 @@ struct EffectPass
     auto operator==(const EffectPass&) const -> bool = default;
 };
 
+/// What Number outputs are computed from each frame (EvaluateSignals).
+struct SignalInputs
+{
+    std::optional<double> beats; //!< The MIDI clock's song position in beats, while it's running.
+    double seconds{0.0};         //!< Time since the engine started.
+};
+
+/// Every Number output's value this frame (0..1), by node id.
+using SignalValues = std::map<std::string, float>;
+
+/// A setting a Number wire can move (NodeDef::params): its own modulation input, after the node's others.
+struct ParamDef
+{
+    const char* name{""};  //!< "opacity": its depth's key in Node::depths.
+    const char* label{""}; //!< "Opacity": its input row.
+    float low{0.0f};
+    float high{1.0f};
+    float (*get)(const Node&){nullptr};
+    void (*set)(Node&, float){nullptr};
+};
+
 /// Everything the model knows about one node type, in one place: model/nodes/<Type>Node.cpp. The graph
 /// (ports, validation, edits), saving and loading, and the render plan all read it from here, so a new node
 /// type is one file here (plus its canvas UI in app/nodes/ and its tests in tests/nodes/).
@@ -63,6 +85,10 @@ struct NodeDef
     /// Settings that follow the node's wires (a switcher's input count). FollowWires runs it after
     /// every wire change and on load, so the node's settings and its wires never disagree.
     void (*followWires)(const Graph&, Node&){nullptr};
+    /// The settings Number wires can move, each with a modulation input after the inputs above.
+    std::span<const ParamDef> params{};
+    /// Number outputs: the value this frame, 0..1.
+    float (*signal)(const Node&, const SignalInputs&){nullptr};
 
     /// "Video file": how errors and the canvas name this node. Null: displayName.
     std::string (*label)(const Node&){nullptr};
@@ -107,6 +133,14 @@ void CheckRange(std::vector<GraphError>& errors, const Node& node, const char* w
 /// a Video switcher). Null if the chain has no start yet or loops.
 auto ChainStart(const Graph& graph, const Node* node) -> const Node*;
 
+/// The value of every Number output in `graph` this frame.
+auto EvaluateSignals(const Graph& graph, const SignalInputs& inputs) -> SignalValues;
+/// `node`'s param `param` moved by `signal` around its own value: clamp(value + (signal - 0.5) * depth *
+/// (high - low)), with the depth from Node::depths.
+auto Modulate(const Node& node, int param, float signal) -> float;
+/// The depth of `node`'s param `param` (Node::depths; 1 if not set).
+auto DepthOf(const Node& node, int param) -> float;
+
 namespace nodes {
 
 // One per node type, in model/nodes/. NodeDefs() collects them.
@@ -119,6 +153,7 @@ auto MilkdropPresetDef() -> NodeDef;
 auto SwitcherDef() -> NodeDef;
 auto ViewportDef() -> NodeDef;
 auto IsfShaderDef() -> NodeDef;
+auto LfoDef() -> NodeDef;
 
 /// The parts every effect shares: one video input, one video output.
 auto EffectBase(NodeType type, const char* jsonName, const char* idPrefix, const char* displayName, NodeParams defaults) -> NodeDef;

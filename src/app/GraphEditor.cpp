@@ -3,6 +3,7 @@
 #include "app/MiniMapWidget.hpp"
 #include "app/Shell.hpp"
 #include "app/Widgets.hpp"
+#include "app/WireLook.hpp"
 #include "app/WireRoute.hpp"
 #include "app/macos/FileDialog.hpp"
 #include "io/VideoSource.hpp"
@@ -25,7 +26,6 @@ namespace gv::app {
 
 namespace {
 
-const ImVec4 kWire{0.42f, 0.64f, 0.98f, 1.f}; //!< Every wire and pin: one picture kind (the old Video blue).
 constexpr float kPinSize = 12.f;
 constexpr float kArrowWidth = 14.f;
 constexpr float kNodeRounding = 6.f;
@@ -239,6 +239,15 @@ public:
         for (const auto& server : io::ListSyphonServers())
             servers.push_back({server.appName, server.serverName});
         return servers;
+    }
+
+    auto Signals() const -> model::SignalValues override
+    {
+        return m_state.engine != nullptr ? model::EvaluateSignals(SceneGraph(), m_state.engine->SignalInputsNow()) : model::SignalValues{};
+    }
+    void ParamPin(const model::Node& node, const InputSpec& spec) override
+    {
+        m_editor.DrawPin(node, false, &spec, spec.kind, ImGui::GetFrameHeight());
     }
 
     auto InputRow(const model::Node& node, const InputSpec& spec) -> bool override
@@ -904,14 +913,7 @@ void GraphEditor::DrawPin(const model::Node& node, bool output, const InputSpec*
     ed::PinRect(ImVec2(shape.min.x - kPinReach, shape.min.y - kPinReach), ImVec2(shape.max.x + kPinReach, shape.max.y + kPinReach));
     ed::EndPin();
 
-    const ImU32 color = ImGui::GetColorU32(Faded(kWire, accepts ? 1.f : 0.25f));
-    ImDrawList* draw = ImGui::GetWindowDrawList();
-    if (wires >= 2)
-        draw->AddRectFilled(shape.min, shape.max, color, shape.rounding);
-    else if (wires == 1)
-        draw->AddCircleFilled(center, kPinDotRadius, color);
-    else
-        draw->AddCircle(center, 4.5f, color, 0, 1.6f);
+    DrawPinShape(ImGui::GetWindowDrawList(), center, kind, wires, shape, ImGui::GetColorU32(Faded(WireColor(kind), accepts ? 1.f : 0.25f)));
 }
 
 auto GraphEditor::WiresAt(const model::Node& node, bool output, const InputSpec* spec) const -> int
@@ -971,7 +973,7 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
         auto a = m_pins.find(out);
         auto b = m_pins.find(in);
         if (a != m_pins.end() && b != m_pins.end())
-            shown.push_back({&wire, key, &a->second, &b->second, kWire});
+            shown.push_back({&wire, key, &a->second, &b->second, WireColor(*model::OutputKind(*from))});
     }
 
     // Each wire's ends: at a pin several wires share, its own point on the pill, in the order of the wires'
@@ -1180,7 +1182,9 @@ void GraphEditor::HandleMove(AppActions& actions, int scene, const Pin* target)
     if (target == nullptr)
     {
         // Over empty canvas: letting go disconnects it.
-        m_movingColor = Faded(kWire, 0.6f);
+        const model::Node* from = m_dragGraph->Find(wire.fromNode);
+        const auto kind = from != nullptr ? model::OutputKind(*from) : std::nullopt;
+        m_movingColor = Faded(WireColor(kind.value_or(model::PortKind::Picture)), 0.6f);
         m_hoverTooltip = "Let go to disconnect.";
         if (ed::AcceptNewItem(hidden, 3.f))
         {

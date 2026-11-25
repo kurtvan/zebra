@@ -95,16 +95,23 @@ auto OutputKind(const Node& node) -> std::optional<PortKind>
     return def.output != nullptr ? def.output(node) : std::nullopt;
 }
 
-auto InputCount(const Node& node) -> int
+auto ParamInput(const Node& node, int param) -> int
 {
     const NodeDef& def = Def(node.type);
-    return def.inputCount != nullptr ? def.inputCount(node) : 0;
+    return (def.inputCount != nullptr ? def.inputCount(node) : 0) + param;
+}
+
+auto InputCount(const Node& node) -> int
+{
+    return ParamInput(node, static_cast<int>(Def(node.type).params.size()));
 }
 
 auto InputKind(const Node& node, int input) -> std::optional<PortKind>
 {
     if (input < 0 || input >= InputCount(node))
         return std::nullopt;
+    if (input >= ParamInput(node, 0))
+        return PortKind::Number;
     return Def(node.type).inputKind(node, input);
 }
 
@@ -170,8 +177,8 @@ void CheckNotSupportedYet(const Graph& graph, std::vector<GraphError>& errors)
     {
         const Node* from = graph.Find(wire.fromNode);
         const Node* to = graph.Find(wire.toNode);
-        if (from == nullptr || to == nullptr || !OutputKind(*from) || !InputKind(*to, wire.toInput))
-            continue; // reported already
+        if (from == nullptr || to == nullptr || OutputKind(*from) != PortKind::Picture || InputKind(*to, wire.toInput) != PortKind::Picture)
+            continue; // reported already, or a number
         const PictureFrom picture = PictureOf(graph, *from);
         CheckViewportShowsPreset(*to, picture, errors);
         CheckPresetTakesVideo(*to, picture, errors);
@@ -221,6 +228,8 @@ auto ValidateGraph(const Graph& graph) -> std::vector<GraphError>
             errors.push_back({node.id, Label(node) + " has settings of the wrong kind."});
         else if (def.checkParams != nullptr)
             def.checkParams(node, errors);
+        for (int param = 0; param < static_cast<int>(def.params.size()); ++param)
+            CheckRange(errors, node, (std::string(def.params[static_cast<size_t>(param)].name) + " depth").c_str(), DepthOf(node, param), -1.0, 1.0, "-1 and 1");
         if (node.type == NodeType::Viewport && ++viewports > 1)
             errors.push_back({node.id, "There can only be one viewport."});
     }
@@ -245,6 +254,10 @@ auto ValidateGraph(const Graph& graph) -> std::vector<GraphError>
             errors.push_back({from->id, Label(*from) + " has no output."});
         else if (!InputKind(*to, wire.toInput))
             errors.push_back({to->id, Label(*to) + " has no input " + std::to_string(wire.toInput + 1) + "."});
+        else if (*InputKind(*to, wire.toInput) == PortKind::Number && *OutputKind(*from) != PortKind::Number)
+            errors.push_back({to->id, Label(*to) + ": this input takes a number (from an LFO), not a picture."});
+        else if (*InputKind(*to, wire.toInput) != PortKind::Number && *OutputKind(*from) == PortKind::Number)
+            errors.push_back({to->id, Label(*to) + ": this input takes a picture, not a number."});
         if (textureInput && wire.textureName.empty())
             errors.push_back({to->id, "A texture input needs the name of the texture it replaces."});
         else if (!textureInput && !wire.textureName.empty())
