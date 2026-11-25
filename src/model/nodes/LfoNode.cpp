@@ -1,4 +1,4 @@
-#include "model/nodes/NodeDef.hpp"
+#include "model/nodes/LfoNode.hpp"
 #include "model/nodes/NodeJson.hpp"
 
 #include <algorithm>
@@ -26,6 +26,34 @@ auto Shape(LfoShape shape, double x) -> float
 
 } // namespace
 
+} // namespace gv::model::nodes
+
+namespace gv::model {
+
+auto LfoPosition(const LfoParams& params, const SignalInputs& inputs) -> double
+{
+    const double cycles = inputs.beats ? *inputs.beats / params.beats : inputs.seconds / params.periodSeconds;
+    return cycles - std::floor(cycles);
+}
+
+auto LfoValueAt(const LfoParams& params, double position) -> float
+{
+    const double x = position + params.phase;
+    return nodes::Shape(params.shape, x - std::floor(x));
+}
+
+auto LfoCurve(const LfoParams& params, int count) -> std::vector<float>
+{
+    std::vector<float> curve;
+    for (int i = 0; i < count; ++i)
+        curve.push_back(LfoValueAt(params, static_cast<double>(i) / count));
+    return curve;
+}
+
+} // namespace gv::model
+
+namespace gv::model::nodes {
+
 /// A number from 0 to 1 that rises and falls in a loop: in time with the MIDI clock while it runs, else
 /// every few seconds.
 auto LfoDef() -> NodeDef
@@ -46,9 +74,7 @@ auto LfoDef() -> NodeDef
     };
     def.signal = [](const Node& node, const SignalInputs& inputs) {
         const auto& params = ParamsOf<LfoParams>(node);
-        const double cycles = inputs.beats ? *inputs.beats / params.beats : inputs.seconds / params.periodSeconds;
-        const double x = cycles + params.phase;
-        return Shape(params.shape, x - std::floor(x));
+        return LfoValueAt(params, LfoPosition(params, inputs));
     };
     def.write = [](const Node& node, nlohmann::json& object) {
         const auto& params = ParamsOf<LfoParams>(node);

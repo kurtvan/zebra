@@ -101,6 +101,7 @@ public:
     float wheel{0.f};                                     //!< The scroll over any area under the pointer.
     std::map<std::string, app::PresetBrowserState> browsers; //!< By node id.
     model::SignalValues signals;                          //!< Number outputs' values this frame.
+    model::SignalInputs signalInputs;                     //!< The clock and time they follow.
 
     // What the node did.
     std::vector<RecordedEdit> edits;
@@ -175,6 +176,10 @@ public:
     auto Signals() const -> model::SignalValues override
     {
         return signals;
+    }
+    auto SignalInputs() const -> model::SignalInputs override
+    {
+        return signalInputs;
     }
     void ParamPin(const model::Node&, const app::InputSpec& spec) override
     {

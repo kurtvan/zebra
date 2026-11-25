@@ -1,9 +1,11 @@
 #include "app/nodes/NodeUi.hpp"
 
 #include "app/WireLook.hpp"
+#include "model/nodes/LfoNode.hpp"
 
 #include <algorithm>
 #include <iterator>
+#include <vector>
 
 namespace gv::app::nodes {
 
@@ -14,18 +16,37 @@ using model::LfoParams;
 constexpr const char* kShapes[] = {"Sine", "Triangle", "Saw", "Square"};            // by LfoShape
 constexpr const char* kBeats[] = {"1/4 beat", "1/2 beat", "1 beat", "2 beats", "4 beats", "8 beats"}; // by kLfoBeats
 
-/// The LFO's value now, as a bar across the node.
-void DrawValue(const model::Node& node, NodeContext& context)
+constexpr int kCurvePoints = 64;
+constexpr float kPlotHeight = 34.f;
+
+/// One cycle of the wave (the phase applied) and a playhead where the LFO is now, its value on the curve.
+void DrawWave(const model::Node& node, NodeContext& context)
 {
-    const auto signals = context.Signals();
-    const auto it = signals.find(node.id);
-    const float value = it != signals.end() ? std::clamp(it->second, 0.f, 1.f) : 0.f;
+    const auto& params = model::ParamsOf<LfoParams>(node);
+    const auto curve = model::LfoCurve(params, kCurvePoints);
     const ImVec2 min = ImGui::GetCursorScreenPos();
-    const ImVec2 max(min.x + context.width, min.y + 6.f);
+    const float width = context.width;
+    const float inset = 3.f; // the line's width stays inside the plot
+    auto at = [&](double position, float value) {
+        return ImVec2(min.x + static_cast<float>(position) * width, min.y + inset + (1.f - value) * (kPlotHeight - 2.f * inset));
+    };
+    std::vector<ImVec2> points;
+    for (int i = 0; i <= kCurvePoints; ++i)
+    {
+        const double position = static_cast<double>(i) / kCurvePoints;
+        // A square's edges are vertical: both levels at the same x.
+        if (i > 0 && i < kCurvePoints && params.shape == model::LfoShape::Square && curve[static_cast<size_t>(i)] != curve[static_cast<size_t>(i - 1)])
+            points.push_back(at(position, curve[static_cast<size_t>(i - 1)]));
+        points.push_back(at(position, i < kCurvePoints ? curve[static_cast<size_t>(i)] : model::LfoValueAt(params, 1.0)));
+    }
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_FrameBg), 2.f);
-    draw->AddRectFilled(min, ImVec2(min.x + context.width * value, max.y), ImGui::GetColorU32(kNumberWire), 2.f);
-    ImGui::Dummy(ImVec2(context.width, 6.f));
+    draw->AddRectFilled(min, ImVec2(min.x + width, min.y + kPlotHeight), ImGui::GetColorU32(ImGuiCol_FrameBg), 3.f);
+    draw->AddPolyline(points.data(), static_cast<int>(points.size()), ImGui::GetColorU32(kNumberWire), ImDrawFlags_None, 1.5f);
+    const double position = model::LfoPosition(params, context.SignalInputs());
+    const ImVec2 head = at(position, model::LfoValueAt(params, position));
+    draw->AddLine(ImVec2(head.x, min.y), ImVec2(head.x, min.y + kPlotHeight), ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, 0.25f)));
+    draw->AddCircleFilled(head, 3.5f, ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, 1.f)));
+    ImGui::Dummy(ImVec2(width, kPlotHeight));
 }
 
 } // namespace
@@ -82,13 +103,13 @@ auto LfoUi() -> NodeUi
     period.field = "periodSeconds";
     period.tooltip = "One cycle's length when there's no MIDI clock running.";
 
-    Control value;
-    value.kind = Control::Kind::Custom;
-    value.id = "##value";
-    value.draw = DrawValue;
-    value.tooltip = "The LFO's value now, from 0 to 1. Wire it into a setting's diamond to move that setting.";
+    Control wave;
+    wave.kind = Control::Kind::Custom;
+    wave.id = "##wave";
+    wave.draw = DrawWave;
+    wave.tooltip = "One cycle of the LFO, and where it is now (the dot). Wire it into a setting's diamond to move that setting.";
 
-    ui.controls = {shape, beats, phase, period, value};
+    ui.controls = {shape, beats, phase, period, wave};
     ui.addItems = {{"LFO", nullptr, "A number that rises and falls in time with the beat, to move a setting."}};
     return ui;
 }
