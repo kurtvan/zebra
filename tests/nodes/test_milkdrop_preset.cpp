@@ -6,6 +6,7 @@
 #include "model/PerformanceJson.hpp"
 
 #include <fstream>
+#include <unistd.h>
 
 using namespace gv;
 using model::NodeType;
@@ -283,7 +284,8 @@ namespace {
 /// A library in a temp folder: A/1, A/2 (broken), A/3 and B/4.
 auto StepLibrary() -> library::Library
 {
-    const auto dir = std::filesystem::temp_directory_path() / "gv_test_node_stepping";
+    // One folder per process: ctest runs these tests in parallel, and each one rebuilds and deletes it.
+    const auto dir = std::filesystem::temp_directory_path() / ("gv_test_node_stepping_" + std::to_string(getpid()));
     std::filesystem::remove_all(dir);
     for (const char* file : {"A/1.milk", "A/2.milk", "A/3.milk", "B/4.milk"})
     {
