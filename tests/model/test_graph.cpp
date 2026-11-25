@@ -79,17 +79,17 @@ TEST_CASE("validation reports every broken rule")
         AddNode(two, NodeType::Viewport, 0, 0);
         CHECK(Has(ValidateGraph(two), "only be one viewport"));
     }
-    SECTION("kinds, inputs and missing nodes")
+    SECTION("pictures, inputs and missing nodes")
     {
         Graph graph = Basic();
         const auto source = AddNode(graph, NodeType::VideoSource, 0, 0);
-        graph.wires.push_back({source, "viewport", 0, {}});     // video into a Frame input (and a second wire there)
+        graph.wires.push_back({source, "viewport", 0, {}});     // a video on the viewport (and a second wire there)
         graph.wires.push_back({"milkdrop-1", "nowhere", 0, {}});
         graph.wires.push_back({source, "milkdrop-1", 7, {}});     // no input 8
         graph.wires.push_back({"viewport", source, 0, {}});     // the viewport has no output
         graph.wires.push_back({source, "milkdrop-1", static_cast<int>(PresetLayer::Texture), {}}); // texture input without a name
         const auto errors = ValidateGraph(graph);
-        CHECK(Has(errors, "takes a preset's picture, not video"));
+        CHECK(Has(errors, "show a preset here"));
         CHECK(Has(errors, "two wires into one input"));
         CHECK(Has(errors, "isn't there"));
         CHECK(Has(errors, "has no input 8"));
@@ -105,7 +105,7 @@ TEST_CASE("validation reports every broken rule")
         Connect(graph, b, a, 0);
         CHECK(Has(ValidateGraph(graph), "loop"));
     }
-    SECTION("a switcher fed by a switcher of the same kind")
+    SECTION("a switcher fed by a switcher")
     {
         Graph graph = Basic();
         const auto outer = AddNode(graph, NodeType::Switcher, 0, 0);
@@ -113,13 +113,12 @@ TEST_CASE("validation reports every broken rule")
         Connect(graph, inner, outer, 0);
         Connect(graph, "milkdrop-1", inner, 0);
         Connect(graph, outer, "viewport", 0);
-        CHECK(Has(ValidateGraph(graph), "can't be fed by another switcher of the same kind"));
+        CHECK(Has(ValidateGraph(graph), "can't be fed by another switcher"));
 
-        // A Video switcher upstream of a Frame switcher is fine.
+        // A video switcher upstream of a preset switcher, through the preset, is fine.
         Graph mixed = Basic();
         const auto frames = AddNode(mixed, NodeType::Switcher, 0, 0);
         const auto videos = AddNode(mixed, NodeType::Switcher, 0, 0);
-        ParamsOf<SwitcherParams>(*mixed.Find(videos)).kind = PortKind::Video;
         Connect(mixed, AddNode(mixed, NodeType::VideoSource, 0, 0), videos, 0);
         Connect(mixed, videos, "milkdrop-1", Feedback());
         Connect(mixed, "milkdrop-1", frames, 0);
@@ -192,9 +191,9 @@ TEST_CASE("ConnectErrors checks a wire on a copy, as the canvas does while one i
     CHECK(ConnectErrors(graph, gate, "milkdrop-1", Feedback()).empty());
     CHECK(graph == before); // the graph itself is never changed
 
-    // Refused, with the reason: kinds, loops, missing texture names, missing nodes.
-    CHECK(Has(ConnectErrors(graph, "milkdrop-1", gate, 0), "takes video"));
-    CHECK(Has(ConnectErrors(graph, source, "viewport", 0), "not video"));
+    // Refused, with the reason: pictures not supported yet, loops, missing texture names, missing nodes.
+    CHECK(Has(ConnectErrors(graph, "milkdrop-1", gate, 0), "works on a video"));
+    CHECK(Has(ConnectErrors(graph, source, "viewport", 0), "show a preset here"));
     CHECK(Has(ConnectErrors(graph, source, "milkdrop-1", static_cast<int>(PresetLayer::Texture)), "needs the name"));
     CHECK(Has(ConnectErrors(graph, "gone", gate, 0), "isn't there"));
     Connect(graph, source, gate, 0);
@@ -203,6 +202,99 @@ TEST_CASE("ConnectErrors checks a wire on a copy, as the canvas does while one i
     // An occupied input: the new wire replaces the old one.
     const auto other = AddNode(graph, NodeType::VideoSource, 0, 0);
     CHECK(ConnectErrors(graph, other, gate, 0).empty());
+}
+
+TEST_CASE("one picture kind: what the engine can't render yet is refused, each with its own message")
+{
+    Graph graph = Basic();
+    const auto source = AddNode(graph, NodeType::VideoSource, 0, 0);
+    const auto other = AddNode(graph, NodeType::MilkdropPreset, 0, 0);
+    const auto gate = AddNode(graph, NodeType::LumaGate, 0, 0);
+    const auto shader = AddNode(graph, NodeType::IsfShader, 0, 0);
+    const auto switcher = AddNode(graph, NodeType::Switcher, 0, 0);
+    Connect(graph, source, switcher, 0);
+    auto messages = [](const std::vector<GraphError>& errors) {
+        std::vector<std::string> result;
+        for (const auto& error : errors)
+            result.push_back(error.message);
+        return result;
+    };
+    using Messages = std::vector<std::string>;
+
+    CHECK(OutputKind(*graph.Find(source)) == PortKind::Picture);
+    CHECK(InputKind(*graph.Find("viewport"), 0) == PortKind::Picture);
+    CHECK(messages(ConnectErrors(graph, source, "viewport", 0)) ==
+          Messages{"Viewport: show a preset here (videos on the Viewport aren't supported yet)."});
+    CHECK(messages(ConnectErrors(graph, "milkdrop-1", other, Feedback())) ==
+          Messages{"Milkdrop preset: its inputs take a video, not another preset (not supported yet)."});
+    CHECK(messages(ConnectErrors(graph, "milkdrop-1", gate, 0)) ==
+          Messages{"Luma gate: an effect works on a video, not on a preset's picture (not supported yet)."});
+    CHECK(messages(ConnectErrors(graph, "milkdrop-1", shader, 0)) ==
+          Messages{"ISF shader: an effect works on a video, not on a preset's picture (not supported yet)."});
+    CHECK(messages(ConnectErrors(graph, "milkdrop-1", switcher, 1)) ==
+          Messages{"Switcher: it switches videos or presets, not both (not supported yet)."});
+    CHECK(messages(ConnectErrors(graph, switcher, AddNode(graph, NodeType::Switcher, 0, 0), 0)) ==
+          Messages{"A switcher can't be fed by another switcher."});
+    // Through a switcher too.
+    CHECK(Has(ConnectErrors(graph, switcher, "viewport", 0), "show a preset here"));
+}
+
+TEST_CASE("one picture kind: every wire that was legal with two kinds still is")
+{
+    // What each end took or gave with two kinds: Video, Frame, or either (a switcher with nothing wired yet).
+    enum class Old
+    {
+        Video,
+        Frame,
+        Either
+    };
+    struct End
+    {
+        const char* name;
+        Old kind;
+        bool switcher;
+        std::string id; //!< In the graph below.
+        int input{0};
+    };
+    Graph graph = Basic();
+    auto add = [&](NodeType type, const std::string& from = {}) {
+        const auto id = AddNode(graph, type, 0, 0);
+        if (!from.empty())
+            Connect(graph, from, id, 0);
+        return id;
+    };
+    const auto source = add(NodeType::VideoSource);
+    const auto preset = add(NodeType::MilkdropPreset);
+    const std::vector<End> outputs{
+        {"video source", Old::Video, false, source},
+        {"effect", Old::Video, false, add(NodeType::Contrast, source)},
+        {"shader", Old::Video, false, add(NodeType::IsfShader)},
+        {"preset", Old::Frame, false, preset},
+        {"video switcher", Old::Video, true, add(NodeType::Switcher, source)},
+        {"preset switcher", Old::Frame, true, add(NodeType::Switcher, preset)},
+        {"empty switcher", Old::Either, true, add(NodeType::Switcher)},
+    };
+    const auto shader = add(NodeType::IsfShader);
+    ParamsOf<IsfShaderParams>(*graph.Find(shader)).wiredInputs = 1;
+    const std::vector<End> inputs{
+        {"viewport", Old::Frame, false, "viewport"},
+        {"preset feedback", Old::Video, false, add(NodeType::MilkdropPreset), Feedback()},
+        {"preset on top", Old::Video, false, add(NodeType::MilkdropPreset), static_cast<int>(PresetLayer::OnTop)},
+        {"effect", Old::Video, false, add(NodeType::Saturation)},
+        {"shader", Old::Video, false, shader},
+        {"empty switcher", Old::Either, true, add(NodeType::Switcher)},
+    };
+    REQUIRE(ValidateGraph(graph).empty());
+    for (const auto& out : outputs)
+    {
+        for (const auto& in : inputs)
+        {
+            const bool kindsFit = out.kind == in.kind || out.kind == Old::Either || in.kind == Old::Either;
+            const bool wasLegal = kindsFit && !(out.switcher && in.switcher);
+            INFO(out.name << " -> " << in.name);
+            CHECK(ConnectErrors(graph, out.id, in.id, in.input).empty() == wasLegal);
+        }
+    }
 }
 
 TEST_CASE("queries: presets and pool videos of a graph")
@@ -321,13 +413,13 @@ TEST_CASE("the conversion follows the product doc's table")
         const Graph graph = GraphFromClassic(cases[5]);
         const Node* frames = graph.Upstream("viewport", 0);
         REQUIRE(frames->type == NodeType::Switcher);
-        CHECK(ParamsOf<SwitcherParams>(*frames).kind == PortKind::Frame);
+        CHECK_FALSE(SwitchesVideos(graph, *frames));
         CHECK(ParamsOf<SwitcherParams>(*frames).inputCount == 4); // three presets and the empty input
         CHECK(ParamsOf<SwitcherParams>(*frames).unit == IntervalUnit::Bars);
         int videoSwitchers = 0;
         for (const auto& node : graph.nodes)
         {
-            if (node.type == NodeType::Switcher && ParamsOf<SwitcherParams>(node).kind == PortKind::Video)
+            if (SwitchesVideos(graph, node))
             {
                 videoSwitchers++;
                 CHECK(ParamsOf<SwitcherParams>(node).inputCount == 4);

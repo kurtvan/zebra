@@ -295,9 +295,9 @@ auto MilkdropPresetUi() -> NodeUi
     // has (so the wire shows).
     ui.inputs = [](const model::Node& node, NodeContext& context) {
         std::vector<InputSpec> inputs = {
-            {static_cast<int>(PresetLayer::Feedback), {}, model::PortKind::Video, "Feedback"},
-            {static_cast<int>(PresetLayer::BeforeComposite), {}, model::PortKind::Video, "Before composite"},
-            {static_cast<int>(PresetLayer::OnTop), {}, model::PortKind::Video, "On top"},
+            {static_cast<int>(PresetLayer::Feedback), {}, model::PortKind::Picture, "Feedback"},
+            {static_cast<int>(PresetLayer::BeforeComposite), {}, model::PortKind::Picture, "Before composite"},
+            {static_cast<int>(PresetLayer::OnTop), {}, model::PortKind::Picture, "On top"},
         };
         std::vector<std::string> names = context.TexturesOf(PathOf(node));
         for (const auto& wire : context.SceneGraph().wires)
@@ -307,7 +307,7 @@ auto MilkdropPresetUi() -> NodeUi
                 names.push_back(wire.textureName);
         }
         for (const auto& name : names)
-            inputs.push_back({static_cast<int>(PresetLayer::Texture), name, model::PortKind::Video, "Texture: " + name});
+            inputs.push_back({static_cast<int>(PresetLayer::Texture), name, model::PortKind::Picture, "Texture: " + name});
         return inputs;
     };
 

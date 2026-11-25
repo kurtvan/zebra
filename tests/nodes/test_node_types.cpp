@@ -135,9 +135,9 @@ TEST_CASE("every effect is one video in, one video out, with a pass and a shader
         const model::Node& node = lone.scene.Node(lone.id);
         if (def.effect)
         {
-            CHECK(model::OutputKind(node) == model::PortKind::Video);
+            CHECK(model::OutputKind(node) == model::PortKind::Picture);
             CHECK(model::InputCount(node) == 1);
-            CHECK(model::InputKind(node, 0) == model::PortKind::Video);
+            CHECK(model::InputKind(node, 0) == model::PortKind::Picture);
             REQUIRE(def.pass != nullptr);
             CHECK(def.pass(node).type == type);
             CHECK(def.shader != nullptr);

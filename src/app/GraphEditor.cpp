@@ -25,20 +25,13 @@ namespace gv::app {
 
 namespace {
 
-const ImVec4 kVideoWire{0.42f, 0.64f, 0.98f, 1.f};
-const ImVec4 kFrameWire{0.96f, 0.62f, 0.30f, 1.f};
-const ImVec4 kAnyKindPin{0.70f, 0.70f, 0.70f, 1.f}; //!< An unwired switcher's ports: either kind.
+const ImVec4 kWire{0.42f, 0.64f, 0.98f, 1.f}; //!< Every wire and pin: one picture kind (the old Video blue).
 constexpr float kPinSize = 12.f;
 constexpr float kArrowWidth = 14.f;
 constexpr float kNodeRounding = 6.f;
 constexpr float kErrorDismissDistance = 80.f; //!< The error list goes when the mouse moves this far away.
 constexpr float kWireHitDistance = 6.f;       //!< Screen pixels from a wire that hover and click it.
 constexpr int kUnderlayChannel = 5;           //!< imgui-node-editor's c_UserChannel_Underlay: over the grid, under nodes.
-
-auto KindColor(model::PortKind kind) -> ImVec4
-{
-    return kind == model::PortKind::Video ? kVideoWire : kFrameWire;
-}
 
 auto Faded(ImVec4 color, float alpha) -> ImVec4
 {
@@ -911,8 +904,7 @@ void GraphEditor::DrawPin(const model::Node& node, bool output, const InputSpec*
     ed::PinRect(ImVec2(shape.min.x - kPinReach, shape.min.y - kPinReach), ImVec2(shape.max.x + kPinReach, shape.max.y + kPinReach));
     ed::EndPin();
 
-    const ImVec4 base = model::TakesAnyKind(*m_graph, node) ? kAnyKindPin : KindColor(kind);
-    const ImU32 color = ImGui::GetColorU32(Faded(base, accepts ? 1.f : 0.25f));
+    const ImU32 color = ImGui::GetColorU32(Faded(kWire, accepts ? 1.f : 0.25f));
     ImDrawList* draw = ImGui::GetWindowDrawList();
     if (wires >= 2)
         draw->AddRectFilled(shape.min, shape.max, color, shape.rounding);
@@ -967,8 +959,7 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
     for (const auto& wire : graph.wires)
     {
         const model::Node* from = graph.Find(wire.fromNode);
-        const auto kind = from != nullptr ? model::OutputKind(*from) : std::nullopt;
-        if (!kind)
+        if (from == nullptr || !model::OutputKind(*from))
             continue;
         const uint64_t key = WireKey(wire);
         m_wires[key] = wire;
@@ -980,7 +971,7 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
         auto a = m_pins.find(out);
         auto b = m_pins.find(in);
         if (a != m_pins.end() && b != m_pins.end())
-            shown.push_back({&wire, key, &a->second, &b->second, KindColor(*kind)});
+            shown.push_back({&wire, key, &a->second, &b->second, kWire});
     }
 
     // Each wire's ends: at a pin several wires share, its own point on the pill, in the order of the wires'
@@ -1185,14 +1176,11 @@ void GraphEditor::HandleMove(AppActions& actions, int scene, const Pin* target)
 {
     const ImVec4 hidden(0, 0, 0, 0);
     const model::Wire wire = *m_moving;
-    auto kind = model::PortKind::Video;
-    if (const model::Node* from = m_graph->Find(wire.fromNode))
-        kind = model::OutputKind(*from).value_or(model::PortKind::Video);
 
     if (target == nullptr)
     {
         // Over empty canvas: letting go disconnects it.
-        m_movingColor = Faded(KindColor(kind), 0.6f);
+        m_movingColor = Faded(kWire, 0.6f);
         m_hoverTooltip = "Let go to disconnect.";
         if (ed::AcceptNewItem(hidden, 3.f))
         {

@@ -56,11 +56,11 @@ enum class NodeType
 };
 constexpr int kNodeTypeCount = 9; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
 
-/// What travels along a wire: a video picture, or a preset's finished frame.
+/// What travels along a wire: a picture (a video's, an effect's, or a preset's finished frame). Every port
+/// takes one; what the engine can't render yet is refused by the picture rules in ValidateGraph.
 enum class PortKind
 {
-    Video,
-    Frame
+    Picture
 };
 
 /// The video inputs of a preset node (Wire::toInput).
@@ -112,7 +112,6 @@ struct MilkdropPresetParams
 };
 struct SwitcherParams
 {
-    PortKind kind{PortKind::Frame};
     IntervalUnit unit{IntervalUnit::Seconds};
     double intervalSeconds{30.0}; //!< Unit Seconds: kMinPlaylistInterval..kMaxPlaylistInterval.
     int intervalCount{4};         //!< Units Beats/Bars: 1..kMaxPlaylistCount, changing on bar lines.
@@ -204,7 +203,7 @@ auto InputCount(const Node& node) -> int;
 /// The kind input `input` of `node` takes, or nullopt if out of range.
 auto InputKind(const Node& node, int input) -> std::optional<PortKind>;
 
-/// True for Contrast, Saturation, LumaGate and Opacity: one Video input, one Video output.
+/// True for Contrast, Saturation, LumaGate and Opacity: one picture input, one picture output.
 auto IsEffect(NodeType type) -> bool;
 
 // --- Validation ----------------------------------------------------------------------------------
@@ -234,10 +233,20 @@ auto Connect(Graph& graph, const std::string& from, const std::string& to, int i
 /// Removes the wire into `to`'s input. Returns false if there was none.
 auto Disconnect(Graph& graph, const std::string& to, int input, const std::string& textureName = {}) -> bool;
 /// Updates every node's settings that follow its wires (NodeDef::followWires): a switcher keeps exactly one
-/// empty input after its last wired one (inputs are never renumbered), and takes the kind of its wires.
+/// empty input after its last wired one (inputs are never renumbered).
 void FollowWires(Graph& graph);
-/// True if `node`'s ports take either kind until something is wired to it (an unwired switcher).
-auto TakesAnyKind(const Graph& graph, const Node& node) -> bool;
+
+/// What a node's picture is made from, for the rules the engine can't render yet: a video (sources, effects,
+/// shaders), a preset, or both or neither (a switcher, from what's wired into it).
+struct PictureFrom
+{
+    bool video{false};
+    bool preset{false};
+};
+auto PictureOf(const Graph& graph, const Node& node) -> PictureFrom;
+/// True for a switcher that switches videos: one with a video wired in or, with nothing wired in, one that
+/// feeds something other than the viewport or a switcher.
+auto SwitchesVideos(const Graph& graph, const Node& node) -> bool;
 /// Every error wiring `from` into `to`'s input would cause (Connect on a copy, then FollowWires and
 /// ValidateGraph), or none if the wire can be made. For an already valid graph, these are the wire's errors only.
 auto ConnectErrors(const Graph& graph, const std::string& from, const std::string& to, int input, const std::string& textureName = {})

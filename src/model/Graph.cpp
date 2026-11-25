@@ -110,12 +110,96 @@ auto InputKind(const Node& node, int input) -> std::optional<PortKind>
 
 namespace {
 
-auto KindName(PortKind kind) -> const char*
+auto PictureOf(const Graph& graph, const Node& node, std::set<std::string>& seen) -> PictureFrom
 {
-    return kind == PortKind::Video ? "video" : "a preset's picture";
+    if (node.type == NodeType::MilkdropPreset)
+        return {false, true};
+    if (node.type != NodeType::Switcher)
+        return {true, false};
+    PictureFrom picture;
+    if (!seen.insert(node.id).second)
+        return picture; // a loop: ValidateGraph reports it
+    for (const auto& wire : graph.wires)
+    {
+        const Node* from = wire.toNode == node.id ? graph.Find(wire.fromNode) : nullptr;
+        if (from == nullptr)
+            continue;
+        const PictureFrom in = PictureOf(graph, *from, seen);
+        picture.video |= in.video;
+        picture.preset |= in.preset;
+    }
+    return picture;
+}
+
+// --- Not supported yet ---------------------------------------------------------------------------
+// Pictures the engine can't render yet, one rule each, so each of Project E's tickets deletes its own.
+
+/// A video straight on the viewport.
+void CheckViewportShowsPreset(const Node& to, PictureFrom picture, std::vector<GraphError>& errors)
+{
+    if (to.type == NodeType::Viewport && picture.video)
+        errors.push_back({to.id, Label(to) + ": show a preset here (videos on the Viewport aren't supported yet)."});
+}
+
+/// A preset's picture into another preset.
+void CheckPresetTakesVideo(const Node& to, PictureFrom picture, std::vector<GraphError>& errors)
+{
+    if (to.type == NodeType::MilkdropPreset && picture.preset)
+        errors.push_back({to.id, Label(to) + ": its inputs take a video, not another preset (not supported yet)."});
+}
+
+/// A preset's picture into an effect or a shader.
+void CheckEffectTakesVideo(const Node& to, PictureFrom picture, std::vector<GraphError>& errors)
+{
+    if ((IsEffect(to.type) || to.type == NodeType::IsfShader) && picture.preset)
+        errors.push_back({to.id, Label(to) + ": an effect works on a video, not on a preset's picture (not supported yet)."});
+}
+
+/// A switcher that cuts between a video and a preset.
+void CheckSwitcherDoesNotMix(const Graph& graph, const Node& node, std::vector<GraphError>& errors)
+{
+    if (node.type != NodeType::Switcher)
+        return;
+    if (const PictureFrom picture = PictureOf(graph, node); picture.video && picture.preset)
+        errors.push_back({node.id, Label(node) + ": it switches videos or presets, not both (not supported yet)."});
+}
+
+void CheckNotSupportedYet(const Graph& graph, std::vector<GraphError>& errors)
+{
+    for (const auto& wire : graph.wires)
+    {
+        const Node* from = graph.Find(wire.fromNode);
+        const Node* to = graph.Find(wire.toNode);
+        if (from == nullptr || to == nullptr || !OutputKind(*from) || !InputKind(*to, wire.toInput))
+            continue; // reported already
+        const PictureFrom picture = PictureOf(graph, *from);
+        CheckViewportShowsPreset(*to, picture, errors);
+        CheckPresetTakesVideo(*to, picture, errors);
+        CheckEffectTakesVideo(*to, picture, errors);
+    }
+    for (const auto& node : graph.nodes)
+        CheckSwitcherDoesNotMix(graph, node, errors);
 }
 
 } // namespace
+
+auto PictureOf(const Graph& graph, const Node& node) -> PictureFrom
+{
+    std::set<std::string> seen;
+    return PictureOf(graph, node, seen);
+}
+
+auto SwitchesVideos(const Graph& graph, const Node& node) -> bool
+{
+    if (node.type != NodeType::Switcher)
+        return false;
+    if (std::any_of(graph.wires.begin(), graph.wires.end(), [&](const Wire& wire) { return wire.toNode == node.id; }))
+        return PictureOf(graph, node).video;
+    return std::any_of(graph.wires.begin(), graph.wires.end(), [&](const Wire& wire) {
+        const Node* to = wire.fromNode == node.id ? graph.Find(wire.toNode) : nullptr;
+        return to != nullptr && to->type != NodeType::Viewport && to->type != NodeType::Switcher;
+    });
+}
 
 auto ValidateGraph(const Graph& graph) -> std::vector<GraphError>
 {
@@ -156,15 +240,11 @@ auto ValidateGraph(const Graph& graph) -> std::vector<GraphError>
             continue;
         }
         usable.push_back(&wire);
-        const auto out = OutputKind(*from);
-        const auto in = InputKind(*to, wire.toInput);
         const bool textureInput = wire.toInput == Def(to->type).textureInput;
-        if (!out)
+        if (!OutputKind(*from))
             errors.push_back({from->id, Label(*from) + " has no output."});
-        else if (!in)
+        else if (!InputKind(*to, wire.toInput))
             errors.push_back({to->id, Label(*to) + " has no input " + std::to_string(wire.toInput + 1) + "."});
-        else if (*out != *in)
-            errors.push_back({to->id, "This input of the " + Label(*to) + " takes " + KindName(*in) + ", not " + KindName(*out) + "."});
         if (textureInput && wire.textureName.empty())
             errors.push_back({to->id, "A texture input needs the name of the texture it replaces."});
         else if (!textureInput && !wire.textureName.empty())
@@ -172,6 +252,8 @@ auto ValidateGraph(const Graph& graph) -> std::vector<GraphError>
         if (!taken.insert({wire.toNode, wire.toInput, wire.textureName}).second)
             errors.push_back({to->id, Label(*to) + " has two wires into one input."});
     }
+
+    CheckNotSupportedYet(graph, errors);
 
     // Loops: depth-first search over the wires (from -> to).
     std::map<std::string, std::vector<std::string>> downstream;
@@ -300,12 +382,6 @@ void FollowWires(Graph& graph)
         if (const auto follow = Def(node.type).followWires; follow != nullptr)
             follow(graph, node);
     }
-}
-
-auto TakesAnyKind(const Graph& graph, const Node& node) -> bool
-{
-    return Def(node.type).anyKindWhenUnwired &&
-           std::none_of(graph.wires.begin(), graph.wires.end(), [&](const Wire& wire) { return wire.fromNode == node.id || wire.toNode == node.id; });
 }
 
 auto PresetsOf(const Graph& graph) -> std::vector<std::filesystem::path>

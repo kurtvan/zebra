@@ -30,7 +30,7 @@ TEST_CASE("saturation: an effect, video in and out, leaving the video as it is b
     const auto& node = scene.Node(scene.Add(NodeType::Saturation));
     CHECK(node.id == "saturation-1");
     CHECK(Saturation(node) == 1.0f);
-    CHECK(model::OutputKind(node) == model::PortKind::Video);
+    CHECK(model::OutputKind(node) == model::PortKind::Picture);
     CHECK(model::InputCount(node) == 1);
 }
 
@@ -76,7 +76,7 @@ TEST_CASE("saturation: on the canvas, a video input and a 0..2 slider", "[node:s
     const std::string id = scene.Add(NodeType::Saturation);
     test::FakeNodeContext context(scene);
     CHECK(app::NodeTitle(scene.Node(id), context) == "Saturation");
-    CHECK(app::NodeInputs(scene.Node(id), context) == std::vector<app::InputSpec>{{0, {}, model::PortKind::Video, "Video"}});
+    CHECK(app::NodeInputs(scene.Node(id), context) == std::vector<app::InputSpec>{{0, {}, model::PortKind::Picture, "Video"}});
     const auto& slider = test::ControlById(NodeType::Saturation, "##saturation");
     CHECK(slider.min == 0.0);
     CHECK(slider.max == 2.0);

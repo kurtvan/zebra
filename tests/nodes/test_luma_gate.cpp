@@ -27,7 +27,7 @@ TEST_CASE("luma gate: an effect that cuts nothing by default", "[node:luma-gate]
     const auto& node = scene.Node(scene.Add(NodeType::LumaGate));
     CHECK(node.id == "gate-1");
     CHECK(Gate(node) == LumaGateParams{0.f, 0.f, false});
-    CHECK(model::InputKind(node, 0) == model::PortKind::Video);
+    CHECK(model::InputKind(node, 0) == model::PortKind::Picture);
 }
 
 TEST_CASE("luma gate: threshold and softness are each 0 to 1, and both are reported", "[node:luma-gate]")

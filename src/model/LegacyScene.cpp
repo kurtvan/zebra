@@ -120,7 +120,7 @@ auto GraphFromClassic(const ClassicScene& classic) -> Graph
     if (video && IsVideoPlaylist(scene.video))
     {
         const auto& playlist = scene.video.playlist;
-        SwitcherParams params{PortKind::Video, playlist.unit, playlist.intervalSeconds, playlist.intervalCount, playlist.shuffle, 1};
+        SwitcherParams params{playlist.unit, playlist.intervalSeconds, playlist.intervalCount, playlist.shuffle, 1};
         root = Add(graph, NodeType::Switcher, kVideoSwitcherX, 0.0f, params);
         for (size_t i = 0; i < playlist.videos.size(); ++i)
         {
@@ -160,7 +160,7 @@ auto GraphFromClassic(const ClassicScene& classic) -> Graph
     if (presetPlaylist)
     {
         const auto& playlist = scene.playlist;
-        SwitcherParams params{PortKind::Frame, playlist.unit, playlist.intervalSeconds, playlist.intervalCount, playlist.shuffle, 1};
+        SwitcherParams params{playlist.unit, playlist.intervalSeconds, playlist.intervalCount, playlist.shuffle, 1};
         const auto switcher = Add(graph, NodeType::Switcher, kFrameSwitcherX, 0.0f, params);
         for (size_t i = 0; i < presetIds.size(); ++i)
             Connect(graph, presetIds[i], switcher, static_cast<int>(i));

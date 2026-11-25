@@ -76,7 +76,7 @@ TEST_CASE("ISF shader: a video output, and no inputs until a file is chosen", "[
     const auto& node = scene.Node(scene.Add(NodeType::IsfShader));
     CHECK(node.id == "isf-1");
     CHECK(Isf(node) == IsfShaderParams{});
-    CHECK(model::OutputKind(node) == model::PortKind::Video);
+    CHECK(model::OutputKind(node) == model::PortKind::Picture);
     CHECK(model::InputCount(node) == 0);
 }
 
@@ -93,7 +93,7 @@ TEST_CASE("ISF shader: a Video input per image input, following the file as it c
     REQUIRE(inputs.size() == 2);
     CHECK(inputs[0].label == "inputImage");
     CHECK(inputs[1].label == "Other");
-    CHECK(model::InputKind(scene.Node(id), 1) == model::PortKind::Video);
+    CHECK(model::InputKind(scene.Node(id), 1) == model::PortKind::Picture);
 
     WriteShader(file, R"({"NAME": "inputImage", "TYPE": "image"})");
     CHECK(model::InputCount(scene.Node(id)) == 1);

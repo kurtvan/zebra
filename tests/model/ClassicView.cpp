@@ -174,7 +174,7 @@ auto ClassicFromGraph(const Graph& graph) -> std::optional<ClassicScene>
         video.restartOnEnter = source.restartOnEnter;
         video.loop = source.loop;
     }
-    else if (root->type == NodeType::Switcher && ParamsOf<SwitcherParams>(*root).kind == PortKind::Video)
+    else if (root->type == NodeType::Switcher)
     {
         const auto& params = ParamsOf<SwitcherParams>(*root);
         video.playlist.enabled = true;

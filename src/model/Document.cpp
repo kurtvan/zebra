@@ -188,7 +188,7 @@ auto AssignVideo(Performance& performance, int index, const std::string& videoId
     // A Video switcher: one more input. Otherwise the (first) video source plays the file.
     for (const auto& node : graph.nodes)
     {
-        if (node.type == NodeType::Switcher && ParamsOf<SwitcherParams>(node).kind == PortKind::Video)
+        if (SwitchesVideos(graph, node))
         {
             const std::string switcher = node.id;
             const int input = ParamsOf<SwitcherParams>(node).inputCount - 1;

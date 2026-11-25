@@ -180,10 +180,10 @@ auto IsfShaderUi() -> NodeUi
         if (const auto file = model::IsfFileAt(PathOf(node)); file.shader != nullptr)
         {
             for (const auto* image : model::IsfImageInputs(*file.shader))
-                inputs.push_back({static_cast<int>(inputs.size()), {}, model::PortKind::Video, NameOf(*image)});
+                inputs.push_back({static_cast<int>(inputs.size()), {}, model::PortKind::Picture, NameOf(*image)});
         }
         for (int i = static_cast<int>(inputs.size()); i < model::InputCount(node); ++i)
-            inputs.push_back({i, {}, model::PortKind::Video, "Input " + std::to_string(i + 1) + " (not in the shader)"});
+            inputs.push_back({i, {}, model::PortKind::Picture, "Input " + std::to_string(i + 1) + " (not in the shader)"});
         return inputs;
     };
     ui.controlsFor = [](const model::Node& node, NodeContext&) {

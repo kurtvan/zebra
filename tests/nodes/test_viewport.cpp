@@ -15,7 +15,7 @@ TEST_CASE("viewport: one picture input, no output, always called \"viewport\"", 
     CHECK(viewport->id == "viewport");
     CHECK_FALSE(model::OutputKind(*viewport));
     CHECK(model::InputCount(*viewport) == 1);
-    CHECK(model::InputKind(*viewport, 0) == model::PortKind::Frame);
+    CHECK(model::InputKind(*viewport, 0) == model::PortKind::Picture);
     CHECK_FALSE(model::InputKind(*viewport, 1));
 }
 
@@ -32,14 +32,14 @@ TEST_CASE("viewport: exactly one per graph, and it can't be removed", "[node:vie
     CHECK(test::Messages(model::ValidateGraph(empty)) == std::vector<std::string>{"There's no viewport."});
 }
 
-TEST_CASE("viewport: takes a preset's picture, not video", "[node:viewport]")
+TEST_CASE("viewport: shows a preset, not a video (not yet)", "[node:viewport]")
 {
     test::NodeScene scene;
     const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
     CHECK(model::ConnectErrors(scene.Graph(), preset, "viewport", 0).empty());
     CHECK(test::Messages(model::ConnectErrors(scene.Graph(), video, "viewport", 0)) ==
-          std::vector<std::string>{"This input of the Viewport takes a preset's picture, not video."});
+          std::vector<std::string>{"Viewport: show a preset here (videos on the Viewport aren't supported yet)."});
 }
 
 TEST_CASE("viewport: what's wired into it is what the scene draws; nothing wired draws black", "[node:viewport]")
@@ -65,7 +65,7 @@ TEST_CASE("viewport: on the canvas, a Picture input and the output size", "[node
     test::FakeNodeContext context(scene);
     const model::Node& viewport = scene.Node("viewport");
     CHECK(app::NodeTitle(viewport, context) == "Viewport");
-    CHECK(app::NodeInputs(viewport, context) == std::vector<app::InputSpec>{{0, {}, model::PortKind::Frame, "Picture"}});
+    CHECK(app::NodeInputs(viewport, context) == std::vector<app::InputSpec>{{0, {}, model::PortKind::Picture, "Picture"}});
 
     const auto texts = test::ControlsOf(NodeType::Viewport, app::Control::Kind::Text);
     REQUIRE(texts.size() == 1);

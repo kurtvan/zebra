@@ -116,11 +116,46 @@ TEST_CASE("format 3 files name preset inputs and keep switcher inputs stable")
     const std::string text = SerializePerformance(performance);
     CHECK(text.find("\"input\": \"feedback\"") != std::string::npos);
     CHECK(text.find("\"input\": \"onTop\"") != std::string::npos);
-    CHECK(text.find("\"kind\": \"frame\"") != std::string::npos);
+    CHECK(text.find("\"kind\"") == std::string::npos); // one picture kind: switchers have no kind
+    CHECK(text.find("\"switcher\"") != std::string::npos);
     CHECK(text.find("\"type\": \"lumaGate\"") != std::string::npos);
     CHECK(text.find("\"milkdropPreset\"") != std::string::npos);
     CHECK(text.find("\"playlist\"") == std::string::npos); // no format 2 fields
     CHECK(SerializePerformance(ParsePerformance(text).performance) == text); // stable
+}
+
+TEST_CASE("switchers saved with a kind open with the same graph, and save without it")
+{
+    // A video switcher into a preset, and a frame switcher of presets onto the viewport, as saved before one
+    // picture kind.
+    const std::string old = R"({"version": 3, "scenes": [{"id": "a", "midi": {"cc20Value": 0}, "graph": {
+        "nodes": [{"id": "v1", "type": "videoSource", "source": {"type": "syphon", "appName": "A", "serverName": "B"}},
+                  {"id": "v2", "type": "videoSource", "source": {"type": "syphon", "appName": "C", "serverName": "D"}},
+                  {"id": "videos", "type": "switcher", "kind": "video", "intervalUnit": "bars", "intervalCount": 2},
+                  {"id": "p1", "type": "milkdropPreset", "path": "/a.milk"}, {"id": "p2", "type": "milkdropPreset", "path": "/b.milk"},
+                  {"id": "frames", "type": "switcher", "kind": "frame", "intervalSeconds": 12, "shuffle": true},
+                  {"id": "viewport", "type": "viewport"}],
+        "wires": [{"from": "v1", "to": "videos", "input": 0}, {"from": "v2", "to": "videos", "input": 1},
+                  {"from": "videos", "to": "p1", "input": "feedback"}, {"from": "videos", "to": "p2", "input": "onTop"},
+                  {"from": "p1", "to": "frames", "input": 0}, {"from": "p2", "to": "frames", "input": 1},
+                  {"from": "frames", "to": "viewport", "input": 0}]}}]})";
+    const auto loaded = ParsePerformance(old);
+    REQUIRE(loaded.ok);
+    CHECK(loaded.issues.empty());
+    const Graph& graph = loaded.performance.scenes[0].graph;
+    CHECK(graph.nodes.size() == 7);
+    CHECK(graph.wires.size() == 7);
+    CHECK(ValidateGraph(graph).empty());
+    CHECK(SwitchesVideos(graph, *graph.Find("videos")));
+    CHECK_FALSE(SwitchesVideos(graph, *graph.Find("frames")));
+    CHECK(ParamsOf<SwitcherParams>(*graph.Find("videos")) == SwitcherParams{IntervalUnit::Bars, 30.0, 2, false, 3});
+    CHECK(ParamsOf<SwitcherParams>(*graph.Find("frames")) == SwitcherParams{IntervalUnit::Seconds, 12.0, 4, true, 3});
+
+    const std::string saved = SerializePerformance(loaded.performance);
+    CHECK(saved.find("\"kind\"") == std::string::npos);
+    const auto reopened = ParsePerformance(saved);
+    REQUIRE(reopened.ok);
+    CHECK(reopened.performance.scenes[0].graph == graph);
 }
 
 TEST_CASE("damaged graphs load unfinished, with a warning per problem")

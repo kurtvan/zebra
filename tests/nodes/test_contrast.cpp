@@ -33,9 +33,9 @@ TEST_CASE("contrast: an effect, video in and out, leaving the video as it is by 
     const auto& node = scene.Node(scene.Add(NodeType::Contrast));
     CHECK(node.id == "contrast-1");
     CHECK(Contrast(node) == 1.0f);
-    CHECK(model::OutputKind(node) == model::PortKind::Video);
+    CHECK(model::OutputKind(node) == model::PortKind::Picture);
     CHECK(model::InputCount(node) == 1);
-    CHECK(model::InputKind(node, 0) == model::PortKind::Video);
+    CHECK(model::InputKind(node, 0) == model::PortKind::Picture);
 }
 
 TEST_CASE("contrast: 0 to 100", "[node:contrast]")
@@ -87,7 +87,7 @@ TEST_CASE("contrast: on the canvas, a video input and a logarithmic slider over 
     test::FakeNodeContext context(scene);
 
     CHECK(app::NodeTitle(scene.Node(id), context) == "Contrast");
-    CHECK(app::NodeInputs(scene.Node(id), context) == std::vector<app::InputSpec>{{0, {}, model::PortKind::Video, "Video"}});
+    CHECK(app::NodeInputs(scene.Node(id), context) == std::vector<app::InputSpec>{{0, {}, model::PortKind::Picture, "Video"}});
     CHECK(app::NodeStatusOf(scene.Node(id), context).state == app::NodeState::Idle);
     context.live = true;
     CHECK(app::NodeStatusOf(scene.Node(id), context).state == app::NodeState::Live);

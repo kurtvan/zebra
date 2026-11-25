@@ -47,7 +47,7 @@ TEST_CASE("opacity: compiles to an opacity pass; through a Video switcher too", 
     test::NodeScene scene;
     const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
-    const std::string switcher = scene.Add(NodeType::Switcher, [](model::Node& n) { model::ParamsOf<model::SwitcherParams>(n).kind = model::PortKind::Video; });
+    const std::string switcher = scene.Add(NodeType::Switcher);
     const std::string opacity = scene.Add(NodeType::Opacity, [](model::Node& n) { model::ParamsOf<model::OpacityParams>(n).opacity = 0.5f; });
     model::Connect(scene.Graph(), preset, "viewport", 0);
     model::Connect(scene.Graph(), video, switcher, 0);

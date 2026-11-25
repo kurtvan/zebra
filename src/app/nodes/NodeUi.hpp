@@ -33,7 +33,7 @@ struct InputSpec
 {
     int input{0};
     std::string texture; //!< Preset texture inputs only.
-    model::PortKind kind{model::PortKind::Video};
+    model::PortKind kind{model::PortKind::Picture};
     std::string label;
     bool passing{false}; //!< Drawn highlighted: a live switcher passes this input.
     std::string tooltip{}; //!< Shown when the row is hovered; empty: none.

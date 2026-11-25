@@ -24,7 +24,7 @@ auto VideoSourceDef() -> NodeDef
     def.idPrefix = "video";
     def.displayName = "Video source";
     def.defaults = VideoSourceParams{};
-    def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Video; };
+    def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Picture; };
     // A file source plays a video from the pool. One with no video yet is a warning; one naming a video
     // that isn't in the pool is a broken file.
     def.checkInShow = [](const Performance& performance, const Node& node, std::vector<ShowProblem>& problems) {
