@@ -243,7 +243,11 @@ public:
 
     auto Signals() const -> model::SignalValues override
     {
-        return m_state.engine != nullptr ? model::EvaluateSignals(SceneGraph(), m_state.engine->SignalInputsNow()) : model::SignalValues{};
+        return model::EvaluateSignals(SceneGraph(), SignalInputs());
+    }
+    auto SignalInputs() const -> model::SignalInputs override
+    {
+        return m_state.engine != nullptr ? m_state.engine->SignalInputsNow() : model::SignalInputs{};
     }
     void ParamPin(const model::Node& node, const InputSpec& spec) override
     {

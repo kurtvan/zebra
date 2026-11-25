@@ -40,6 +40,7 @@ add_library(gv_model STATIC
     model/nodes/LumaGateNode.cpp
     model/nodes/OpacityNode.cpp
     model/nodes/LfoNode.cpp
+    model/nodes/LfoNode.hpp
     model/nodes/MilkdropPresetNode.cpp
     model/nodes/SwitcherNode.cpp
     model/nodes/ViewportNode.cpp

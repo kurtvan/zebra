@@ -3,6 +3,8 @@
 
 #include "nodes/NodeTestKit.hpp"
 
+#include "model/nodes/LfoNode.hpp"
+
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 using namespace gv;
@@ -103,15 +105,63 @@ TEST_CASE("lfo: saved and read back", "[node:lfo]")
     CHECK(test::ReadNode(NodeType::Lfo, {{"shape", "wobble"}}).second.size() == 1);
 }
 
-TEST_CASE("lfo: on the canvas, its shape, rate, phase and period, and its value as a bar", "[node:lfo]")
+TEST_CASE("lfo: the plotted wave is its output: each shape, with the phase applied", "[node:lfo]")
+{
+    for (auto shape : {LfoShape::Sine, LfoShape::Triangle, LfoShape::Saw, LfoShape::Square})
+    {
+        for (float phase : {0.f, 0.25f, 0.6f})
+        {
+            INFO("shape " << static_cast<int>(shape) << ", phase " << phase);
+            const auto node = Lfo(shape, phase);
+            const auto& params = model::ParamsOf<model::LfoParams>(node);
+            const auto curve = model::LfoCurve(params, 8);
+            REQUIRE(curve.size() == 8);
+            // Sample i is the output i/8 of a cycle in: at beat i/8 on a 1-beat clock.
+            for (size_t i = 0; i < curve.size(); ++i)
+                CHECK(curve[i] == AtBeat(node, static_cast<double>(i) / 8.0));
+        }
+    }
+    // Known points: a triangle starting a quarter in rises from 0.5; a square half a cycle on starts low.
+    CHECK(model::LfoCurve(model::ParamsOf<model::LfoParams>(Lfo(LfoShape::Triangle, 0.25f)), 4) == std::vector<float>{0.5f, 1.f, 0.5f, 0.f});
+    CHECK(model::LfoCurve(model::ParamsOf<model::LfoParams>(Lfo(LfoShape::Square, 0.5f)), 4) == std::vector<float>{0.f, 0.f, 1.f, 1.f});
+}
+
+TEST_CASE("lfo: the playhead is where the cycle is, and sits on the curve at the output, whatever the phase", "[node:lfo]")
+{
+    for (float phase : {0.f, 0.3f, 0.75f})
+    {
+        INFO("phase " << phase);
+        auto params = model::ParamsOf<model::LfoParams>(Lfo(LfoShape::Saw, phase));
+        params.beats = 2.f;
+        params.periodSeconds = 4.0;
+        // 5 beats on a 2-beat cycle: half way; 3 s with no clock on a 4 s period: three quarters.
+        CHECK(model::LfoPosition(params, {5.0, 99.0}) == 0.5);
+        CHECK(model::LfoPosition(params, {std::nullopt, 3.0}) == 0.75);
+        for (const model::SignalInputs inputs : {model::SignalInputs{5.0, 0.0}, model::SignalInputs{std::nullopt, 3.0}})
+        {
+            model::Node node = Lfo(LfoShape::Saw);
+            model::ParamsOf<model::LfoParams>(node) = params;
+            CHECK(model::LfoValueAt(params, model::LfoPosition(params, inputs)) == model::Def(NodeType::Lfo).signal(node, inputs));
+        }
+    }
+}
+
+TEST_CASE("lfo: on the canvas, its shape, rate, phase and period, and its wave with a playhead", "[node:lfo]")
 {
     CHECK(test::ControlById(NodeType::Lfo, "##beats").options.size() == std::size(model::kLfoBeats));
     test::NodeScene scene;
     const std::string id = scene.Add(NodeType::Lfo);
     test::FakeNodeContext context(scene);
-    context.signals[id] = 0.75f;
+    context.signalInputs = {1.25, 0.0};
     test::HeadlessUi ui;
     ui.Frame(context, id);
     CHECK(context.edits.empty());
-    CHECK(context.itemRects.count("The LFO's value now, from 0 to 1. Wire it into a setting's diamond to move that setting.") == 1);
+    // The plot: the node's width, about 34 px tall.
+    const auto plot = context.itemRects.at("One cycle of the LFO, and where it is now (the dot). Wire it into a setting's diamond to move that setting.");
+    CHECK(plot.second.x - plot.first.x == context.width);
+    CHECK(plot.second.y - plot.first.y == 34.f);
+    // A change of shape draws again without trouble.
+    model::ParamsOf<model::LfoParams>(scene.Node(id)).shape = LfoShape::Square;
+    ui.Frame(context, id);
+    CHECK(context.edits.empty());
 }
