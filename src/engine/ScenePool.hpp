@@ -78,8 +78,9 @@ public:
 
     /// The performance was edited: scenes added, removed, reordered or changed, while playing.
     /// `oldToNew[i]` is the new index of old scene i, or -1 if it was removed. `presetChanged[n]` marks new
-    /// scenes whose prepared instances are stale. The live scene keeps playing: if it was removed it stays on
-    /// screen until the next trigger; if its preset changed, a replacement is prepared and swapped in.
+    /// scenes whose prepared instances are stale (they're prepared at entry 0). The live scene keeps playing:
+    /// if it was removed it stays on screen until the next trigger; if it's on entry 0 and its preset changed,
+    /// a replacement is prepared and swapped in. (Another live entry is ReloadItems' job.)
     auto Remap(int sceneCount, const std::vector<int>& oldToNew, const std::vector<bool>& unusable,
                const std::vector<bool>& presetChanged) -> std::vector<PoolCommand>;
 
@@ -92,6 +93,13 @@ public:
 
     /// Makes the prepared next-entry instance live (it must be ready). Releases the outgoing instance.
     auto ActivateItem(InstanceId instance) -> std::vector<PoolCommand>;
+
+    /// The live scene's preset entries were edited: `changed[i]` marks entry i, which now loads another
+    /// preset. If the live instance is on a changed entry other than 0 (or on one that no longer exists), a
+    /// replacement for that entry is prepared with priority and cut to when ready, like a jump; the old one
+    /// plays until then. Otherwise a stale next-entry instance (or jump target) is prepared again. Call
+    /// after Remap, which handles entry 0 of a live scene on entry 0.
+    auto ReloadItems(const std::vector<bool>& changed) -> std::vector<PoolCommand>;
 
     /// Drops the prepared next-entry instance, if any (e.g. the switcher was edited). Not a pending jump.
     auto ClearItem() -> std::vector<PoolCommand>;

@@ -193,8 +193,9 @@ auto ScenePool::Remap(int sceneCount, const std::vector<int>& oldToNew, const st
     if (m_pending >= 0 && (m_unusable[static_cast<size_t>(m_pending)]))
         m_pending = -1;
 
-    // The live scene's preset changed: prepare the new one and swap it in when ready.
-    if (oldLive >= 0 && m_live >= 0 && changed(m_live) && !m_unusable[static_cast<size_t>(m_live)])
+    // The live scene's first preset changed while it's on entry 0: prepare the new one and swap it in when
+    // ready. (On another entry it keeps that entry: ReloadItems.)
+    if (oldLive >= 0 && m_live >= 0 && m_liveItem == 0 && changed(m_live) && !m_unusable[static_cast<size_t>(m_live)])
     {
         m_pending = m_live;
         commands.push_back(Prepare(m_live, true));
@@ -236,6 +237,31 @@ auto ScenePool::TriggerItem(int scene, int item) -> std::vector<PoolCommand>
     commands.push_back(Prepare(scene, true, item));
     m_itemInstance = commands.back().instance;
     m_jump = true;
+    return commands;
+}
+
+auto ScenePool::ReloadItems(const std::vector<bool>& changed) -> std::vector<PoolCommand>
+{
+    std::vector<PoolCommand> commands;
+    if (m_live < 0 || changed.empty() || m_unusable[static_cast<size_t>(m_live)] || m_failed[static_cast<size_t>(m_live)])
+        return commands;
+    auto stale = [&](int item) { return item >= static_cast<int>(changed.size()) || changed[static_cast<size_t>(item)]; };
+
+    // The entry on screen: re-prepare it (or entry 0, if it's gone) and cut to it, unless the scene is being
+    // left or replaced anyway.
+    if (!m_jump && m_pending < 0 && m_liveItem != 0 && stale(m_liveItem))
+        return TriggerItem(m_live, m_liveItem < static_cast<int>(changed.size()) ? m_liveItem : 0);
+
+    // The prepared next entry (or a jump to an entry of the live scene): prepare it again in the background,
+    // so switching to it stays instant.
+    auto it = m_instances.find(m_itemInstance);
+    if (it == m_instances.end() || it->second.scene != m_live || !stale(it->second.item))
+        return commands;
+    const int item = it->second.item < static_cast<int>(changed.size()) ? it->second.item : 0;
+    commands.push_back({PoolCommand::Type::Release, it->second.scene, it->second.lane, it->first, false, it->second.item});
+    m_instances.erase(it);
+    commands.push_back(Prepare(m_live, m_jump, item));
+    m_itemInstance = commands.back().instance;
     return commands;
 }
 
