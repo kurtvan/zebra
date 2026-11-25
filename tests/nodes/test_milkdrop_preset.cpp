@@ -365,3 +365,224 @@ TEST_CASE("milkdrop preset: a preset outside the library can't step through a fo
     ui.Click(context, id, test::HeadlessUi::Centre(context, "A random preset from the whole library."));
     CHECK(context.LastEdit() == "Random preset");
 }
+
+namespace {
+
+/// A library in a temp folder from `files`.
+auto BrowseLibrary(const char* name, const std::vector<std::string>& files) -> library::Library
+{
+    const auto dir = std::filesystem::temp_directory_path() / name;
+    std::filesystem::remove_all(dir);
+    for (const auto& file : files)
+    {
+        std::filesystem::create_directories((dir / file).parent_path());
+        std::ofstream(dir / file) << "[preset00]\n";
+    }
+    auto presets = library::Library::Scan(dir, library::Library());
+    std::filesystem::remove_all(dir);
+    return presets;
+}
+
+constexpr const char* kBrowse = "Browse the library here: choose the folder ◀ ▶ step through, and click a preset to use it.";
+
+auto FolderTip(const std::string& folder) -> std::string
+{
+    return "◀ ▶ step through " + folder + " and its subfolders.";
+}
+
+auto FolderParam(const model::Node& node) -> std::optional<std::string>
+{
+    return model::ParamsOf<model::MilkdropPresetParams>(node).folder;
+}
+
+} // namespace
+
+TEST_CASE("milkdrop preset: Browse opens the browser in the node and closes it again, without an edit", "[node:milkdrop-preset]")
+{
+    const auto presets = BrowseLibrary("gv_test_node_browse_toggle", {"A/1.milk", "B/2.milk"});
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath(presets.PathForId("A/1.milk").string()));
+    test::FakeNodeContext context(scene);
+    context.presetLibrary = &presets;
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    CHECK_FALSE(context.browsers[id].open);
+    CHECK_FALSE(context.itemRects.contains(FolderTip("B")));
+
+    ui.Click(context, id, test::HeadlessUi::Centre(context, kBrowse));
+    CHECK(context.browsers[id].open);
+    ui.Frame(context, id);
+    CHECK(context.itemRects.contains(FolderTip("B")));
+    CHECK(context.itemRects.contains("1")); // A's preset, as a picture
+
+    ui.Click(context, id, test::HeadlessUi::Centre(context, kBrowse));
+    CHECK_FALSE(context.browsers[id].open);
+    CHECK(context.edits.empty());
+}
+
+TEST_CASE("milkdrop preset: choosing a folder is one edit, and ▶ then steps through it and its subfolders", "[node:milkdrop-preset]")
+{
+    const auto presets = BrowseLibrary("gv_test_node_browse_folder", {"A/1.milk", "A/2.milk", "B/3.milk", "B/sub/4.milk", "B/5.milk"});
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath(presets.PathForId("A/1.milk").string()));
+    test::FakeNodeContext context(scene);
+    context.presetLibrary = &presets;
+    context.browsers[id].open = true;
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    CHECK_FALSE(context.itemRects.contains(FolderTip("B/sub"))); // only the chosen category is open
+
+    ui.Click(context, id, test::HeadlessUi::Centre(context, FolderTip("B")));
+    REQUIRE(context.edits.size() == 1);
+    CHECK(context.LastEdit() == "Choose Preset Folder");
+    CHECK(FolderParam(scene.Node(id)) == "B");
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("A/1.milk")); // the preset stays until one is picked
+    ui.Frame(context, id);
+    CHECK(context.itemRects.contains(FolderTip("B/sub")));
+
+    // The preset is outside B: ▶ jumps in, then steps through B and B/sub.
+    const ImVec2 next = test::HeadlessUi::Centre(context, "The next preset in this folder.");
+    ui.Click(context, id, next);
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("B/3.milk"));
+    ui.Click(context, id, next);
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("B/5.milk"));
+    ui.Click(context, id, next);
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("B/sub/4.milk"));
+    ui.Click(context, id, next);
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("B/3.milk"));
+    CHECK(context.edits.size() == 5);
+
+    // All presets: the whole library.
+    ui.Click(context, id, test::HeadlessUi::Centre(context, "◀ ▶ step through the whole library."));
+    CHECK(FolderParam(scene.Node(id)) == "");
+}
+
+TEST_CASE("milkdrop preset: a chosen folder lets ◀ ▶ start from a preset outside the library", "[node:milkdrop-preset]")
+{
+    const auto presets = BrowseLibrary("gv_test_node_browse_outside", {"A/1.milk", "B/2.milk", "B/3.milk"});
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, [](model::Node& n) {
+        model::ParamsOf<model::MilkdropPresetParams>(n).path = "/elsewhere/x.milk";
+        model::ParamsOf<model::MilkdropPresetParams>(n).folder = "B";
+    });
+    test::FakeNodeContext context(scene);
+    context.presetLibrary = &presets;
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    ui.Click(context, id, test::HeadlessUi::Centre(context, "The previous preset in this folder."));
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("B/3.milk"));
+}
+
+TEST_CASE("milkdrop preset: clicking a picture or a name in the browser puts that preset on the node, one edit each", "[node:milkdrop-preset]")
+{
+    const auto presets = BrowseLibrary("gv_test_node_browse_pick", {"A/Martin - one.milk", "A/two.milk", "A/three.milk", "A/four.milk"});
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath(presets.PathForId("A/two.milk").string()));
+    test::FakeNodeContext context(scene);
+    context.presetLibrary = &presets;
+    context.browsers[id].open = true;
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+
+    // Pictures: asked for the same way as the node's own, with where each is drawn.
+    context.thumbnailRects.clear();
+    ui.Frame(context, id);
+    REQUIRE(context.thumbnailRects.size() == 1 + 4);
+    const auto [min, max] = context.thumbnailRects[1];
+    CHECK(max.x - min.x < context.width / 2.f);
+
+    ui.Click(context, id, test::HeadlessUi::Centre(context, "one\nby Martin")); // hover: name and author
+    REQUIRE(context.edits.size() == 1);
+    CHECK(context.LastEdit() == "Change Milkdrop Preset");
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("A/Martin - one.milk"));
+    CHECK_FALSE(FolderParam(scene.Node(id))); // picking a preset doesn't choose a folder
+
+    // The list view: names, no pictures.
+    context.browsers[id].list = true;
+    ui.Frame(context, id);
+    context.thumbnailRects.clear();
+    ui.Frame(context, id);
+    CHECK(context.thumbnailRects.size() == 1);
+    ui.Click(context, id, test::HeadlessUi::Centre(context, "four"));
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("A/four.milk"));
+    CHECK(context.edits.size() == 2);
+}
+
+TEST_CASE("milkdrop preset: the browser's search looks in the folder, or the whole library", "[node:milkdrop-preset]")
+{
+    const auto presets = BrowseLibrary("gv_test_node_browse_search", {"A/red sky.milk", "A/blue.milk", "B/red sea.milk"});
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath(presets.PathForId("A/blue.milk").string()));
+    test::FakeNodeContext context(scene);
+    context.presetLibrary = &presets;
+    auto& browser = context.browsers[id];
+    browser.open = true;
+    browser.list = true;
+    browser.search = "red";
+    test::HeadlessUi ui;
+    auto shown = [&] {
+        context.tooltips.clear();
+        ui.Frame(context, id);
+        return std::set<std::string>(context.tooltips.begin(), context.tooltips.end());
+    };
+    const auto inFolder = shown();
+    CHECK(inFolder.contains("red sky"));
+    CHECK_FALSE(inFolder.contains("red sea"));
+    CHECK_FALSE(inFolder.contains("blue"));
+
+    browser.wholeLibrary = true;
+    const auto everywhere = shown();
+    CHECK(everywhere.contains("red sky"));
+    CHECK(everywhere.contains("red sea"));
+    CHECK_FALSE(everywhere.contains("blue"));
+}
+
+TEST_CASE("milkdrop preset: the browser shows a few rows of presets and scrolls through the rest", "[node:milkdrop-preset]")
+{
+    std::vector<std::string> files;
+    for (int i = 0; i < 30; ++i)
+        files.push_back("A/" + std::string(i < 10 ? "0" : "") + std::to_string(i) + ".milk");
+    const auto presets = BrowseLibrary("gv_test_node_browse_scroll", files);
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath(presets.PathForId("A/00.milk").string()));
+    test::FakeNodeContext context(scene);
+    context.presetLibrary = &presets;
+    context.browsers[id].open = true;
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    CHECK(context.itemRects.contains("05"));
+    CHECK_FALSE(context.itemRects.contains("06")); // 3 rows of 2
+    const ImVec2 firstTile = test::HeadlessUi::Centre(context, "00");
+
+    // Scrolling over the pictures moves them by rows, and no further than the last.
+    ImGui::GetIO().AddMousePosEvent(firstTile.x, firstTile.y);
+    context.wheel = -2.f;
+    ui.Frame(context, id);
+    context.wheel = 0.f;
+    CHECK(context.browsers[id].presetScroll == 2.f);
+    ui.Click(context, id, firstTile);
+    CHECK(PathOf(scene.Node(id)) == presets.PathForId("A/04.milk"));
+    context.wheel = -100.f;
+    ui.Frame(context, id);
+    CHECK(context.browsers[id].presetScroll == 12.f); // 15 rows, 3 shown
+    CHECK(context.browsers[id].folderScroll == 0.f); // the tree wasn't under the pointer
+}
+
+TEST_CASE("milkdrop preset: the chosen folder is saved; older files without one step through the preset's own", "[node:milkdrop-preset]")
+{
+    test::NodeScene scene;
+    for (const char* folder : {"", "A", "A/sub"})
+    {
+        auto& node = scene.Node(scene.Add(NodeType::MilkdropPreset, [&](model::Node& n) {
+            model::ParamsOf<model::MilkdropPresetParams>(n).path = "/p.milk";
+            model::ParamsOf<model::MilkdropPresetParams>(n).folder = folder;
+        }));
+        CHECK(test::RoundTrip(node) == node);
+    }
+    const auto [old, issues] = test::ReadNode(NodeType::MilkdropPreset, {{"path", "/p.milk"}});
+    CHECK(issues.empty());
+    CHECK_FALSE(FolderParam(old));
+    const auto [wrong, problems] = test::ReadNode(NodeType::MilkdropPreset, {{"path", "/p.milk"}, {"folder", 3}});
+    CHECK(problems.size() == 1);
+    CHECK_FALSE(FolderParam(wrong));
+}

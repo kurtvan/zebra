@@ -103,6 +103,9 @@ struct OpacityParams
 struct MilkdropPresetParams
 {
     std::filesystem::path path;
+    /// The library folder ◀ ▶ step through, with its subfolders: "Category", "Category/Subcategory", or "" for
+    /// the whole library. Nullopt: the preset's own folder (not its subfolders).
+    std::optional<std::string> folder;
     auto operator==(const MilkdropPresetParams&) const -> bool = default;
 };
 struct SwitcherParams

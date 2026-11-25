@@ -49,11 +49,25 @@ auto MilkdropPresetDef() -> NodeDef
         if (ParamsOf<MilkdropPresetParams>(node).path.empty())
             problems.push_back({false, "no preset file chosen"});
     };
-    def.write = [](const Node& node, nlohmann::json& object) { object["path"] = ParamsOf<MilkdropPresetParams>(node).path.string(); };
+    def.write = [](const Node& node, nlohmann::json& object) {
+        const auto& params = ParamsOf<MilkdropPresetParams>(node);
+        object["path"] = params.path.string();
+        if (params.folder)
+            object["folder"] = *params.folder;
+    };
     def.read = [](const nlohmann::json& object, Node& node, const std::string& path, std::vector<Issue>& issues) {
         std::string presetPath;
         ReadField(object, "path", presetPath, path, issues);
         ParamsOf<MilkdropPresetParams>(node).path = presetPath;
+        // Older files have no folder: ◀ ▶ step through the preset's own.
+        if (const auto it = object.find("folder"); it != object.end() && !it->is_null())
+        {
+            std::string folder;
+            const size_t before = issues.size();
+            ReadField(object, "folder", folder, path, issues);
+            if (issues.size() == before)
+                ParamsOf<MilkdropPresetParams>(node).folder = folder;
+        }
     };
     return def;
 }

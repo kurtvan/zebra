@@ -97,6 +97,8 @@ public:
     const library::Library* presetLibrary{nullptr};
     std::mt19937 random{1};                               //!< Seeded: the same picks every run.
     std::vector<app::SyphonServer> servers;
+    float wheel{0.f};                                     //!< The scroll over any area under the pointer.
+    std::map<std::string, app::PresetBrowserState> browsers; //!< By node id.
 
     // What the node did.
     std::vector<RecordedEdit> edits;
@@ -240,6 +242,14 @@ public:
     {
         tooltips.emplace_back(text);
         RememberItem(text);
+    }
+    auto Wheel(ImVec2 min, ImVec2 max) -> float override
+    {
+        return ImGui::IsMouseHoveringRect(min, max, false) ? wheel : 0.f;
+    }
+    auto PresetBrowser(const model::Node& node) -> app::PresetBrowserState& override
+    {
+        return browsers[node.id];
     }
 
     /// The last edit's label, or "" if there was none.

@@ -1273,40 +1273,8 @@ void Shell::DrawBrowser(ShellState& state, AppActions& actions)
     // Left: categories. Right: results.
     const float treeWidth = 230.f;
     ImGui::BeginChild("categories", ImVec2(treeWidth, 0), ImGuiChildFlags_Borders);
-    if (ImGui::Selectable("All presets", m_query.category.empty()))
-    {
-        m_query.category.clear();
-        m_query.subcategory.clear();
-    }
-    for (const auto& category : library->Categories())
-    {
-        const std::string label = (category.name.empty() ? std::string("(no category)") : category.name) + "  " + std::to_string(category.count);
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-        if (category.subcategories.empty())
-            flags |= ImGuiTreeNodeFlags_Leaf;
-        if (m_query.category == category.name && m_query.subcategory.empty())
-            flags |= ImGuiTreeNodeFlags_Selected;
-        const bool open = ImGui::TreeNodeEx(category.name.c_str(), flags, "%s", label.c_str());
-        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
-        {
-            m_query.category = category.name;
-            m_query.subcategory.clear();
-        }
-        if (open)
-        {
-            for (const auto& [name, count] : category.subcategories)
-            {
-                const std::string subLabel = name + "  " + std::to_string(count);
-                const bool selected = m_query.category == category.name && m_query.subcategory == name;
-                if (ImGui::Selectable((subLabel + "##" + category.name).c_str(), selected))
-                {
-                    m_query.category = category.name;
-                    m_query.subcategory = name;
-                }
-            }
-            ImGui::TreePop();
-        }
-    }
+    const auto folders = library::FolderRows(*library, m_query.category);
+    FolderTree(folders, 0, static_cast<int>(folders.size()), ImGui::GetContentRegionAvail().x, m_query.category, m_query.subcategory);
     ImGui::EndChild();
     ImGui::SameLine();
 
@@ -1534,21 +1502,10 @@ void Shell::DrawPresetGrid(ShellState& state, AppActions& actions)
                 const ImVec2 imageMin = origin;
                 const ImVec2 imageMax(origin.x + imageWidth, origin.y + imageHeight);
                 const auto tile = state.thumbnails->Get(preset.id);
-                draw->AddRectFilled(imageMin, imageMax, ImGui::GetColorU32(ImVec4(0.07f, 0.07f, 0.08f, 1.f)), 4.f);
-                if (tile && tile->texture != 0)
-                {
-                    // GL textures are bottom-up; flip V.
-                    draw->AddImageRounded(static_cast<ImTextureID>(tile->texture), imageMin, imageMax, ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, 4.f);
-                }
-                else
-                {
-                    const char* label = tile && tile->state == thumbnails::TileState::Broken ? "can't load" : "...";
-                    const ImVec2 size = ImGui::CalcTextSize(label);
-                    draw->AddText(ImVec2(imageMin.x + (imageWidth - size.x) * 0.5f, imageMin.y + (imageHeight - size.y) * 0.5f),
-                                  ImGui::GetColorU32(tile && tile->state == thumbnails::TileState::Broken ? kRed : kDim), label);
-                }
-                if (m_selectedPreset == preset.id || hovered)
-                    draw->AddRect(imageMin, imageMax, ImGui::GetColorU32(m_selectedPreset == preset.id ? kAccent : ImVec4(1, 1, 1, 0.35f)), 4.f, 0, 2.f);
+                const bool broken = tile && tile->state == thumbnails::TileState::Broken;
+                const bool selected = m_selectedPreset == preset.id;
+                PresetPicture(draw, imageMin, imageMax, tile ? tile->texture : 0, broken ? "can't load" : "...", broken ? kRed : kDim,
+                              selected || hovered ? ImGui::GetColorU32(selected ? kAccent : ImVec4(1, 1, 1, 0.35f)) : 0);
 
                 // Name and second line (notes, else author), clipped to the tile.
                 const ImVec4 clip(origin.x, origin.y, origin.x + imageWidth, origin.y + cellHeight);

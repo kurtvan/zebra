@@ -1,8 +1,12 @@
 #pragma once
 
+#include "library/PresetStepping.hpp"
+
 #include <imgui.h>
 
 #include <filesystem>
+#include <functional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -29,6 +33,20 @@ auto StarButton(const char* id, bool on, float size = 15.f) -> bool;
 
 /// Starts dragging a preset (to drop it on a scene, the preview or the node canvas).
 void PresetDragSource(const std::filesystem::path& preset, const std::string& label);
+
+/// A preset's picture (GL texture `texture`) from `min` to `max`, or `placeholder` centred in `colour` while
+/// there's none; outlined in `outline` unless that's 0.
+void PresetPicture(ImDrawList* draw, ImVec2 min, ImVec2 max, unsigned int texture, const char* placeholder, ImVec4 colour, ImU32 outline = 0);
+
+/// Rows `first` to `first + count` of the folder tree (library::FolderRows), `width` wide. Clicking one chooses
+/// that folder: returns true and sets `category` and `subcategory`. `afterRow` runs after each row's item (for
+/// its tooltip). The Presets panel and the preset node's browser both use it.
+auto FolderTree(std::span<const library::FolderRow> rows, int first, int count, float width, std::string& category, std::string& subcategory,
+                const std::function<void(const library::FolderRow&)>& afterRow = {}) -> bool;
+
+/// A list's first row shown, `position`, after scrolling `wheel` steps (up positive), kept so `visible` of its
+/// `rows` rows fill the view.
+auto ScrollRows(float position, float wheel, int rows, int visible) -> float;
 
 /// A one-line help marker.
 void Hint(const char* text);

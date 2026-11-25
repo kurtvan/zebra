@@ -72,6 +72,52 @@ auto StepPreset(const Library& library, const std::filesystem::path& current, in
     return StepThrough(library, ids, {}, step);
 }
 
+auto StepPresetUnder(const Library& library, const std::string& folder, const std::filesystem::path& current, int step)
+    -> std::optional<std::filesystem::path>
+{
+    const std::string currentId = current.empty() ? std::string() : library.IdForPath(current);
+    const std::string prefix = folder.empty() ? std::string() : folder + "/";
+    std::vector<const std::string*> ids;
+    for (const auto& preset : library.Presets())
+    {
+        if (preset.id.compare(0, prefix.size(), prefix) == 0 && (!preset.broken || preset.id == currentId))
+            ids.push_back(&preset.id);
+    }
+    return StepThrough(library, ids, currentId, step);
+}
+
+auto FolderName(const std::string& category, const std::string& subcategory) -> std::string
+{
+    return subcategory.empty() ? category : category + "/" + subcategory;
+}
+
+auto FolderQuery(const std::string& folder) -> Query
+{
+    Query query;
+    const auto slash = folder.find('/');
+    query.category = folder.substr(0, slash);
+    if (slash != std::string::npos)
+        query.subcategory = folder.substr(slash + 1, folder.find('/', slash + 1) - slash - 1);
+    return query;
+}
+
+auto FolderRows(const Library& library, const std::string& open) -> std::vector<FolderRow>
+{
+    std::vector<FolderRow> rows{{{}, {}, 0, static_cast<int>(library.Presets().size())}};
+    for (const auto& category : library.Categories())
+    {
+        if (category.name.empty())
+            continue; // presets at the top of the library: "All presets" has them
+        rows.push_back({category.name, {}, 1, category.count});
+        if (category.name == open)
+        {
+            for (const auto& [name, count] : category.subcategories)
+                rows.push_back({category.name, name, 2, count});
+        }
+    }
+    return rows;
+}
+
 auto RandomPreset(const Library& library, const std::filesystem::path& current, std::mt19937& random) -> std::optional<std::filesystem::path>
 {
     const std::string currentId = current.empty() ? std::string() : library.IdForPath(current);
