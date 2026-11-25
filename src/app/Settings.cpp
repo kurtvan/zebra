@@ -109,6 +109,7 @@ auto Settings::Load(const std::filesystem::path& file) -> Settings
     Read(root, "namesOnly", settings.namesOnly);
     Read(root, "graphPreview", settings.graphPreview);
     Read(root, "graphPreviewDim", settings.graphPreviewDim);
+    Read(root, "miniMap", settings.miniMap);
     Read(root, "lastPerformance", lastPerformance);
     std::vector<std::string> recent;
     Read(root, "recentPerformances", recent);
@@ -140,6 +141,7 @@ auto Settings::Save(const std::filesystem::path& file) const -> std::string
     root["namesOnly"] = namesOnly;
     root["graphPreview"] = graphPreview;
     root["graphPreviewDim"] = graphPreviewDim;
+    root["miniMap"] = miniMap;
     root["lastPerformance"] = lastPerformance.string();
     root["recentPerformances"] = json::array();
     for (const auto& path : recentPerformances)

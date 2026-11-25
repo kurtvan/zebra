@@ -35,6 +35,13 @@ public:
         Ask({ImVec2(start.min.x + shift.x, start.min.y + shift.y), ImVec2(start.max.x + shift.x, start.max.y + shift.y)});
     }
 
+    /// Moves the view so its centre is the canvas point `centre`, keeping its zoom. Call between `ed::Begin` and
+    /// `ed::End`.
+    void CentreOn(ImVec2 centre)
+    {
+        Ask(CentredOn(Start(Shown()), centre));
+    }
+
 private:
     static auto Shown() -> CanvasRect
     {

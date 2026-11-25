@@ -29,4 +29,11 @@ inline auto ZoomAt(CanvasRect view, float zoom, ImVec2 under, float factor) -> C
             ImVec2(under.x + (view.max.x - under.x) / f, under.y + (view.max.y - under.y) / f)};
 }
 
+/// `view` moved so its centre is the canvas point `centre`, keeping its size (and so the zoom).
+inline auto CentredOn(CanvasRect view, ImVec2 centre) -> CanvasRect
+{
+    const ImVec2 half((view.max.x - view.min.x) * 0.5f, (view.max.y - view.min.y) * 0.5f);
+    return {ImVec2(centre.x - half.x, centre.y - half.y), ImVec2(centre.x + half.x, centre.y + half.y)};
+}
+
 } // namespace gv::app

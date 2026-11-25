@@ -118,6 +118,8 @@ private:
     void ApplyFocus(const model::Graph& graph, ImVec2 size);
     void Configure();
     void FitView(const model::Graph& graph, ImVec2 size);
+    /// Where `graph`'s nodes are on the canvas, for the mini-map.
+    static auto NodeRects(const model::Graph& graph) -> std::vector<CanvasRect>;
     /// Pans by a scroll (two fingers or the wheel), or zooms at the screen point `mouse` when `zoom`.
     static void Scroll(EditorView& view, ImVec2 wheel, bool zoom, ImVec2 mouse);
 

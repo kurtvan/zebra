@@ -19,6 +19,7 @@ struct Settings
     bool namesOnly{false};
     bool graphPreview{false};    //!< The Graph panel shows the live output behind the nodes.
     float graphPreviewDim{0.5f}; //!< 0..0.9: how much that preview is darkened, so the nodes stay readable.
+    bool miniMap{true};          //!< The Graph panel shows a mini-map of the whole graph in its corner.
     std::filesystem::path lastPerformance;
     std::vector<std::filesystem::path> recentPerformances; //!< Most recent first.
     PaneLayout panes; //!< Which editor areas are collapsed (default: none).
