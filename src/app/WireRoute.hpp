@@ -20,6 +20,7 @@ constexpr float kWireNodeMargin = 7.f;   //!< The gap wires keep round every nod
 constexpr int kWireSideLanes = 2;        //!< Lanes either side of a run's first choice, for wires that would share it.
 constexpr float kWireBendCost = 40.f;    //!< A turn costs as much as this much more length: fewer turns look tidier.
 constexpr float kWireShareCost = 1.5f;  //!< Running along another wire costs this much more per unit of length.
+constexpr float kWireShareStepCost = kWireBendCost; //!< And each step along one costs this, so even short shared runs move to a lane.
 constexpr float kWireSideWeight = 1.05f;  //!< Running along a node's margin costs a bit more than down a gap's middle.
 
 /// How far lane `lane` sits from the middle: 0, then one spacing either side, then two, and so on.
@@ -234,7 +235,6 @@ struct Grid
     std::vector<float> xs, xWeight, ys, yWeight;
     std::vector<uint8_t> blockedH, blockedV; //!< The step right, or down, from each point.
     std::vector<uint16_t> usedH, usedV;      //!< How many wires already take that step.
-    std::vector<int> trunk;                  //!< The output whose wires' first run takes the step right, or -1.
 
     Grid(const std::vector<WireBox>& boxes, std::vector<Line> xLines, std::vector<Line> yLines)
     {
@@ -245,7 +245,6 @@ struct Grid
         blockedV.assign(nx * ys.size(), 0);
         usedH.assign(nx * ys.size(), 0);
         usedV.assign(nx * ys.size(), 0);
-        trunk.assign(nx * ys.size(), -1);
         for (const WireBox& box : boxes)
         {
             const size_t left = IndexOf(xs, box.min.x);
@@ -270,9 +269,8 @@ struct Grid
     [[nodiscard]] auto Point(size_t p) const -> ImVec2 { return {xs[p % xs.size()], ys[p / xs.size()]}; }
 
     /// The step from point `p` in direction `d` (0 right, 1 left, 2 down, 3 up): its neighbour, length, cost per
-    /// unit, and how many other wires take it (a wire from output `source` shares its first run with the others
-    /// from that output). False if it's off the grid or blocked.
-    auto Step(size_t p, int d, int source, size_t& to, float& length, float& weight, int& shared) const -> bool
+    /// unit, and how many other wires take it. False if it's off the grid or blocked.
+    auto Step(size_t p, int d, size_t& to, float& length, float& weight, int& shared) const -> bool
     {
         const size_t nx = xs.size();
         const size_t i = p % nx;
@@ -287,7 +285,7 @@ struct Grid
             to = d == 0 ? p + 1 : p - 1;
             length = xs[edge % nx + 1] - xs[edge % nx];
             weight = yWeight[j];
-            shared = usedH[edge] + (trunk[edge] >= 0 && trunk[edge] != source ? 1 : 0);
+            shared = usedH[edge];
             return true;
         }
         if (d == 2 ? j + 1 >= ys.size() : j == 0)
@@ -311,7 +309,7 @@ struct Grid
         int shared = 0;
         for (int d = 0; d < 4; ++d)
         {
-            if (Step(p, d, -1, to, length, weight, shared))
+            if (Step(p, d, to, length, weight, shared))
                 return true;
         }
         return false;
@@ -319,8 +317,7 @@ struct Grid
 
     /// The cheapest path of steps from `start` to `goal` (A*: length, turns, and steps other wires take), as
     /// points, or empty if there's none. `right`: the path leaves `start`, and enters `goal`, heading right.
-    /// `source`: the wire's output (see Step).
-    auto Search(size_t start, bool startRight, size_t goal, bool goalRight, int source) -> std::vector<size_t>
+    auto Search(size_t start, bool startRight, size_t goal, bool goalRight) -> std::vector<size_t>
     {
         if (!Open(start) || !Open(goal))
             return {}; // inside a node's margin: no way out, or in
@@ -387,9 +384,10 @@ struct Grid
                 float length = 0.f;
                 float weight = 0.f;
                 int shared = 0;
-                if (d == (heading ^ 1) || !Step(p, d, source, to, length, weight, shared))
+                if (d == (heading ^ 1) || !Step(p, d, to, length, weight, shared))
                     continue; // no turning back
-                float next = g + length * (weight + kWireShareCost * static_cast<float>(shared)) + (d != heading ? kWireBendCost : 0.f);
+                float next = g + length * (weight + kWireShareCost * static_cast<float>(shared)) + (shared > 0 ? kWireShareStepCost : 0.f) +
+                             (d != heading ? kWireBendCost : 0.f);
                 if (to == goal && goalRight && d != 0)
                     next += kWireBendCost; // it turns again into the input
                 const size_t s = to * 4 + static_cast<size_t>(d);
@@ -409,21 +407,14 @@ struct Grid
     std::vector<uint32_t> m_seen;
     uint32_t m_search{0};
 
-    /// Counts the steps along `path`, a wire from output `source`, as taken, so later wires keep off them. Its
-    /// first run, right from the output, is left to the other wires from that output.
-    void Take(const std::vector<size_t>& path, int source)
+    /// Counts the steps along `path` as taken, so later wires keep off them. Wires sharing a pin attach at
+    /// points of their own (PinPill.hpp), so even wires from one output don't share a run.
+    void Take(const std::vector<size_t>& path)
     {
-        bool first = source >= 0;
         for (size_t k = 1; k < path.size(); ++k)
         {
             const size_t a = std::min(path[k - 1], path[k]);
             const bool horizontal = std::max(path[k - 1], path[k]) == a + 1;
-            first = first && horizontal && path[k] > path[k - 1];
-            if (first && (trunk[a] == -1 || trunk[a] == source))
-            {
-                trunk[a] = source;
-                continue;
-            }
             uint16_t& used = horizontal ? usedH[a] : usedV[a];
             used = static_cast<uint16_t>(used + 1);
         }
@@ -435,7 +426,8 @@ struct Grid
 /// Every wire in `wires` (in a fixed order, e.g. the graph's), routed round the nodes `boxes` (canvas units):
 /// right-angle runs that never pass under a node and keep kWireNodeMargin from every node, its own included.
 /// A wire leaves its output to the right and enters its input from the left, through its node's margin. Wires
-/// keep off runs earlier wires take, moving to a lane beside them. A wire with no way round (e.g. its input
+/// keep off runs earlier wires take, moving to a lane beside them; wires sharing a pin should each attach at
+/// their own point on its pill (AttachPoints), so they stay apart from the pin on. A wire with no way round (e.g. its input
 /// boxed in by overlapping nodes) gets RouteWire's simple route instead. The same arguments give the same points.
 inline auto RouteWires(const std::vector<WireBox>& boxes, const std::vector<WireEnds>& wires) -> std::vector<std::vector<ImVec2>>
 {
@@ -480,14 +472,14 @@ inline auto RouteWires(const std::vector<WireBox>& boxes, const std::vector<Wire
         if ((!fromNode || wire.from.x < join.x) && (!toNode || wire.to.x > leave.x)) // pins inside their nodes
         {
             const auto at = [&](ImVec2 p) { return wire_detail::IndexOf(grid.ys, p.y) * grid.xs.size() + wire_detail::IndexOf(grid.xs, p.x); };
-            path = grid.Search(at(join), fromNode, at(leave), toNode, wire.fromBox);
+            path = grid.Search(at(join), fromNode, at(leave), toNode);
         }
         if (path.empty())
         {
             simple.push_back(w);
             continue;
         }
-        grid.Take(path, wire.fromBox);
+        grid.Take(path);
         std::vector<ImVec2> points;
         if (fromNode)
             points.push_back(wire.from);

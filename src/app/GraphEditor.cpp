@@ -245,11 +245,13 @@ public:
 
     auto InputRow(const model::Node& node, const InputSpec& spec) -> bool override
     {
-        const float height = ImGui::GetTextLineHeight() + 4.f;
+        // The row grows to fit a pill, with the label centred beside it.
+        const float base = ImGui::GetTextLineHeight() + 4.f;
+        const float height = PinRowHeight(base, m_editor.WiresAt(node, false, &spec), PinSide::Left);
         m_editor.DrawPin(node, false, &spec, spec.kind, height);
         ImGui::SameLine(0.f, 6.f);
         const bool accepts = m_editor.Accepts(*m_editor.m_graph, GraphEditor::Pin{node.id, false, spec.input, spec.texture, spec.kind});
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.f + (height - base) * 0.5f);
         const ImVec4 color = !accepts ? kDim : spec.passing ? kAccent : ImGui::GetStyleColorVec4(ImGuiCol_Text);
         ImGui::TextColored(color, "%s", spec.label.c_str());
         return ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
@@ -712,8 +714,7 @@ void GraphEditor::DrawNode(const model::Node& node, NodeContext& context)
 
     ed::BeginNode(key);
     const float titleTop = ImGui::GetCursorScreenPos().y;
-    DrawTitleRow(node, context, inputs);
-    const float titleBottom = titleTop + ImGui::GetFrameHeight();
+    const float titleBottom = titleTop + DrawTitleRow(node, context, inputs);
     if (!titleOnly)
     {
         ImGui::Dummy(ImVec2(0.f, 1.f));
@@ -744,11 +745,18 @@ void GraphEditor::DrawNode(const model::Node& node, NodeContext& context)
     }
 }
 
-void GraphEditor::DrawTitleRow(const model::Node& node, NodeContext& context, const std::vector<InputSpec>& inputs)
+auto GraphEditor::DrawTitleRow(const model::Node& node, NodeContext& context, const std::vector<InputSpec>& inputs) -> float
 {
-    const float height = ImGui::GetFrameHeight();
+    // The row grows to fit a pin's pill (the output's, or a collapsed node's inputs'); the rest stays centred.
+    const float frame = ImGui::GetFrameHeight();
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const auto output = model::OutputKind(node);
+    float height = output ? PinRowHeight(frame, WiresAt(node, true, nullptr), PinSide::Right) : frame;
+    if (!node.expanded)
+    {
+        for (const auto& spec : inputs)
+            height = std::max(height, PinRowHeight(frame, WiresAt(node, false, &spec), PinSide::Left));
+    }
 
     // Collapsed nodes keep their input pins, in a row before the title.
     if (!node.expanded)
@@ -772,6 +780,7 @@ void GraphEditor::DrawTitleRow(const model::Node& node, NodeContext& context, co
     const float available = start.x + context.width - right - ImGui::GetCursorScreenPos().x - 4.f;
     const std::string full = NodeTitle(node, context);
     const std::string title = Fit(full, std::max(available, 10.f));
+    ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, start.y + (height - frame) * 0.5f));
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(title.c_str());
     if (title != full)
@@ -795,6 +804,7 @@ void GraphEditor::DrawTitleRow(const model::Node& node, NodeContext& context, co
         ImGui::SameLine(0.f, 4.f);
         DrawPin(node, true, nullptr, *output, height);
     }
+    return height;
 }
 
 auto GraphEditor::Accepts(const model::Graph& graph, const Pin& pin) -> bool
@@ -823,32 +833,41 @@ void GraphEditor::DrawPin(const model::Node& node, bool output, const InputSpec*
     Pin pin{node.id, output, spec != nullptr ? spec->input : 0, spec != nullptr ? spec->texture : std::string(), kind};
     const uint64_t key = output ? OutputKey(node.id) : InputKey(node.id, pin.input, pin.texture);
     const bool accepts = Accepts(*m_graph, pin);
-    bool connected = false;
-    if (output)
-    {
-        connected = std::any_of(m_graph->wires.begin(), m_graph->wires.end(), [&](const model::Wire& wire) { return wire.fromNode == node.id; });
-    }
-    else
-    {
-        connected = m_graph->WireInto(node.id, pin.input, pin.texture) != nullptr;
-    }
+    const int wires = WiresAt(node, output, spec);
+    const PinSide side = output ? PinSide::Right : PinSide::Left;
     ed::BeginPin(key, output ? ed::PinKind::Output : ed::PinKind::Input);
     const ImVec2 at = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(kPinSize, height));
     const ImVec2 center(at.x + kPinSize * 0.5f, at.y + height * 0.5f);
     pin.center = center;
+    pin.side = side;
+    pin.wires = wires;
     m_pins[key] = std::move(pin);
+    // Several wires: a pill with a point for each (DrawLinks). Hover and drop on the whole pill.
+    const PinShape shape = PinPill(center, wires, side);
+    constexpr float kPinReach = 2.f; //!< How far round the dot or pill the pointer still finds the pin.
     ed::PinPivotRect(center, center);
-    ed::PinRect(ImVec2(center.x - 7.f, center.y - 7.f), ImVec2(center.x + 7.f, center.y + 7.f));
+    ed::PinRect(ImVec2(shape.min.x - kPinReach, shape.min.y - kPinReach), ImVec2(shape.max.x + kPinReach, shape.max.y + kPinReach));
     ed::EndPin();
 
     const ImVec4 base = model::TakesAnyKind(*m_graph, node) ? kAnyKindPin : KindColor(kind);
     const ImU32 color = ImGui::GetColorU32(Faded(base, accepts ? 1.f : 0.25f));
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    if (connected)
-        draw->AddCircleFilled(center, 5.f, color);
+    if (wires >= 2)
+        draw->AddRectFilled(shape.min, shape.max, color, shape.rounding);
+    else if (wires == 1)
+        draw->AddCircleFilled(center, kPinDotRadius, color);
     else
         draw->AddCircle(center, 4.5f, color, 0, 1.6f);
+}
+
+auto GraphEditor::WiresAt(const model::Node& node, bool output, const InputSpec* spec) const -> int
+{
+    return static_cast<int>(std::count_if(m_graph->wires.begin(), m_graph->wires.end(), [&](const model::Wire& wire) {
+        if (output)
+            return wire.fromNode == node.id;
+        return spec != nullptr && wire.toNode == node.id && wire.toInput == spec->input && wire.textureName == spec->texture;
+    }));
 }
 
 void GraphEditor::DrawLinks(const model::Graph& graph)
@@ -874,7 +893,16 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
         m_wireBox[node.id] = static_cast<int>(boxes.size());
         boxes.push_back({at, ImVec2(at.x + extent.x, at.y + extent.y)});
     }
-    std::vector<WireEnds> ends;
+    // The wires with both pins on the canvas, the picked-up one too, so it keeps its place on its pins.
+    struct Shown
+    {
+        const model::Wire* wire;
+        uint64_t key;
+        const Pin* out;
+        const Pin* in;
+        ImVec4 color;
+    };
+    std::vector<Shown> shown;
     for (const auto& wire : graph.wires)
     {
         const model::Node* from = graph.Find(wire.fromNode);
@@ -883,17 +911,46 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
             continue;
         const uint64_t key = WireKey(wire);
         m_wires[key] = wire;
-        if (m_moving && *m_moving == wire)
-            continue; // picked up: DrawMovingWire draws it at the pointer
+        const bool moving = m_moving && *m_moving == wire; // picked up: DrawMovingWire draws it at the pointer
         const uint64_t out = OutputKey(wire.fromNode);
         const uint64_t in = InputKey(wire.toNode, wire.toInput, wire.textureName);
-        ed::Link(key, out, in, hidden, kHiddenLink);
+        if (!moving)
+            ed::Link(key, out, in, hidden, kHiddenLink);
         auto a = m_pins.find(out);
         auto b = m_pins.find(in);
-        if (a == m_pins.end() || b == m_pins.end())
+        if (a != m_pins.end() && b != m_pins.end())
+            shown.push_back({&wire, key, &a->second, &b->second, KindColor(*kind)});
+    }
+
+    // Each wire's ends: at a pin several wires share, its own point on the pill, in the order of the wires'
+    // other ends (AttachSlots), so they don't cross at the pin and each keeps its own run out of it.
+    std::vector<ImVec2> fromPoint(shown.size());
+    std::vector<ImVec2> toPoint(shown.size());
+    std::map<const Pin*, std::vector<size_t>> atPin;
+    for (size_t i = 0; i < shown.size(); ++i)
+    {
+        atPin[shown[i].out].push_back(i);
+        atPin[shown[i].in].push_back(i);
+    }
+    for (const auto& [pin, wires] : atPin)
+    {
+        std::vector<ImVec2> others;
+        for (size_t i : wires)
+            others.push_back((pin->output ? shown[i].in : shown[i].out)->center);
+        const std::vector<int> slots = AttachSlots(others, pin->side);
+        const std::vector<ImVec2> points = AttachPoints(pin->center, std::max(pin->wires, static_cast<int>(wires.size())), pin->side);
+        for (size_t k = 0; k < wires.size(); ++k)
+            (pin->output ? fromPoint : toPoint)[wires[k]] = points[static_cast<size_t>(slots[k])];
+    }
+    std::vector<WireEnds> ends;
+    m_wireFrom.clear();
+    for (size_t i = 0; i < shown.size(); ++i)
+    {
+        m_wireFrom[shown[i].key] = fromPoint[i];
+        if (m_moving && *m_moving == *shown[i].wire)
             continue;
-        drawn.push_back({key, KindColor(*kind)});
-        ends.push_back({a->second.center, b->second.center, WireBoxOf(wire.fromNode), WireBoxOf(wire.toNode)});
+        drawn.push_back({shown[i].key, shown[i].color});
+        ends.push_back({fromPoint[i], toPoint[i], WireBoxOf(shown[i].wire->fromNode), WireBoxOf(shown[i].wire->toNode)});
     }
 
     // Routed again only when a node or a wire changed.
@@ -1123,9 +1180,13 @@ void GraphEditor::DrawMovingWire()
         return;
     // Routed like the wires, round the nodes, from an output to an input: the pointer (or the pin under it)
     // stands in for the end not reached yet. On top of everything, in screen space, clipped to the canvas.
+    // A picked-up wire leaves from its own point on its output's pill.
     const int start = WireBoxOf(m_dragStart->node);
     const int end = WireBoxOf(m_dragEndNode);
-    const WireEnds ends = m_dragStart->output ? WireEnds{m_dragStart->center, m_dragEnd, start, end} : WireEnds{m_dragEnd, m_dragStart->center, end, start};
+    ImVec2 from = m_dragStart->center;
+    if (auto it = m_moving ? m_wireFrom.find(WireKey(*m_moving)) : m_wireFrom.end(); it != m_wireFrom.end())
+        from = it->second;
+    const WireEnds ends = m_dragStart->output ? WireEnds{from, m_dragEnd, start, end} : WireEnds{m_dragEnd, from, end, start};
     std::vector<ImVec2> line = RouteWires(m_wireBoxes, {ends}).front();
     for (ImVec2& point : line)
         point = ed::CanvasToScreen(point);

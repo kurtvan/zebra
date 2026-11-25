@@ -26,6 +26,7 @@ add_executable(gv_tests
     app/test_pane_layout.cpp
     app/test_pane_docking.cpp
     app/test_wire_route.cpp
+    app/test_pin_pill.cpp
     engine/test_scene_pool.cpp
     engine/test_switcher_clock.cpp
     engine/test_beat_hit.cpp
