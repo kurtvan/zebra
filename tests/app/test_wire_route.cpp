@@ -281,7 +281,7 @@ TEST_CASE("A wire goes round a column of nodes")
 {
     std::vector<WireBox> boxes = {Node(0.f, 260.f), Node(800.f, 300.f)};
     for (int row = 0; row < 5; ++row)
-        boxes.push_back(Node(400.f, static_cast<float>(row) * 140.f)); // 20 apart: too close for a wire between
+        boxes.push_back(Node(400.f, static_cast<float>(row) * 130.f)); // 10 apart: too close for a wire between
     const WireEnds wire = Wire(boxes, 0, 1);
     const auto line = RouteWires(boxes, {wire})[0];
     CheckEnds(line, wire.from, wire.to);
@@ -289,7 +289,7 @@ TEST_CASE("A wire goes round a column of nodes")
     CheckClear(line, boxes, wire);
     // Over the top of the column or under it.
     const float top = -kWireNodeMargin;
-    const float bottom = 4.f * 140.f + kNodeH + kWireNodeMargin;
+    const float bottom = 4.f * 130.f + kNodeH + kWireNodeMargin;
     CHECK(std::any_of(line.begin(), line.end(), [&](ImVec2 p) { return p.y <= top || p.y >= bottom; }));
 }
 

@@ -16,7 +16,7 @@ namespace gv::app {
 constexpr float kWireStub = 16.f;        //!< How far a wire runs straight out of an output, or into an input.
 constexpr float kWireLaneSpacing = 6.f;  //!< How far apart wires sharing a run are drawn.
 constexpr float kWireLoopClearance = 60.f; //!< How far a backwards wire drops below its ends when they're level.
-constexpr float kWireNodeMargin = 14.f;  //!< The gap wires keep round every node (canvas units).
+constexpr float kWireNodeMargin = 7.f;   //!< The gap wires keep round every node (canvas units).
 constexpr int kWireSideLanes = 2;        //!< Lanes either side of a run's first choice, for wires that would share it.
 constexpr float kWireBendCost = 40.f;    //!< A turn costs as much as this much more length: fewer turns look tidier.
 constexpr float kWireShareCost = 1.5f;  //!< Running along another wire costs this much more per unit of length.
