@@ -109,7 +109,7 @@ add_library(gv_engine STATIC
     engine/VideoChain.hpp
     engine/RenderPlan.cpp
     engine/RenderPlan.hpp)
-target_link_libraries(gv_engine PUBLIC gv_common gv_model SDL2::SDL2 OpenGL::GL libprojectM::projectM PRIVATE gv_warnings)
+target_link_libraries(gv_engine PUBLIC gv_common gv_model gv_isf_gl SDL2::SDL2 OpenGL::GL libprojectM::projectM PRIVATE gv_warnings)
 target_compile_definitions(gv_engine PRIVATE GL_SILENCE_DEPRECATION)
 
 # The canvas's node types (and the widgets they draw with): a library of their own, so tests/nodes can draw

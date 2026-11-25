@@ -57,7 +57,7 @@ TEST_CASE("opacity: compiles to an opacity pass; through a Video switcher too", 
     const auto plan = engine::CompilePlan(scene.Graph());
     REQUIRE(plan.branches.size() == 1);
     CHECK(plan.sourceNode == video);
-    CHECK(plan.branches[0].passes == std::vector<model::EffectPass>{{NodeType::Opacity, 0.5f, 0.f, false}});
+    CHECK(plan.branches[0].steps.at(0).effects == std::vector<model::EffectPass>{{NodeType::Opacity, 0.5f, 0.f, false}});
 }
 
 TEST_CASE("opacity: on the canvas, an opacity slider", "[node:opacity]")

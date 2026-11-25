@@ -46,9 +46,9 @@ auto FormatTwoBranches(const nlohmann::json& scene, int item) -> std::vector<Vid
                 {NodeType::LumaGate, look.value("lumaMin", 0.0f), softness, invert},
                 {NodeType::Opacity, look.value("mix", 1.0f), 0.0f, false}};
     };
-    std::vector<VideoBranch> branches{{passes(0.1f), PresetLayer::Feedback, {}}};
+    std::vector<VideoBranch> branches{{{{passes(0.1f)}}, PresetLayer::Feedback, {}}};
     if (look.value("overlay", false))
-        branches.push_back({passes(look.value("softness", 0.0f)), PresetLayer::OnTop, {}});
+        branches.push_back({{{passes(look.value("softness", 0.0f))}}, PresetLayer::OnTop, {}});
     return branches;
 }
 
@@ -137,7 +137,7 @@ TEST_CASE("plans follow switcher selections and carry each branch's effects in o
                                            {NodeType::Saturation, 0.0f, 0, false},
                                            {NodeType::LumaGate, 0.2f, 0.4f, true},
                                            {NodeType::Opacity, 0.8f, 0, false}};
-    CHECK(second.branches[1].passes == onTop);
+    CHECK(second.branches[1].steps == std::vector<VideoStep>{{onTop}});
 
     // The Video switcher's selection picks the source.
     std::string videoSwitcher;
@@ -194,8 +194,46 @@ TEST_CASE("every preset input compiles to a branch, texture inputs by name")
     CHECK(plan.branches[2].layer == PresetLayer::OnTop);
     CHECK(plan.branches[3].layer == PresetLayer::Texture);
     CHECK(plan.branches[3].textureName == "clouds");
-    CHECK(plan.branches[3].passes.empty());
+    CHECK(plan.branches[3].steps.empty());
     CHECK(plan.branches[4].textureName == "worms");
-    REQUIRE(plan.branches[4].passes.size() == 1);
-    CHECK(plan.branches[4].passes[0].type == NodeType::Contrast);
+    REQUIRE(plan.branches[4].steps.size() == 1);
+    REQUIRE(plan.branches[4].steps[0].effects.size() == 1);
+    CHECK(plan.branches[4].steps[0].effects[0].type == NodeType::Contrast);
+}
+
+TEST_CASE("an ISF shader is a step of its own between fused effects; one whose file is missing is left out")
+{
+    const std::string invert = std::string(GV_TEST_FIXTURES_DIR) + "/isf/invert.fs";
+    Graph graph;
+    AddNode(graph, NodeType::Viewport, 0, 0);
+    const auto preset = AddNode(graph, NodeType::MilkdropPreset, 0, 0);
+    REQUIRE(Connect(graph, preset, "viewport", 0));
+    // video -> contrast -> saturation -> ISF -> missing ISF -> opacity -> preset
+    std::string from = AddNode(graph, NodeType::VideoSource, 0, 0);
+    std::vector<std::string> chain;
+    for (NodeType type : {NodeType::Contrast, NodeType::Saturation, NodeType::IsfShader, NodeType::IsfShader, NodeType::Opacity})
+    {
+        chain.push_back(AddNode(graph, type, 0, 0));
+        REQUIRE(Connect(graph, from, chain.back(), 0));
+        from = chain.back();
+    }
+    REQUIRE(Connect(graph, from, preset, static_cast<int>(PresetLayer::Feedback)));
+    std::get<IsfShaderParams>(graph.Find(chain[2])->params) = {invert, {{"amount", {0.5f}}}};
+    std::get<IsfShaderParams>(graph.Find(chain[3])->params).path = "/nowhere/missing.fs";
+    FollowWires(graph);
+    CHECK(ValidateGraph(graph).empty());
+
+    const auto plan = CompilePlan(graph);
+    REQUIRE(plan.branches.size() == 1);
+    const auto& steps = plan.branches[0].steps;
+    REQUIRE(steps.size() == 3);
+    CHECK(steps[0].effects == std::vector<EffectPass>{{NodeType::Contrast, 1.f, 0.f, false}, {NodeType::Saturation, 1.f, 0.f, false}});
+    CHECK_FALSE(steps[0].isf);
+    REQUIRE(steps[1].isf);
+    CHECK(steps[1].isf->node == chain[2]);
+    CHECK(steps[1].isf->path == invert);
+    REQUIRE(steps[1].isf->shader != nullptr);
+    CHECK(steps[1].isf->values.at("amount") == std::vector<float>{0.5f});
+    CHECK(steps[2].effects == std::vector<EffectPass>{{NodeType::Opacity, 1.f, 0.f, false}});
+    CHECK(CompilePlan(graph) == plan); // the same parsed file each time, so an unchanged scene isn't replanned
 }

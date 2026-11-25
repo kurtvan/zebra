@@ -65,7 +65,7 @@ TEST_CASE("luma gate: compiles to a gate pass carrying all three settings", "[no
     model::Connect(scene.Graph(), gate, preset, static_cast<int>(model::PresetLayer::Feedback));
     const auto plan = engine::CompilePlan(scene.Graph());
     REQUIRE(plan.branches.size() == 1);
-    CHECK(plan.branches[0].passes == std::vector<model::EffectPass>{{NodeType::LumaGate, 0.4f, 0.1f, true}});
+    CHECK(plan.branches[0].steps.at(0).effects == std::vector<model::EffectPass>{{NodeType::LumaGate, 0.4f, 0.1f, true}});
 }
 
 TEST_CASE("luma gate: on the canvas, two sliders and an Invert checkbox with its own undo labels", "[node:luma-gate]")

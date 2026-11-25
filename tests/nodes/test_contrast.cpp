@@ -77,7 +77,7 @@ TEST_CASE("contrast: compiles to a contrast pass with its value", "[node:contras
 
     const auto plan = engine::CompilePlan(scene.Graph());
     REQUIRE(plan.branches.size() == 1);
-    CHECK(plan.branches[0].passes == std::vector<model::EffectPass>{{NodeType::Contrast, 2.f, 0.f, false}});
+    CHECK(plan.branches[0].steps.at(0).effects == std::vector<model::EffectPass>{{NodeType::Contrast, 2.f, 0.f, false}});
 }
 
 TEST_CASE("contrast: on the canvas, a video input and a logarithmic slider over the valid range", "[node:contrast]")

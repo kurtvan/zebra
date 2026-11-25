@@ -1,6 +1,7 @@
 #include "engine/VideoChain.hpp"
 
 #include "common/log.hpp"
+#include "model/nodes/IsfShaderNode.hpp"
 
 #include <algorithm>
 #include <array>
@@ -167,6 +168,39 @@ void VideoChain::Run(GLuint video, const std::vector<EffectPass>& passes, GLuint
     glBindTexture(GL_TEXTURE_2D, 0);
     glUseProgram(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void VideoChain::RunSteps(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
+                          RenderTarget target, RenderTarget scratch, int width, int height)
+{
+    // The steps that draw: an ISF shader without a working program is left out.
+    std::vector<const VideoStep*> drawn;
+    for (const auto& step : steps)
+    {
+        const auto program = step.isf ? programs.find(step.isf->shader) : programs.end();
+        if (!step.isf || (program != programs.end() && program->second->Ok()))
+            drawn.push_back(&step);
+    }
+    const VideoStep plain;
+    if (drawn.empty())
+        drawn.push_back(&plain); // the video as it is
+    GLuint input = video;
+    for (size_t i = 0; i < drawn.size(); ++i)
+    {
+        // Alternate so that the last step lands in `target`.
+        const RenderTarget out = (drawn.size() - 1 - i) % 2 == 0 ? target : scratch;
+        if (const auto& isf = drawn[i]->isf)
+        {
+            // The graph feeds its first image input; the others read black for now.
+            std::map<std::string, GLuint> images;
+            if (const auto inputs = model::IsfImageInputs(*isf->shader); !inputs.empty())
+                images[inputs.front()->name] = input;
+            programs.at(isf->shader)->Render(images, isf->values, clock, out.fbo, width, height);
+        }
+        else
+            Run(input, drawn[i]->effects, out.fbo, width, height);
+        input = out.texture;
+    }
 }
 
 void VideoChain::Composite(GLuint texture)

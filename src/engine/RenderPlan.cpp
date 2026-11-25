@@ -1,5 +1,7 @@
 #include "engine/RenderPlan.hpp"
 
+#include "model/nodes/IsfShaderNode.hpp"
+
 #include <algorithm>
 #include <tuple>
 
@@ -36,6 +38,22 @@ auto ThroughSwitchers(const Graph& graph, const Node* node, const SwitcherSelect
     return node;
 }
 
+/// Appends `node` to `steps`: an effect joins the effects before it, an ISF shader is a step of its own. A
+/// shader whose file is missing or broken is left out, so the video passes through it.
+void AddStep(std::vector<VideoStep>& steps, const Node& node)
+{
+    if (node.type == NodeType::IsfShader)
+    {
+        const auto& params = model::ParamsOf<model::IsfShaderParams>(node);
+        if (auto file = model::IsfFileAt(params.path); file.shader != nullptr)
+            steps.push_back({{}, IsfStep{node.id, params.path, std::move(file.shader), params.values}});
+        return;
+    }
+    if (steps.empty() || steps.back().isf)
+        steps.emplace_back();
+    steps.back().effects.push_back(model::Def(node.type).pass(node));
+}
+
 } // namespace
 
 auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> RenderPlan
@@ -66,16 +84,13 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
         branch.layer = static_cast<model::PresetLayer>(wire->toInput);
         branch.textureName = wire->textureName;
         const Node* node = graph.Find(wire->fromNode);
+        std::vector<const Node*> filters; // effects and ISF shaders, preset first
         for (int steps = 0; node != nullptr && steps <= static_cast<int>(graph.nodes.size()); ++steps)
         {
-            if (model::IsEffect(node->type))
+            if (model::IsEffect(node->type) || node->type == NodeType::IsfShader)
             {
-                branch.passes.push_back(model::Def(node->type).pass(*node));
-                node = graph.Upstream(node->id, 0);
-            }
-            else if (node->type == NodeType::IsfShader)
-            {
-                node = graph.Upstream(node->id, 0); // not drawn yet: its first input's video passes through
+                filters.push_back(node);
+                node = graph.Upstream(node->id, 0); // an ISF shader's other image inputs read black for now
             }
             else if (node->type == NodeType::Switcher)
             {
@@ -88,7 +103,7 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
         }
         if (node == nullptr || node->type != NodeType::VideoSource)
             continue; // an unfinished chain carries no video
-        std::reverse(branch.passes.begin(), branch.passes.end());
+        std::for_each(filters.rbegin(), filters.rend(), [&](const Node* filter) { AddStep(branch.steps, *filter); });
         plan.sourceNode = node->id;
         plan.source = model::ParamsOf<model::VideoSourceParams>(*node).source;
         plan.branches.push_back(std::move(branch));

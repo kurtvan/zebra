@@ -66,7 +66,7 @@ TEST_CASE("saturation: compiles to a saturation pass, in chain order", "[node:sa
     model::Connect(scene.Graph(), second, preset, 0);
     const auto plan = engine::CompilePlan(scene.Graph());
     REQUIRE(plan.branches.size() == 1);
-    CHECK(plan.branches[0].passes ==
+    CHECK(plan.branches[0].steps.at(0).effects ==
           std::vector<model::EffectPass>{{NodeType::Saturation, 0.f, 0.f, false}, {NodeType::Saturation, 2.f, 0.f, false}});
 }
 
