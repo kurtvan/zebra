@@ -69,6 +69,17 @@ struct SyphonServer
     std::string serverName;
 };
 
+/// A preset node's browser (A6), as the canvas left it: not saved in the show, and not undone.
+struct PresetBrowserState
+{
+    bool open{false};          //!< The node shows the browser.
+    bool list{false};          //!< Names in a list, not a grid of pictures.
+    bool wholeLibrary{false};  //!< The search looks through the whole library, not just the folder.
+    std::string search;
+    float folderScroll{0.f};   //!< The first folder row shown (fractions while scrolling).
+    float presetScroll{0.f};   //!< The first row of presets shown.
+};
+
 /// What a node draws with and what it may do. Everything about the app around the canvas (the engine,
 /// library, file dialogs, Syphon) comes through here, so a node can be tested without it.
 class NodeContext
@@ -138,6 +149,11 @@ public:
     virtual void OpenPopup(const model::Node& node, int kind) = 0;
     /// Shows `text` as a tooltip if the last item is hovered.
     virtual void Tooltip(const char* text) = 0;
+    /// The scroll (wheel steps, up positive) over the area from `min` to `max` this frame. While the pointer is
+    /// over that area, scrolling scrolls it instead of panning the canvas.
+    virtual auto Wheel(ImVec2 min, ImVec2 max) -> float = 0;
+    /// `node`'s preset browser, kept by the canvas from frame to frame.
+    virtual auto PresetBrowser(const model::Node& node) -> PresetBrowserState& = 0;
 };
 
 /// One control in a node's body. Most are declared (a slider, a checkbox, a choice) and drawn by

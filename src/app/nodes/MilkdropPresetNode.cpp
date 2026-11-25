@@ -3,7 +3,11 @@
 #include "app/Widgets.hpp"
 #include "library/PresetStepping.hpp"
 
+#include <imgui_stdlib.h>
+
 #include <algorithm>
+#include <cmath>
+#include <set>
 
 namespace gv::app::nodes {
 
@@ -14,6 +18,11 @@ using model::PresetLayer;
 auto PathOf(const model::Node& node) -> const std::filesystem::path&
 {
     return model::ParamsOf<model::MilkdropPresetParams>(node).path;
+}
+
+auto FolderOf(const model::Node& node) -> const std::optional<std::string>&
+{
+    return model::ParamsOf<model::MilkdropPresetParams>(node).folder;
 }
 
 auto Missing(const model::Node& node, NodeContext& context) -> bool
@@ -30,45 +39,40 @@ void DrawPicture(const model::Node& node, NodeContext& context)
     const float height = width * 9.f / 16.f;
     const ImVec2 at = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(width, height));
-    ImDrawList* draw = ImGui::GetWindowDrawList();
     const ImVec2 corner(at.x + width, at.y + height);
-    draw->AddRectFilled(at, corner, ImGui::GetColorU32(ImVec4(0.06f, 0.06f, 0.07f, 1.f)), 4.f);
     const unsigned int livePicture = live ? context.LivePicture() : 0;
     const unsigned int texture = livePicture != 0 ? livePicture : context.Thumbnail(path, at, corner);
-    if (texture != 0)
-        draw->AddImageRounded(static_cast<ImTextureID>(texture), at, corner, ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, 4.f); // GL is bottom-up
-    else
-    {
-        const char* label = path.empty() ? "no preset" : "no preview";
-        const ImVec2 size = ImGui::CalcTextSize(label);
-        draw->AddText(ImVec2(at.x + (width - size.x) * 0.5f, at.y + (height - size.y) * 0.5f), ImGui::GetColorU32(kDim), label);
-    }
-    if (live)
-        draw->AddRect(at, corner, ImGui::GetColorU32(kGreen), 4.f, 0, 2.f);
+    PresetPicture(ImGui::GetWindowDrawList(), at, corner, texture, path.empty() ? "no preset" : "no preview", kDim,
+                  live ? ImGui::GetColorU32(kGreen) : 0);
     context.Tooltip(live ? "On screen now." : path.string().c_str());
 }
 
-/// ◀ ▶ through the preset's folder and Random from the whole library, skipping broken presets. Each press is
-/// one undo step. ◀ ▶ need the preset to be in the library (with none chosen, they step through all of it).
+/// ◀ ▶ through the chosen folder (else the preset's own) and Random from the whole library, skipping broken
+/// presets; then the Browse toggle. Each press is one undo step. Without a chosen folder, ◀ ▶ need the preset
+/// to be in the library (with none chosen, they step through all of it).
 void DrawStepping(const model::Node& node, NodeContext& context)
 {
     const library::Library* presets = context.PresetLibrary();
     const auto& path = PathOf(node);
+    const auto& folder = FolderOf(node);
     const bool any = presets != nullptr && !presets->Presets().empty();
-    const bool inLibrary = any && (path.empty() || library::FolderOf(*presets, path).has_value());
+    const bool canStep = any && (folder || path.empty() || library::FolderOf(*presets, path).has_value());
+    auto step = [&](int by) {
+        return folder ? library::StepPresetUnder(*presets, *folder, path, by) : library::StepPreset(*presets, path, by);
+    };
     auto change = [&](const char* label, const std::optional<std::filesystem::path>& to) {
         if (!to)
             return;
         const auto chosen = *to;
         context.EditOnce(node, label, [&](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = chosen; });
     };
-    ImGui::BeginDisabled(!inLibrary);
+    ImGui::BeginDisabled(!canStep);
     if (ImGui::ArrowButton("##previous", ImGuiDir_Left))
-        change("Previous preset", library::StepPreset(*presets, path, -1));
+        change("Previous preset", step(-1));
     context.Tooltip("The previous preset in this folder.");
     ImGui::SameLine();
     if (ImGui::ArrowButton("##next", ImGuiDir_Right))
-        change("Next preset", library::StepPreset(*presets, path, 1));
+        change("Next preset", step(1));
     context.Tooltip("The next preset in this folder.");
     ImGui::EndDisabled();
     ImGui::SameLine();
@@ -77,6 +81,152 @@ void DrawStepping(const model::Node& node, NodeContext& context)
         change("Random preset", library::RandomPreset(*presets, path, context.Random()));
     ImGui::EndDisabled();
     context.Tooltip("A random preset from the whole library.");
+    ImGui::SameLine();
+    PresetBrowserState& browser = context.PresetBrowser(node);
+    const bool open = browser.open;
+    if (open)
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+    if (ImGui::Button("Browse"))
+        browser.open = !browser.open;
+    if (open)
+        ImGui::PopStyleColor();
+    context.Tooltip("Browse the library here: choose the folder ◀ ▶ step through, and click a preset to use it.");
+}
+
+constexpr int kFolderRows = 5;  //!< Folder rows the browser shows; more scroll.
+constexpr int kGridColumns = 2; //!< Pictures wide enough to render down to about 60% zoom.
+constexpr int kGridRows = 3;    //!< Rows of pictures shown; more scroll.
+constexpr int kListRows = 8;    //!< Names shown in the list view.
+constexpr float kScrollbar = 6.f;
+
+/// A thin bar at the right of the list from `min` to `max`, showing which of its `rows` are in view.
+void DrawScrollbar(ImVec2 min, ImVec2 max, float first, int visible, int rows)
+{
+    if (rows <= visible)
+        return;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const float left = max.x - kScrollbar + 2.f;
+    const float height = max.y - min.y;
+    draw->AddRectFilled(ImVec2(left, min.y), max, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.06f)), 2.f);
+    const float top = min.y + height * std::floor(first) / static_cast<float>(rows);
+    const float bottom = top + height * static_cast<float>(visible) / static_cast<float>(rows);
+    draw->AddRectFilled(ImVec2(left, top), ImVec2(max.x, bottom), ImGui::GetColorU32(ImVec4(1, 1, 1, 0.30f)), 2.f);
+}
+
+/// A preset's name and author, for its tooltip.
+auto Describe(const library::PresetInfo& preset) -> std::string
+{
+    return preset.author.empty() ? preset.name : preset.name + "\nby " + preset.author;
+}
+
+/// What Browse opens inside the node: a search box, the folder tree (choosing a folder sets the one ◀ ▶ step
+/// through) and that folder's presets as pictures or names (clicking one puts it on the node). It zooms with
+/// the canvas; the tree and the presets scroll within a fixed height.
+void DrawBrowser(const model::Node& node, NodeContext& context)
+{
+    PresetBrowserState& browser = context.PresetBrowser(node);
+    if (!browser.open)
+        return;
+    const library::Library* presets = context.PresetLibrary();
+    if (presets == nullptr || presets->Presets().empty())
+    {
+        ImGui::TextColored(kDim, "No preset library yet: choose its folder in Setup.");
+        return;
+    }
+    const float width = context.width;
+    const float inner = width - kScrollbar - 2.f;
+    const auto& path = PathOf(node);
+    const std::string current = presets->IdForPath(path);
+
+    ImGui::SetNextItemWidth(width);
+    ImGui::InputTextWithHint("##search", browser.wholeLibrary ? "Search the whole library" : "Search this folder", &browser.search);
+    ImGui::Checkbox("Whole library", &browser.wholeLibrary);
+    context.Tooltip("Search every preset, not just this folder's.");
+    ImGui::SameLine();
+    ImGui::Checkbox("List", &browser.list);
+    context.Tooltip("Names in a list instead of pictures.");
+
+    // The folders: the chosen one is selected, else the preset's own.
+    const std::string folder = FolderOf(node).value_or(library::FolderOf(*presets, path).value_or(""));
+    library::Query query = library::FolderQuery(folder);
+    const auto rows = library::FolderRows(*presets, query.category);
+    const int rowCount = static_cast<int>(rows.size());
+    const int shownRows = std::min(kFolderRows, rowCount);
+    const ImVec2 treeMin = ImGui::GetCursorScreenPos();
+    const ImVec2 treeMax(treeMin.x + width, treeMin.y + static_cast<float>(shownRows) * ImGui::GetTextLineHeightWithSpacing());
+    browser.folderScroll = ScrollRows(browser.folderScroll, context.Wheel(treeMin, treeMax), rowCount, shownRows);
+    std::string category = query.category;
+    std::string subcategory = query.subcategory;
+    ImGui::BeginGroup();
+    auto folderTooltip = [&](const library::FolderRow& row) {
+        const std::string name = row.depth == 0 ? "the whole library" : library::FolderName(row.category, row.subcategory);
+        context.Tooltip(("◀ ▶ step through " + name + (row.depth == 0 ? "." : " and its subfolders.")).c_str());
+    };
+    if (FolderTree(rows, static_cast<int>(browser.folderScroll), shownRows, inner, category, subcategory, folderTooltip))
+    {
+        const std::string chosen = library::FolderName(category, subcategory);
+        context.EditOnce(node, "Choose Preset Folder", [&](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).folder = chosen; });
+        query = library::FolderQuery(chosen);
+        browser.presetScroll = 0.f;
+    }
+    ImGui::EndGroup();
+    DrawScrollbar(treeMin, treeMax, browser.folderScroll, shownRows, rowCount);
+    ImGui::Separator();
+
+    // The folder's presets, or the whole library's while searching all of it.
+    query.text = browser.search;
+    if (browser.wholeLibrary && !browser.search.empty())
+        query.category = query.subcategory = "";
+    static const std::set<std::string> noFavourites;
+    const auto found = library::Search(*presets, query, noFavourites);
+    if (found.empty())
+    {
+        ImGui::TextColored(kDim, "No presets match.");
+        return;
+    }
+    const int count = static_cast<int>(found.size());
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float cellWidth = std::floor((inner - spacing * (kGridColumns - 1)) / kGridColumns);
+    const float cellHeight = std::floor(cellWidth * 9.f / 16.f);
+    const int perLine = browser.list ? 1 : kGridColumns;
+    const int lines = (count + perLine - 1) / perLine;
+    const int shown = std::min(browser.list ? kListRows : kGridRows, lines);
+    const float lineHeight = browser.list ? ImGui::GetTextLineHeightWithSpacing() : cellHeight + ImGui::GetStyle().ItemSpacing.y;
+    const ImVec2 listMin = ImGui::GetCursorScreenPos();
+    const ImVec2 listMax(listMin.x + width, listMin.y + static_cast<float>(shown) * lineHeight);
+    browser.presetScroll = ScrollRows(browser.presetScroll, context.Wheel(listMin, listMax), lines, shown);
+    const int first = static_cast<int>(browser.presetScroll) * perLine;
+    ImGui::BeginGroup();
+    for (int i = first; i < std::min(count, first + shown * perLine); ++i)
+    {
+        const auto& preset = presets->Presets()[static_cast<size_t>(found[static_cast<size_t>(i)])];
+        const auto presetPath = presets->PathForId(preset.id);
+        const bool chosen = preset.id == current;
+        ImGui::PushID(preset.id.c_str());
+        bool clicked = false;
+        if (browser.list)
+        {
+            clicked = ImGui::Selectable(preset.name.c_str(), chosen, ImGuiSelectableFlags_None, ImVec2(inner, 0.f));
+        }
+        else
+        {
+            if ((i - first) % perLine != 0)
+                ImGui::SameLine();
+            const ImVec2 min = ImGui::GetCursorScreenPos();
+            const ImVec2 max(min.x + cellWidth, min.y + cellHeight);
+            clicked = ImGui::InvisibleButton("##preset", ImVec2(cellWidth, cellHeight));
+            const bool hovered = ImGui::IsItemHovered();
+            const unsigned int texture = context.Thumbnail(presetPath, min, max);
+            const ImU32 outline = chosen || hovered ? ImGui::GetColorU32(chosen ? kAccent : ImVec4(1, 1, 1, 0.35f)) : 0;
+            PresetPicture(ImGui::GetWindowDrawList(), min, max, texture, preset.broken ? "can't load" : "...", preset.broken ? kRed : kDim, outline);
+        }
+        context.Tooltip(Describe(preset).c_str());
+        if (clicked && !chosen)
+            context.EditOnce(node, "Change Milkdrop Preset", [&](model::Node& n) { model::ParamsOf<model::MilkdropPresetParams>(n).path = presetPath; });
+        ImGui::PopID();
+    }
+    ImGui::EndGroup();
+    DrawScrollbar(listMin, listMax, browser.presetScroll, shown, lines);
 }
 
 /// Favourite (for presets in the library), Choose..., Reveal.
@@ -167,6 +317,9 @@ auto MilkdropPresetUi() -> NodeUi
     Control stepping;
     stepping.id = "##stepping";
     stepping.draw = DrawStepping;
+    Control browser;
+    browser.id = "##browser";
+    browser.draw = DrawBrowser;
     Control buttons;
     buttons.id = "##buttons";
     buttons.draw = DrawButtons;
@@ -177,7 +330,7 @@ auto MilkdropPresetUi() -> NodeUi
     Control frameTime;
     frameTime.id = "##frame-time";
     frameTime.draw = DrawFrameTime;
-    ui.controls = {picture, stepping, buttons, missing, frameTime, {Control::Kind::Inputs}};
+    ui.controls = {picture, stepping, browser, buttons, missing, frameTime, {Control::Kind::Inputs}};
     ui.addItems = {{"Milkdrop preset...", nullptr, "Or drag a preset from the Presets panel onto the canvas.", true}};
     return ui;
 }

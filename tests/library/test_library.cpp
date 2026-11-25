@@ -281,3 +281,34 @@ TEST_CASE("the real preset library indexes and searches fast", "[.][benchmark]")
     CHECK(library.Presets().size() > 9000);
     CHECK(searchMs < 16.0);
 }
+
+TEST_CASE("stepping under a chosen folder takes in its subfolders; \"\" is the whole library")
+{
+    const auto library = SteppingLibrary("gv_test_stepping_under", {"A/1.milk", "A/sub/2.milk", "A/sub/3.milk", "AB/4.milk", "B/5.milk"}, {"A/sub/3.milk"});
+    const auto at = [&](const char* id) { return library.PathForId(id); };
+    CHECK(StepPresetUnder(library, "A", at("A/1.milk"), 1) == at("A/sub/2.milk"));
+    CHECK(StepPresetUnder(library, "A", at("A/sub/2.milk"), 1) == at("A/1.milk")); // 3 is broken; AB isn't under A
+    CHECK(StepPresetUnder(library, "A/sub", at("B/5.milk"), 1) == at("A/sub/2.milk"));
+    CHECK(StepPresetUnder(library, "", at("AB/4.milk"), 1) == at("B/5.milk"));
+    CHECK(StepPresetUnder(library, "", "/elsewhere/x.milk", -1) == at("B/5.milk"));
+    CHECK(StepPresetUnder(library, "nowhere", at("A/1.milk"), 1) == std::nullopt);
+}
+
+TEST_CASE("the folder tree lists the categories, with the open one's subcategories, and maps to queries")
+{
+    const auto library = SteppingLibrary("gv_test_folder_rows", {"top.milk", "A/1.milk", "A/x/2.milk", "A/y/3.milk", "A/y/deep/4.milk", "B/5.milk"});
+    CHECK(FolderRows(library, "") == std::vector<FolderRow>{{"", "", 0, 6}, {"A", "", 1, 4}, {"B", "", 1, 1}});
+    CHECK(FolderRows(library, "A") ==
+          std::vector<FolderRow>{{"", "", 0, 6}, {"A", "", 1, 4}, {"A", "x", 2, 1}, {"A", "y", 2, 2}, {"B", "", 1, 1}});
+
+    CHECK(FolderName("A", "y") == "A/y");
+    CHECK(FolderName("A", "") == "A");
+    CHECK(FolderName("", "").empty());
+    const auto query = FolderQuery("A/y/deep");
+    CHECK(query.category == "A");
+    CHECK(query.subcategory == "y");
+    CHECK(FolderQuery("").category.empty());
+    // A folder's query shows what stepping under it goes through.
+    CHECK(Search(library, FolderQuery("A/y"), {}).size() == 2);
+    CHECK(Search(library, FolderQuery("A"), {}).size() == 4);
+}

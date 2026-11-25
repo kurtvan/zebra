@@ -261,6 +261,18 @@ public:
         if (ImGui::IsItemHovered() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
             m_editor.m_bodyTooltip = text;
     }
+    auto Wheel(ImVec2 min, ImVec2 max) -> float override
+    {
+        // Remembered on screen: next frame decides, before the canvas starts, whether the wheel pans it.
+        const ImVec2 screenMin = ed::CanvasToScreen(min);
+        const ImVec2 screenMax = ed::CanvasToScreen(max);
+        m_editor.m_wheelAreas.push_back({screenMin.x, screenMin.y, screenMax.x, screenMax.y});
+        return ImGui::IsMouseHoveringRect(min, max, false) ? m_editor.m_areaWheel : 0.f;
+    }
+    auto PresetBrowser(const model::Node& node) -> PresetBrowserState& override
+    {
+        return m_editor.m_browsers[SceneGraphId() + ":" + node.id];
+    }
 
 private:
     auto SceneGraphId() const -> const std::string&
@@ -482,12 +494,26 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     // The pointer on screen: once ed::Begin runs, ImGui's mouse is in canvas coordinates instead.
     const ImVec2 mouse = io.MousePos;
     const bool zoomKey = io.KeySuper || io.KeyCtrl;
-    const bool scrolled = m_hovered && (wheel.x != 0.f || wheel.y != 0.f) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    bool scrolled = m_hovered && (wheel.x != 0.f || wheel.y != 0.f) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
     if (scrolled)
     {
         io.MouseWheel = 0.f;
         io.MouseWheelH = 0.f;
     }
+    // Over a list inside a node (last frame's), the scroll is the list's instead.
+    m_areaWheel = 0.f;
+    if (scrolled && !zoomKey)
+    {
+        for (const auto& area : m_wheelAreas)
+        {
+            if (mouse.x >= area.left && mouse.x < area.right && mouse.y >= area.top && mouse.y < area.bottom)
+            {
+                m_areaWheel = wheel.y;
+                scrolled = false;
+            }
+        }
+    }
+    m_wheelAreas.clear();
     // A trackpad pinch zooms at the pointer too; F fits, like the button, unless a text field is taking the keys.
     const bool noPopup = !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
     const bool pinched = m_hovered && state.pinch != 1.f && noPopup;

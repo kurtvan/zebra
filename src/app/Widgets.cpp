@@ -52,6 +52,57 @@ void PresetDragSource(const std::filesystem::path& preset, const std::string& la
     }
 }
 
+void PresetPicture(ImDrawList* draw, ImVec2 min, ImVec2 max, unsigned int texture, const char* placeholder, ImVec4 colour, ImU32 outline)
+{
+    draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(0.07f, 0.07f, 0.08f, 1.f)), 4.f);
+    if (texture != 0)
+    {
+        draw->AddImageRounded(static_cast<ImTextureID>(texture), min, max, ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, 4.f); // GL is bottom-up
+    }
+    else
+    {
+        const ImVec2 size = ImGui::CalcTextSize(placeholder);
+        draw->AddText(ImVec2(min.x + (max.x - min.x - size.x) * 0.5f, min.y + (max.y - min.y - size.y) * 0.5f), ImGui::GetColorU32(colour), placeholder);
+    }
+    if (outline != 0)
+        draw->AddRect(min, max, outline, 4.f, 0, 2.f);
+}
+
+auto FolderTree(std::span<const library::FolderRow> rows, int first, int count, float width, std::string& category, std::string& subcategory,
+                const std::function<void(const library::FolderRow&)>& afterRow) -> bool
+{
+    bool changed = false;
+    const int end = std::min(static_cast<int>(rows.size()), first + count);
+    for (int i = std::max(first, 0); i < end; ++i)
+    {
+        const auto& row = rows[static_cast<size_t>(i)];
+        const std::string& name = row.depth == 2 ? row.subcategory : row.category;
+        const std::string label = (row.depth == 0 ? std::string("All presets") : name) + "  " + std::to_string(row.count) + "##" + row.category + "/" +
+                                  row.subcategory;
+        const bool selected = row.category == category && row.subcategory == subcategory && (row.depth > 0 || category.empty());
+        const float indent = static_cast<float>(std::max(row.depth - 1, 0)) * 12.f;
+        if (indent > 0.f)
+            ImGui::Indent(indent);
+        if (ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_None, ImVec2(width - indent, 0.f)) && !selected)
+        {
+            category = row.category;
+            subcategory = row.subcategory;
+            changed = true;
+        }
+        if (afterRow)
+            afterRow(row);
+        if (indent > 0.f)
+            ImGui::Unindent(indent);
+    }
+    return changed;
+}
+
+auto ScrollRows(float position, float wheel, int rows, int visible) -> float
+{
+    const float last = static_cast<float>(std::max(rows - visible, 0));
+    return std::clamp(position - wheel, 0.f, last);
+}
+
 void Hint(const char* text)
 {
     ImGui::SameLine();

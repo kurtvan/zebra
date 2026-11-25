@@ -2,6 +2,7 @@
 
 #include "app/EditorView.hpp"
 #include "app/nodes/NodeUi.hpp"
+#include "common/ThumbnailVisible.hpp"
 #include "model/Graph.hpp"
 #include "thumbnails/ThumbnailService.hpp"
 
@@ -158,6 +159,9 @@ private:
     std::map<std::string, std::vector<std::string>> m_textures; //!< PresetTextures, by path.
     std::vector<thumbnails::Request> m_wantedThumbnails;
     std::vector<thumbnails::Request> m_keptThumbnails;
+    std::vector<ScreenRect> m_wheelAreas;        //!< Lists inside nodes that take the scroll (NodeContext::Wheel).
+    float m_areaWheel{0.f};                      //!< This frame's scroll, when it's over one of them.
+    std::map<std::string, PresetBrowserState> m_browsers; //!< Preset nodes' browsers, by scene and node id.
     std::string m_livePresetNode;
     std::string m_liveVideoNode; //!< The video source node on screen, when this scene is live.
     std::vector<std::string> m_hoverErrorNodes; //!< Outlined while a refused wire is hovered.
