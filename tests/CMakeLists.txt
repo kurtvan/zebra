@@ -22,6 +22,7 @@ add_executable(gv_tests
     model/ClassicView.hpp
     io/test_midi_decode.cpp
     app/test_canvas_zoom.cpp
+    app/test_minimap.cpp
     app/test_pane_layout.cpp
     app/test_pane_docking.cpp
     engine/test_scene_pool.cpp

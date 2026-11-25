@@ -1,5 +1,6 @@
 #include "app/GraphEditor.hpp"
 
+#include "app/MiniMapWidget.hpp"
 #include "app/Shell.hpp"
 #include "app/Widgets.hpp"
 #include "app/macos/FileDialog.hpp"
@@ -465,6 +466,16 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
             ImGui::PopStyleVar();
         }
     }
+    if (settings != nullptr)
+    {
+        ImGui::SameLine(0.f, 16.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 1));
+        if (ImGui::Checkbox("Mini-map", &settings->miniMap))
+            actions.SettingsChanged();
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Shows the whole graph in the canvas's corner. Click or drag on it to look there.");
+    }
     ImGui::SameLine(0.f, 16.f);
     ImGui::TextColored(kDim, "Scroll: pan.  Pinch or Cmd+scroll: zoom.  F: fit.  Right-click: add.  Delete: remove.");
 
@@ -529,6 +540,9 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
     {
         canvas.view.Zoom(state.pinch, mouse);
     }
+    std::optional<MiniMapFrame> miniMap; // before the nodes, so it takes the pointer from them
+    if (settings == nullptr || settings->miniMap)
+        miniMap = MiniMapInput(NodeRects(graph), origin, corner, canvas.view);
     m_zoom = ed::GetCurrentZoom();
     m_mouseCanvas = ImGui::GetMousePos(); // inside the canvas, ImGui's mouse is in canvas coordinates
     m_pins.clear();
@@ -624,6 +638,9 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
         ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + 10.f, origin.y + 8.f), ImGui::GetColorU32(kDim), label.c_str());
     }
 
+    if (miniMap)
+        DrawMiniMap(ImGui::GetWindowDrawList(), *miniMap);
+
     HandleDrop(state, actions, sceneIndex, graph, origin, corner);
 
     // Backspace deletes too (the editor itself handles Delete).
@@ -685,6 +702,20 @@ void GraphEditor::FitView(const model::Graph& graph, ImVec2 size)
     const float left = visible.x >= width ? (min.x + max.x - visible.x) * 0.5f : min.x - kMargin;
     const float top = visible.y >= height ? (min.y + max.y - visible.y) * 0.5f : min.y - kMargin;
     ed::SetViewState({ImVec2(left, top), ImVec2(left + visible.x, top + visible.y)});
+}
+
+auto GraphEditor::NodeRects(const model::Graph& graph) -> std::vector<CanvasRect>
+{
+    std::vector<CanvasRect> rects;
+    rects.reserve(graph.nodes.size());
+    for (const auto& node : graph.nodes)
+    {
+        ImVec2 extent = ed::GetNodeSize(NodeKey(node.id));
+        if (extent.x <= 0.f)
+            extent = ImVec2(Ui(node.type).width, 120.f);
+        rects.push_back({ImVec2(node.x, node.y), ImVec2(node.x + extent.x, node.y + extent.y)});
+    }
+    return rects;
 }
 
 void GraphEditor::DrawNode(const model::Node& node, NodeContext& context)

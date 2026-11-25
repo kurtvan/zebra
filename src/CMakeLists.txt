@@ -140,6 +140,8 @@ add_executable(govtech-visualizer
     app/GraphEditor.hpp
     app/CanvasZoom.hpp
     app/EditorView.hpp
+    app/MiniMap.hpp
+    app/MiniMapWidget.hpp
     app/VideoManager.cpp
     app/VideoManager.hpp
     app/macos/FileDialog.mm
