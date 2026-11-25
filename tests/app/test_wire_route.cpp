@@ -1,18 +1,28 @@
 #include "app/WireRoute.hpp"
+#include "app/nodes/NodeUi.hpp"
+#include "model/PerformanceJson.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <map>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
 using Catch::Approx;
 using gv::app::AssignLanes;
 using gv::app::DistanceToPolyline;
+using gv::app::kWireNodeMargin;
 using gv::app::kWireStub;
 using gv::app::RouteWire;
+using gv::app::RouteWires;
+using gv::app::WireBox;
+using gv::app::WireEnds;
 
 namespace {
 
@@ -55,6 +65,82 @@ auto Same(const std::vector<ImVec2>& a, const std::vector<ImVec2>& b) -> bool
             return false;
     }
     return true;
+}
+
+constexpr float kNodeW = 220.f; //!< The node size the routing tests use.
+constexpr float kNodeH = 120.f;
+
+/// A node at `x`, `y`, its output pin near its right edge and its inputs down its left.
+auto Node(float x, float y, float width = kNodeW) -> WireBox { return {ImVec2(x, y), ImVec2(x + width, y + kNodeH)}; }
+auto Output(const WireBox& box) -> ImVec2 { return {box.max.x - 6.f, box.min.y + 30.f}; }
+auto Input(const WireBox& box, int index = 0) -> ImVec2 { return {box.min.x + 6.f, box.min.y + 30.f + 14.f * static_cast<float>(index)}; }
+auto Wire(const std::vector<WireBox>& boxes, int from, int to, int input = 0) -> WireEnds
+{
+    return {Output(boxes[static_cast<size_t>(from)]), Input(boxes[static_cast<size_t>(to)], input), from, to};
+}
+
+/// The gap between the run from `a` to `b` and `box`.
+auto Gap(ImVec2 a, ImVec2 b, const WireBox& box) -> float
+{
+    const float dx = std::max({0.f, box.min.x - std::max(a.x, b.x), std::min(a.x, b.x) - box.max.x});
+    const float dy = std::max({0.f, box.min.y - std::max(a.y, b.y), std::min(a.y, b.y) - box.max.y});
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+/// No run of `line` comes within the margin of any box: not even its own nodes', apart from the runs out of
+/// its output and into its input, up to their nodes' margins.
+void CheckClear(const std::vector<ImVec2>& line, const std::vector<WireBox>& boxes, const WireEnds& wire)
+{
+    REQUIRE(line.size() >= 2);
+    for (size_t i = 0; i + 1 < line.size(); ++i)
+    {
+        for (size_t k = 0; k < boxes.size(); ++k)
+        {
+            ImVec2 a = line[i];
+            ImVec2 b = line[i + 1];
+            if (i == 0 && static_cast<int>(k) == wire.fromBox)
+                a.x = std::max(a.x, boxes[k].max.x + kWireNodeMargin); // the run out of the output
+            if (i + 2 == line.size() && static_cast<int>(k) == wire.toBox)
+                b.x = std::min(b.x, boxes[k].min.x - kWireNodeMargin); // the run into the input
+            if ((i == 0 && static_cast<int>(k) == wire.fromBox) || (i + 2 == line.size() && static_cast<int>(k) == wire.toBox))
+            {
+                if (a.y != b.y)
+                    FAIL("the run out of an output, or into an input, isn't horizontal");
+                if (a.x >= b.x)
+                    continue; // all of it inside the node's margin
+            }
+            INFO("run " << i << " (" << a.x << ", " << a.y << ") to (" << b.x << ", " << b.y << "), node " << k);
+            CHECK(Gap(a, b, boxes[k]) >= kWireNodeMargin - 1e-3f);
+        }
+    }
+}
+
+/// Some run of `a` lies along a run of `b`. `sameOutput`: their first runs, out of the output they share, may.
+auto Overlap(const std::vector<ImVec2>& a, const std::vector<ImVec2>& b, bool sameOutput) -> bool
+{
+    auto along = [](float p, float q, float r, float s) { return std::min(std::max(p, q), std::max(r, s)) > std::max(std::min(p, q), std::min(r, s)); };
+    for (size_t i = 0; i + 1 < a.size(); ++i)
+    {
+        for (size_t k = 0; k + 1 < b.size(); ++k)
+        {
+            if (sameOutput && i == 0 && k == 0)
+                continue;
+            const ImVec2 p = a[i], q = a[i + 1], r = b[k], s = b[k + 1];
+            if (p.y == q.y && r.y == s.y && p.y == r.y && along(p.x, q.x, r.x, s.x))
+                return true;
+            if (p.x == q.x && r.x == s.x && p.x == r.x && along(p.y, q.y, r.y, s.y))
+                return true;
+        }
+    }
+    return false;
+}
+
+auto Fixture(const char* name) -> std::string
+{
+    std::ifstream in(std::string(GV_TEST_FIXTURES_DIR) + "/" + name);
+    std::stringstream text;
+    text << in.rdbuf();
+    return text.str();
 }
 
 } // namespace
@@ -177,4 +263,142 @@ TEST_CASE("Distance to a routed wire")
     CHECK(DistanceToPolyline(ImVec2(104.f, 50.f), line) == Approx(4.f));
     CHECK(DistanceToPolyline(ImVec2(150.f, 100.f), line) == Approx(0.f));
     CHECK(DistanceToPolyline(ImVec2(50.f, 50.f), line) == Approx(50.f)); // the corner the curve used to cut
+}
+
+TEST_CASE("A wire goes round a node in its way, keeping the margin")
+{
+    const std::vector<WireBox> boxes = {Node(0.f, 0.f), Node(320.f, -20.f), Node(640.f, 0.f)};
+    const WireEnds wire = Wire(boxes, 0, 2);
+    const auto lines = RouteWires(boxes, {wire});
+    REQUIRE(lines.size() == 1);
+    CheckEnds(lines[0], wire.from, wire.to);
+    CHECK(RightAngles(lines[0]));
+    CheckClear(lines[0], boxes, wire);
+    CHECK_FALSE(Same(lines[0], RouteWire(wire.from, wire.to, 0))); // not the straight run under the middle node
+}
+
+TEST_CASE("A wire goes round a column of nodes")
+{
+    std::vector<WireBox> boxes = {Node(0.f, 260.f), Node(800.f, 300.f)};
+    for (int row = 0; row < 5; ++row)
+        boxes.push_back(Node(400.f, static_cast<float>(row) * 130.f)); // 10 apart: too close for a wire between
+    const WireEnds wire = Wire(boxes, 0, 1);
+    const auto line = RouteWires(boxes, {wire})[0];
+    CheckEnds(line, wire.from, wire.to);
+    CHECK(RightAngles(line));
+    CheckClear(line, boxes, wire);
+    // Over the top of the column or under it.
+    const float top = -kWireNodeMargin;
+    const float bottom = 4.f * 130.f + kNodeH + kWireNodeMargin;
+    CHECK(std::any_of(line.begin(), line.end(), [&](ImVec2 p) { return p.y <= top || p.y >= bottom; }));
+}
+
+TEST_CASE("A wire between two nodes keeps the margin from both")
+{
+    const std::vector<WireBox> boxes = {Node(0.f, 70.f), Node(300.f, 0.f), Node(300.f, 160.f), Node(700.f, 60.f)}; // a 40 gap
+    const WireEnds wire = Wire(boxes, 0, 3);
+    const auto line = RouteWires(boxes, {wire})[0];
+    CheckEnds(line, wire.from, wire.to);
+    CHECK(RightAngles(line));
+    CheckClear(line, boxes, wire);
+    CHECK(line.size() <= 6); // through the gap, not the long way round
+}
+
+TEST_CASE("A backwards wire goes round both its nodes")
+{
+    for (const float y : {0.f, 60.f, 400.f, -400.f})
+    {
+        const std::vector<WireBox> boxes = {Node(600.f, 0.f), Node(0.f, y)};
+        const WireEnds wire = Wire(boxes, 0, 1);
+        const auto line = RouteWires(boxes, {wire})[0];
+        INFO("input node at y " << y);
+        CheckEnds(line, wire.from, wire.to);
+        CHECK(RightAngles(line));
+        CheckClear(line, boxes, wire);
+    }
+}
+
+TEST_CASE("Routing round nodes is deterministic, and wires take their own lanes")
+{
+    const std::vector<WireBox> boxes = {Node(0.f, 0.f), Node(0.f, 300.f), Node(500.f, 100.f), Node(500.f, 400.f), Node(250.f, 600.f)};
+    const std::vector<WireEnds> wires = {Wire(boxes, 0, 2, 0), Wire(boxes, 1, 2, 1), Wire(boxes, 0, 3, 0), Wire(boxes, 1, 3, 1),
+                                         Wire(boxes, 3, 4, 0), Wire(boxes, 2, 0, 0)};
+    const auto lines = RouteWires(boxes, wires);
+    const auto again = RouteWires(boxes, wires);
+    REQUIRE(lines.size() == wires.size());
+    for (size_t i = 0; i < wires.size(); ++i)
+    {
+        INFO("wire " << i);
+        CHECK(Same(lines[i], again[i]));
+        CHECK(RightAngles(lines[i]));
+        CheckEnds(lines[i], wires[i].from, wires[i].to);
+        CheckClear(lines[i], boxes, wires[i]);
+        for (size_t k = 0; k < i; ++k)
+        {
+            INFO("and wire " << k);
+            CHECK_FALSE(Overlap(lines[i], lines[k], wires[i].fromBox == wires[k].fromBox)); // wires from one output share the run out of it
+        }
+    }
+}
+
+TEST_CASE("A wire with no way round gets the simple route")
+{
+    // The input node's left side is covered by another node: no way into the input.
+    const std::vector<WireBox> boxes = {Node(0.f, 0.f), Node(500.f, 0.f), Node(400.f, -40.f)};
+    const WireEnds wire = Wire(boxes, 0, 1);
+    const auto lines = RouteWires(boxes, {wire, Wire(boxes, 0, 2)});
+    CHECK(Same(lines[0], RouteWire(wire.from, wire.to, 0)));
+    CheckClear(lines[1], boxes, Wire(boxes, 0, 2)); // the other wire still goes round
+
+    // A dragged wire's free end over a node, too.
+    const WireEnds dragged{Output(boxes[0]), ImVec2(600.f, 60.f), 0, -1};
+    CHECK(Same(RouteWires(boxes, {dragged})[0], RouteWire(dragged.from, dragged.to, 0)));
+}
+
+TEST_CASE("A dragged wire's free end routes round nodes too")
+{
+    const std::vector<WireBox> boxes = {Node(0.f, 0.f), Node(320.f, -20.f), Node(0.f, 400.f)};
+    const WireEnds fromOutput{Output(boxes[0]), ImVec2(700.f, 30.f), 0, -1}; // to the pointer, past a node
+    const auto a = RouteWires(boxes, {fromOutput})[0];
+    CHECK(RightAngles(a));
+    CHECK(a.back().x == 700.f);
+    CheckClear(a, boxes, fromOutput);
+    const WireEnds fromInput{ImVec2(-200.f, 300.f), Input(boxes[2]), -1, 2}; // from the pointer, into an input
+    const auto b = RouteWires(boxes, {fromInput})[0];
+    CHECK(RightAngles(b));
+    CHECK(b.front().x == -200.f);
+    CheckClear(b, boxes, fromInput);
+}
+
+TEST_CASE("Every wire of the real show goes round every node")
+{
+    // The saved positions, with each node type's width and a height of 120.
+    const auto result = gv::model::ParsePerformance(Fixture("govtech-nov-6th.json"));
+    REQUIRE(result.ok);
+    int wires = 0;
+    for (const auto& scene : result.performance.scenes)
+    {
+        INFO("scene " << scene.id);
+        std::vector<WireBox> boxes;
+        std::map<std::string, int> index;
+        for (const auto& node : scene.graph.nodes)
+        {
+            index[node.id] = static_cast<int>(boxes.size());
+            boxes.push_back(Node(node.x, node.y, gv::app::Ui(node.type).width));
+        }
+        std::vector<WireEnds> ends;
+        for (const auto& wire : scene.graph.wires)
+            ends.push_back(Wire(boxes, index.at(wire.fromNode), index.at(wire.toNode), std::min(wire.toInput, 5)));
+        const auto lines = RouteWires(boxes, ends);
+        REQUIRE(lines.size() == ends.size());
+        for (size_t i = 0; i < ends.size(); ++i)
+        {
+            INFO("wire " << scene.graph.wires[i].fromNode << " to " << scene.graph.wires[i].toNode);
+            CHECK(RightAngles(lines[i]));
+            CheckEnds(lines[i], ends[i].from, ends[i].to);
+            CheckClear(lines[i], boxes, ends[i]);
+        }
+        wires += static_cast<int>(ends.size());
+    }
+    CHECK(wires > 0);
 }

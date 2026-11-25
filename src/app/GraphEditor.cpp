@@ -852,7 +852,18 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
         ImVec4 color;
     };
     std::vector<Drawn> drawn;
-    std::vector<std::pair<ImVec2, ImVec2>> ends;
+
+    // The nodes, for the wires to route round.
+    std::vector<WireBox> boxes;
+    m_wireBox.clear();
+    for (const auto& node : graph.nodes)
+    {
+        const ImVec2 at = ed::GetNodePosition(NodeKey(node.id));
+        const ImVec2 extent = ed::GetNodeSize(NodeKey(node.id));
+        m_wireBox[node.id] = static_cast<int>(boxes.size());
+        boxes.push_back({at, ImVec2(at.x + extent.x, at.y + extent.y)});
+    }
+    std::vector<WireEnds> ends;
     for (const auto& wire : graph.wires)
     {
         const model::Node* from = graph.Find(wire.fromNode);
@@ -871,14 +882,17 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
         if (a == m_pins.end() || b == m_pins.end())
             continue;
         drawn.push_back({key, KindColor(*kind)});
-        ends.emplace_back(a->second.center, b->second.center);
+        ends.push_back({a->second.center, b->second.center, WireBoxOf(wire.fromNode), WireBoxOf(wire.toNode)});
     }
 
-    const std::vector<int> lanes = AssignLanes(ends);
-    std::vector<std::vector<ImVec2>> lines;
-    lines.reserve(ends.size());
-    for (size_t i = 0; i < ends.size(); ++i)
-        lines.push_back(RouteWire(ends[i].first, ends[i].second, lanes[i]));
+    // Routed again only when a node or a wire changed.
+    if (boxes != m_wireBoxes || ends != m_wireEnds)
+    {
+        m_wireLines = RouteWires(boxes, ends);
+        m_wireBoxes = std::move(boxes);
+        m_wireEnds = std::move(ends);
+    }
+    const std::vector<std::vector<ImVec2>>& lines = m_wireLines;
 
     // The wire under the pointer, over bare canvas (not over a node or pin, nor during a drag or a menu).
     m_hoveredWire = 0;
@@ -915,6 +929,12 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
         draw->AddPolyline(line.data(), count, ImGui::GetColorU32(drawn[i].color), ImDrawFlags_None, thickness);
     }
     draw->ChannelsSetCurrent(channel);
+}
+
+auto GraphEditor::WireBoxOf(const std::string& node) const -> int
+{
+    auto it = m_wireBox.find(node);
+    return it != m_wireBox.end() ? it->second : -1;
 }
 
 void GraphEditor::SelectClickedWire()
@@ -972,6 +992,7 @@ void GraphEditor::HandleCreate(ShellState& /*state*/, AppActions& actions, int s
                 start = &it->second;
         }
         m_dragEnd = overPin && target != nullptr ? target->center : m_mouseCanvas;
+        m_dragEndNode = overPin && target != nullptr && start != nullptr && target->output != start->output ? target->node : std::string();
 
         // Dragging from a wired input picks up that wire.
         const model::Wire* wire = start != nullptr && !start->output ? graph.WireInto(start->node, start->input, start->texture) : nullptr;
@@ -1089,10 +1110,12 @@ void GraphEditor::DrawMovingWire()
 {
     if (!m_dragStart)
         return;
-    // Routed like the wires, from an output to an input: the pointer (or the pin under it) stands in for the end
-    // not reached yet. On top of everything, in screen space, clipped to the canvas.
-    const bool fromOutput = m_dragStart->output;
-    std::vector<ImVec2> line = fromOutput ? RouteWire(m_dragStart->center, m_dragEnd, 0) : RouteWire(m_dragEnd, m_dragStart->center, 0);
+    // Routed like the wires, round the nodes, from an output to an input: the pointer (or the pin under it)
+    // stands in for the end not reached yet. On top of everything, in screen space, clipped to the canvas.
+    const int start = WireBoxOf(m_dragStart->node);
+    const int end = WireBoxOf(m_dragEndNode);
+    const WireEnds ends = m_dragStart->output ? WireEnds{m_dragStart->center, m_dragEnd, start, end} : WireEnds{m_dragEnd, m_dragStart->center, end, start};
+    std::vector<ImVec2> line = RouteWires(m_wireBoxes, {ends}).front();
     for (ImVec2& point : line)
         point = ed::CanvasToScreen(point);
     const ImU32 color = ImGui::GetColorU32(m_movingColor);
