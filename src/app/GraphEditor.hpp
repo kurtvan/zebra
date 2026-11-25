@@ -121,7 +121,10 @@ private:
     void DrawNode(const model::Node& node, NodeContext& context);
     void DrawTitleRow(const model::Node& node, NodeContext& context, const std::vector<InputSpec>& inputs);
     void DrawPin(const model::Node& node, bool output, const InputSpec* spec, model::PortKind kind, float height);
+    /// The wires, as routed polylines (see WireRoute.hpp), and which one is under the pointer.
     void DrawLinks(const model::Graph& graph);
+    /// After ed::End: a click on the wire under the pointer selects it (Cmd or Ctrl: adds or removes it).
+    void SelectClickedWire();
     void HandleCreate(ShellState& state, AppActions& actions, int scene, const model::Graph& graph);
     /// A wire picked up by its input end: over `target` (an input or output), or over empty canvas.
     void HandleMove(AppActions& actions, int scene, const Pin* target);
@@ -167,7 +170,9 @@ private:
     std::optional<Pin> m_dragStart; //!< The pin a wire is being dragged from (last frame).
     std::optional<model::Wire> m_moving;   //!< A wire picked up by its input end, while it's dragged.
     std::optional<model::Graph> m_dragGraph; //!< The graph without the picked-up wire, to check where it may go.
-    ImVec4 m_movingColor{1, 1, 1, 1};
+    ImVec4 m_movingColor{1, 1, 1, 1}; //!< The wire being dragged: green or red over a pin it may or may not go to.
+    ImVec2 m_dragEnd{0, 0};           //!< Where the wire being dragged ends: the pointer, or the pin under it.
+    uint64_t m_hoveredWire{0};        //!< The wire under the pointer (its link id), or 0.
     ImVec2 m_canvasMin{0, 0}; //!< The canvas on screen.
     ImVec2 m_canvasMax{0, 0};
     std::string m_popupNode;        //!< The node whose popup is open, and which one.

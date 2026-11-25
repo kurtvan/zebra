@@ -2,6 +2,7 @@
 
 #include "app/Shell.hpp"
 #include "app/Widgets.hpp"
+#include "app/WireRoute.hpp"
 #include "app/macos/FileDialog.hpp"
 #include "io/VideoSource.hpp"
 #include "common/FitRect.hpp"
@@ -29,6 +30,8 @@ constexpr float kPinSize = 12.f;
 constexpr float kArrowWidth = 14.f;
 constexpr float kNodeRounding = 6.f;
 constexpr float kErrorDismissDistance = 80.f; //!< The error list goes when the mouse moves this far away.
+constexpr float kWireHitDistance = 6.f;       //!< Screen pixels from a wire that hover and click it.
+constexpr int kUnderlayChannel = 5;           //!< imgui-node-editor's c_UserChannel_Underlay: over the grid, under nodes.
 
 auto KindColor(model::PortKind kind) -> ImVec4
 {
@@ -610,6 +613,7 @@ void GraphEditor::Draw(ShellState& state, AppActions& actions, int sceneIndex)
 
     DrawPopups(context, actions, graph, sceneIndex);
     ed::End();
+    SelectClickedWire();
     if (m_previewBehind)
         ed::PopStyleColor();
     ed::SetCurrentEditor(nullptr);
@@ -838,6 +842,17 @@ void GraphEditor::DrawPin(const model::Node& node, bool output, const InputSpec*
 
 void GraphEditor::DrawLinks(const model::Graph& graph)
 {
+    // The editor keeps a link per wire, for selection and delete, but with a negative thickness: it then never
+    // draws it or hit-tests its curve. The wires are drawn and hit-tested here, as routed polylines.
+    constexpr float kHiddenLink = -1.0e6f;
+    const ImVec4 hidden(0, 0, 0, 0);
+    struct Drawn
+    {
+        uint64_t key;
+        ImVec4 color;
+    };
+    std::vector<Drawn> drawn;
+    std::vector<std::pair<ImVec2, ImVec2>> ends;
     for (const auto& wire : graph.wires)
     {
         const model::Node* from = graph.Find(wire.fromNode);
@@ -848,19 +863,95 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
         m_wires[key] = wire;
         if (m_moving && *m_moving == wire)
             continue; // picked up: DrawMovingWire draws it at the pointer
-        // Thicker over the preview, to stand out from the visuals.
-        ed::Link(key, OutputKey(wire.fromNode), InputKey(wire.toNode, wire.toInput, wire.textureName), KindColor(*kind), m_previewBehind ? 3.f : 2.f);
+        const uint64_t out = OutputKey(wire.fromNode);
+        const uint64_t in = InputKey(wire.toNode, wire.toInput, wire.textureName);
+        ed::Link(key, out, in, hidden, kHiddenLink);
+        auto a = m_pins.find(out);
+        auto b = m_pins.find(in);
+        if (a == m_pins.end() || b == m_pins.end())
+            continue;
+        drawn.push_back({key, KindColor(*kind)});
+        ends.emplace_back(a->second.center, b->second.center);
     }
+
+    const std::vector<int> lanes = AssignLanes(ends);
+    std::vector<std::vector<ImVec2>> lines;
+    lines.reserve(ends.size());
+    for (size_t i = 0; i < ends.size(); ++i)
+        lines.push_back(RouteWire(ends[i].first, ends[i].second, lanes[i]));
+
+    // The wire under the pointer, over bare canvas (not over a node or pin, nor during a drag or a menu).
+    m_hoveredWire = 0;
+    const bool bare = m_hovered && m_nodeUnderMouse.empty() && !m_dragStart && !ImGui::IsMouseDragging(ImGuiMouseButton_Left) &&
+                      !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    if (bare)
+    {
+        float nearest = kWireHitDistance / m_zoom;
+        for (size_t i = 0; i < lines.size(); ++i)
+        {
+            const float distance = DistanceToPolyline(m_mouseCanvas, lines[i]);
+            if (distance <= nearest)
+            {
+                nearest = distance;
+                m_hoveredWire = drawn[i].key;
+            }
+        }
+    }
+
+    // Under the nodes, over the grid: the editor's underlay channel. Thicker over the preview, to stand out from
+    // the visuals. One polyline per wire: its joins are mitred, so thick corners don't notch.
+    const float thickness = m_previewBehind ? 3.f : 2.f;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const int channel = draw->_Splitter._Current;
+    draw->ChannelsSetCurrent(kUnderlayChannel);
+    for (size_t i = 0; i < lines.size(); ++i)
+    {
+        const auto& line = lines[i];
+        const int count = static_cast<int>(line.size());
+        if (ed::IsLinkSelected(drawn[i].key))
+            draw->AddPolyline(line.data(), count, ImGui::GetColorU32(kAccent), ImDrawFlags_None, thickness + 4.5f);
+        else if (drawn[i].key == m_hoveredWire)
+            draw->AddPolyline(line.data(), count, ImGui::GetColorU32(Faded(kAccent, 0.8f)), ImDrawFlags_None, thickness + 3.5f);
+        draw->AddPolyline(line.data(), count, ImGui::GetColorU32(drawn[i].color), ImDrawFlags_None, thickness);
+    }
+    draw->ChannelsSetCurrent(channel);
+}
+
+void GraphEditor::SelectClickedWire()
+{
+    // After ed::End: the editor took the click for the bare canvas and cleared the selection.
+    if (m_hoveredWire == 0 || ed::GetBackgroundClickButtonIndex() != ImGuiMouseButton_Left)
+        return;
+    std::vector<ed::LinkId> links;
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.KeySuper || io.KeyCtrl) // add to the wires that were selected, or take it out
+    {
+        bool found = false;
+        for (uint64_t link : m_canvas->selectedLinks)
+        {
+            if (link == m_hoveredWire)
+                found = true;
+            else
+                links.emplace_back(link);
+        }
+        if (!found)
+            links.emplace_back(m_hoveredWire);
+    }
+    else
+    {
+        links.emplace_back(m_hoveredWire);
+    }
+    ed::SetSelection(nullptr, 0, links.data(), static_cast<int>(links.size()));
 }
 
 void GraphEditor::HandleCreate(ShellState& /*state*/, AppActions& actions, int scene, const model::Graph& graph)
 {
     m_hoverErrorNodes.clear();
     m_hoverTooltip.clear();
-    // While a wire is moved, the editor's own line (from the input it left) is hidden; DrawMovingWire draws it
-    // from its source instead.
+    // The editor's own line is hidden: DrawMovingWire draws the wire being dragged, routed like the others (a
+    // moved wire from its source), in m_movingColor.
     const ImVec4 hidden(0, 0, 0, 0);
-    if (ed::BeginCreate(m_moving ? hidden : ImVec4(1.f, 1.f, 1.f, 0.8f), 2.f))
+    if (ed::BeginCreate(hidden, 2.f))
     {
         ed::PinId a;
         ed::PinId b;
@@ -880,6 +971,7 @@ void GraphEditor::HandleCreate(ShellState& /*state*/, AppActions& actions, int s
             if (auto it = m_pins.find(a.Get()); it != m_pins.end())
                 start = &it->second;
         }
+        m_dragEnd = overPin && target != nullptr ? target->center : m_mouseCanvas;
 
         // Dragging from a wired input picks up that wire.
         const model::Wire* wire = start != nullptr && !start->output ? graph.WireInto(start->node, start->input, start->texture) : nullptr;
@@ -898,6 +990,7 @@ void GraphEditor::HandleCreate(ShellState& /*state*/, AppActions& actions, int s
             m_moving.reset();
             m_dragGraph.reset();
             m_dragStart = *start;
+            m_movingColor = ImVec4(1.f, 1.f, 1.f, 0.8f);
             if (overPin && target != nullptr)
             {
                 const Pin out = start->output ? *start : *target;
@@ -908,16 +1001,17 @@ void GraphEditor::HandleCreate(ShellState& /*state*/, AppActions& actions, int s
                                                         : "Both ends are inputs: wire an output (right) to an input (left)."});
                 else
                     errors = model::ConnectErrors(graph, out.node, in.node, in.input, in.texture);
+                m_movingColor = errors.empty() ? kGreen : kRed;
                 if (!errors.empty())
                 {
-                    ed::RejectNewItem(kRed, 2.f);
+                    ed::RejectNewItem(hidden, 2.f);
                     m_hoverTooltip = Joined(errors);
                     for (const auto& error : errors)
                         m_hoverErrorNodes.push_back(error.nodeId);
                     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
                         ShowErrors(std::move(errors));
                 }
-                else if (ed::AcceptNewItem(kGreen, 3.f))
+                else if (ed::AcceptNewItem(hidden, 3.f))
                 {
                     auto refused = actions.EditGraph(
                         scene, [&](model::Graph& g) { model::Connect(g, out.node, in.node, in.input, in.texture); }, "Connect");
@@ -993,16 +1087,19 @@ void GraphEditor::HandleMove(AppActions& actions, int scene, const Pin* target)
 
 void GraphEditor::DrawMovingWire()
 {
-    if (!m_moving || !m_dragStart)
+    if (!m_dragStart)
         return;
-    // On top of everything, in screen space, clipped to the canvas.
-    const ImVec2 from = ed::CanvasToScreen(m_dragStart->center);
-    const ImVec2 to = ed::CanvasToScreen(m_mouseCanvas);
-    const float tangent = std::max(50.f, std::abs(to.x - from.x) * 0.5f);
+    // Routed like the wires, from an output to an input: the pointer (or the pin under it) stands in for the end
+    // not reached yet. On top of everything, in screen space, clipped to the canvas.
+    const bool fromOutput = m_dragStart->output;
+    std::vector<ImVec2> line = fromOutput ? RouteWire(m_dragStart->center, m_dragEnd, 0) : RouteWire(m_dragEnd, m_dragStart->center, 0);
+    for (ImVec2& point : line)
+        point = ed::CanvasToScreen(point);
+    const ImU32 color = ImGui::GetColorU32(m_movingColor);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     draw->PushClipRect(m_canvasMin, m_canvasMax, true);
-    draw->AddBezierCubic(from, ImVec2(from.x + tangent, from.y), ImVec2(to.x - tangent, to.y), to, ImGui::GetColorU32(m_movingColor), 3.f);
-    draw->AddCircleFilled(to, 4.f, ImGui::GetColorU32(m_movingColor));
+    draw->AddPolyline(line.data(), static_cast<int>(line.size()), color, ImDrawFlags_None, 3.f);
+    draw->AddCircleFilled(ed::CanvasToScreen(m_dragEnd), 4.f, color);
     draw->PopClipRect();
 }
 
