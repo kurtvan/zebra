@@ -17,6 +17,7 @@ add_executable(gv_tests
     model/test_performance_json.cpp
     model/test_document.cpp
     model/test_graph.cpp
+    model/test_arrange.cpp
     model/test_node_list.cpp
     model/ClassicView.cpp
     model/ClassicView.hpp

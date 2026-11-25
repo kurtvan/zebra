@@ -134,6 +134,8 @@ private:
     void DrawMovingWire();
     void HandleDelete(AppActions& actions, int scene, const model::Graph& graph);
     void HandleEdits(AppActions& actions, int scene, const model::Graph& graph);
+    /// The Arrange button: lays out the whole scene (model::ArrangeLayered) as one undo step, then fits.
+    void Arrange(AppActions& actions, int scene, const model::Graph& graph);
     void DrawPopups(NodeContext& context, AppActions& actions, const model::Graph& graph, int scene);
     void HandleDrop(ShellState& state, AppActions& actions, int scene, const model::Graph& graph, ImVec2 min, ImVec2 max);
     void DrawErrors();
@@ -195,6 +197,7 @@ private:
     std::vector<model::GraphError> m_pendingErrors;
     bool m_hovered{false};
     bool m_fitRequested{false};
+    bool m_arrangeRequested{false};
     std::string m_focusScene; //!< FocusNode: the scene and node to focus on its next draw.
     std::string m_focusNode;
     bool m_previewBehind{false}; //!< The live output is drawn behind the nodes this frame.
