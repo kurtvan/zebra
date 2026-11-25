@@ -46,11 +46,11 @@ auto SwitcherUi() -> NodeUi
     ui.inputs = [](const model::Node& node, NodeContext& context) {
         const auto& params = model::ParamsOf<SwitcherParams>(node);
         const auto now = context.Switcher(node);
-        const bool presets = params.kind == model::PortKind::Frame;
+        const bool presets = !model::SwitchesVideos(context.SceneGraph(), node);
         std::vector<InputSpec> inputs;
         for (int i = 0; i < params.inputCount; ++i)
         {
-            InputSpec spec{i, {}, params.kind, std::to_string(i + 1)};
+            InputSpec spec{i, {}, model::PortKind::Picture, std::to_string(i + 1)};
             if (context.SceneGraph().WireInto(node.id, i) == nullptr)
             {
                 spec.label += "  (free)";
@@ -125,7 +125,7 @@ auto SwitcherUi() -> NodeUi
     shuffle.tooltip = "Off: top to bottom. On: random order, never the same input twice in a row.";
 
     ui.controls = {seconds, count, unit, shuffle, {Control::Kind::Inputs}};
-    ui.addItems = {{"Switcher", nullptr, "Switches videos or Milkdrop presets: whichever you wire into it first."}};
+    ui.addItems = {{"Switcher", nullptr, "Switches videos or Milkdrop presets: whatever you wire into it."}};
     return ui;
 }
 

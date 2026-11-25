@@ -83,7 +83,7 @@ auto IsfValue(const std::map<std::string, std::vector<float>>& values, const isf
 
 namespace nodes {
 
-/// An ISF shader (a .fs file): a Video input per image input, a control per float, bool and long input.
+/// An ISF shader (a .fs file): a picture input per image input, a control per float, bool and long input.
 auto IsfShaderDef() -> NodeDef
 {
     NodeDef def;
@@ -92,13 +92,13 @@ auto IsfShaderDef() -> NodeDef
     def.idPrefix = "isf";
     def.displayName = "ISF shader";
     def.defaults = IsfShaderParams{};
-    def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Video; };
+    def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Picture; };
     def.inputCount = [](const Node& node) {
         const auto file = IsfFileAt(Params(node).path);
         const int images = file.shader != nullptr ? static_cast<int>(IsfImageInputs(*file.shader).size()) : 0;
         return std::max(images, Params(node).wiredInputs);
     };
-    def.inputKind = [](const Node&, int) { return PortKind::Video; };
+    def.inputKind = [](const Node&, int) { return PortKind::Picture; };
     def.followWires = [](const Graph& graph, Node& node) {
         int wired = 0;
         for (const auto& wire : graph.wires)

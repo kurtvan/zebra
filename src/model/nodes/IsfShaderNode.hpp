@@ -1,6 +1,6 @@
 #pragma once
 
-// The ISF shader node's file: its parsed header, which gives the node its Video inputs and controls.
+// The ISF shader node's file: its parsed header, which gives the node its picture inputs and controls.
 
 #include "isf/IsfHeader.hpp"
 
@@ -23,7 +23,7 @@ struct IsfFile
 /// The file at `path`, read and parsed again only when its modification time changes. Thread-safe.
 auto IsfFileAt(const std::filesystem::path& path) -> IsfFile;
 
-/// The shader's image inputs, in order: the node's Video inputs.
+/// The shader's image inputs, in order: the node's picture inputs.
 auto IsfImageInputs(const isf::IsfShader& shader) -> std::vector<const isf::IsfInput*>;
 
 /// The value input `input` has on a node with `values`: its own if set, else the input's DEFAULT, else 0.

@@ -87,9 +87,9 @@ auto EffectBase(NodeType type, const char* jsonName, const char* idPrefix, const
     def.displayName = displayName;
     def.defaults = std::move(defaults);
     def.effect = true;
-    def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Video; };
+    def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Picture; };
     def.inputCount = [](const Node&) { return 1; };
-    def.inputKind = [](const Node&, int) { return PortKind::Video; };
+    def.inputKind = [](const Node&, int) { return PortKind::Picture; };
     return def;
 }
 

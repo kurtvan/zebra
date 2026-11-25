@@ -40,10 +40,10 @@ TEST_CASE("milkdrop preset: video into its three layers and its textures, its pi
     const auto& node = scene.Node(scene.Add(NodeType::MilkdropPreset));
     CHECK(node.id == "milkdrop-1");
     CHECK(PathOf(node).empty());
-    CHECK(model::OutputKind(node) == model::PortKind::Frame);
+    CHECK(model::OutputKind(node) == model::PortKind::Picture);
     CHECK(model::InputCount(node) == model::kPresetInputs);
     for (int input = 0; input < model::kPresetInputs; ++input)
-        CHECK(model::InputKind(node, input) == model::PortKind::Video);
+        CHECK(model::InputKind(node, input) == model::PortKind::Picture);
 }
 
 TEST_CASE("milkdrop preset: texture inputs need a texture name, and only they have one", "[node:milkdrop-preset]")
@@ -163,7 +163,7 @@ TEST_CASE("milkdrop preset: an input row per layer and per texture, keeping wire
     for (const auto& input : inputs)
         labels.push_back(input.label);
     CHECK(labels == std::vector<std::string>{"Feedback", "Before composite", "On top", "Texture: noise_lq", "Texture: clouds", "Texture: gone"});
-    CHECK(inputs[3] == app::InputSpec{Layer(PresetLayer::Texture), "noise_lq", model::PortKind::Video, "Texture: noise_lq"});
+    CHECK(inputs[3] == app::InputSpec{Layer(PresetLayer::Texture), "noise_lq", model::PortKind::Picture, "Texture: noise_lq"});
 
     test::HeadlessUi ui;
     ui.Frame(context, id);

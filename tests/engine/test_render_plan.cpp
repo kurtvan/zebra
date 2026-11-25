@@ -143,7 +143,7 @@ TEST_CASE("plans follow switcher selections and carry each branch's effects in o
     std::string videoSwitcher;
     for (const auto& node : graph.nodes)
     {
-        if (node.type == NodeType::Switcher && ParamsOf<SwitcherParams>(node).kind == PortKind::Video)
+        if (SwitchesVideos(graph, node))
             videoSwitcher = node.id;
     }
     auto selection = SelectionForItem(graph, 1);

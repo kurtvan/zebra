@@ -26,9 +26,9 @@ auto MilkdropPresetDef() -> NodeDef
     def.idPrefix = "milkdrop";
     def.displayName = "Milkdrop preset";
     def.defaults = MilkdropPresetParams{};
-    def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Frame; };
+    def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Picture; };
     def.inputCount = [](const Node&) { return kPresetInputs; };
-    def.inputKind = [](const Node&, int) { return PortKind::Video; };
+    def.inputKind = [](const Node&, int) { return PortKind::Picture; };
     def.textureInput = static_cast<int>(PresetLayer::Texture);
     def.inputNames = kInputNames;
     // One video source at a time: every input starts from the same source or Video switcher.

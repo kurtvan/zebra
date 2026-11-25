@@ -90,7 +90,7 @@ private:
         bool output{false};
         int input{0};
         std::string texture;
-        model::PortKind kind{model::PortKind::Video};
+        model::PortKind kind{model::PortKind::Picture};
         ImVec2 center{0, 0}; //!< In canvas coordinates.
         PinSide side{PinSide::Left};
         int wires{0}; //!< How many wires meet here: two or more draw it as a pill (PinPill.hpp).

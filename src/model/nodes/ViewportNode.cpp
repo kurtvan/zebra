@@ -12,7 +12,7 @@ auto ViewportDef() -> NodeDef
     def.displayName = "Viewport";
     def.defaults = ViewportParams{};
     def.inputCount = [](const Node&) { return 1; };
-    def.inputKind = [](const Node&, int) { return PortKind::Frame; };
+    def.inputKind = [](const Node&, int) { return PortKind::Picture; };
     return def;
 }
 

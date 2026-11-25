@@ -876,7 +876,7 @@ auto Engine::UpdateVideoSwitchers(const model::Scene& scene, SwitcherClock::Cloc
             continue;
         const auto& params = model::ParamsOf<model::SwitcherParams>(node);
         const auto inputs = WiredInputs(scene.graph, node);
-        if (params.kind != model::PortKind::Video || inputs.empty())
+        if (!model::SwitchesVideos(scene.graph, node) || inputs.empty())
             continue;
         present.insert(node.id);
         auto& clock = m_switchers.clocks[node.id];

@@ -23,10 +23,7 @@ namespace {
 /// True if a switcher in `graph` switches videos.
 auto HasVideoSwitcher(const model::Graph& graph) -> bool
 {
-    return std::any_of(graph.nodes.begin(), graph.nodes.end(), [&](const model::Node& node) {
-        return node.type == model::NodeType::Switcher && model::ParamsOf<model::SwitcherParams>(node).kind == model::PortKind::Video &&
-               !model::TakesAnyKind(graph, node);
-    });
+    return std::any_of(graph.nodes.begin(), graph.nodes.end(), [&](const model::Node& node) { return model::SwitchesVideos(graph, node); });
 }
 
 constexpr const char* kPreview = "Preview";
