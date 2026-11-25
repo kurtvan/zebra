@@ -14,6 +14,7 @@ auto BuildDefs() -> std::array<NodeDef, kNodeTypeCount>
     std::array<NodeDef, kNodeTypeCount> defs = {
         nodes::VideoSourceDef(), nodes::ContrastDef(), nodes::SaturationDef(), nodes::LumaGateDef(),
         nodes::OpacityDef(),         nodes::MilkdropPresetDef(),   nodes::SwitcherDef(),   nodes::ViewportDef(),
+        nodes::IsfShaderDef(),
     };
     // Def() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < kNodeTypeCount; ++i)
@@ -68,7 +69,7 @@ auto ChainStart(const Graph& graph, const Node* node) -> const Node*
 {
     for (int steps = 0; node != nullptr && steps <= static_cast<int>(graph.nodes.size()); ++steps)
     {
-        if (!IsEffect(node->type))
+        if (!IsEffect(node->type) && node->type != NodeType::IsfShader)
             return node;
         node = graph.Upstream(node->id, 0);
     }

@@ -17,6 +17,7 @@ auto BuildUis() -> std::array<NodeUi, model::kNodeTypeCount>
     std::array<NodeUi, model::kNodeTypeCount> uis = {
         nodes::VideoSourceUi(), nodes::ContrastUi(), nodes::SaturationUi(), nodes::LumaGateUi(),
         nodes::OpacityUi(),         nodes::MilkdropPresetUi(),   nodes::SwitcherUi(),   nodes::ViewportUi(),
+        nodes::IsfShaderUi(),
     };
     // Ui() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < model::kNodeTypeCount; ++i)
@@ -215,9 +216,15 @@ auto NodeInputs(const model::Node& node, NodeContext& context) -> std::vector<In
     return inputs;
 }
 
+auto NodeControls(const model::Node& node, NodeContext& context) -> std::vector<Control>
+{
+    const NodeUi& ui = Ui(node.type);
+    return ui.controlsFor != nullptr ? ui.controlsFor(node, context) : ui.controls;
+}
+
 void DrawNodeBody(const model::Node& node, NodeContext& context)
 {
-    const auto& controls = Ui(node.type).controls;
+    const auto controls = NodeControls(node, context);
     float rowStart = ImGui::GetCursorScreenPos().x;
     for (size_t i = 0; i < controls.size(); ++i)
     {
@@ -228,7 +235,7 @@ void DrawNodeBody(const model::Node& node, NodeContext& context)
 
 void DrawNodePopup(const model::Node& node, int kind, NodeContext& context)
 {
-    const auto& controls = Ui(node.type).controls;
+    const auto controls = NodeControls(node, context);
     if (kind < 0 || kind >= static_cast<int>(controls.size()))
     {
         ImGui::CloseCurrentPopup();

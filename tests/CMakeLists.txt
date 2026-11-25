@@ -7,7 +7,8 @@ set(GV_NODE_TESTS
     nodes/test_opacity.cpp
     nodes/test_milkdrop_preset.cpp
     nodes/test_switcher.cpp
-    nodes/test_viewport.cpp)
+    nodes/test_viewport.cpp
+    nodes/test_isf_shader.cpp)
 
 add_executable(gv_tests
     common/test_log.cpp
