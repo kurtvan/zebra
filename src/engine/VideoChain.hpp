@@ -57,6 +57,12 @@ public:
     void RunSteps(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
                   RenderTarget target, RenderTarget scratch, int width, int height);
 
+    /// A scene with no preset: draws `video` (0 for none, as with a generator) through `steps` into `picture`
+    /// (RunSteps), then that over black into all of `fbo`, so what effects make see-through shows black. Leaves
+    /// framebuffer 0 bound.
+    void DrawPicture(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
+                     RenderTarget picture, RenderTarget scratch, GLuint fbo, int width, int height);
+
     /// Alpha-blends `texture` (straight alpha) over the bound framebuffer's viewport, keeping its alpha.
     void Composite(GLuint texture);
 

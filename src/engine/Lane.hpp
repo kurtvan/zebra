@@ -181,6 +181,8 @@ private:
     /// rendered frame.
     auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides,
                      const model::SignalValues& signals = {}) -> std::vector<GLuint>;
+    /// An instance with no preset (LanePlan::picture): draws its picture of `video` straight into `fbo`; black with no branch.
+    void DrawPicture(const LanePlan& plan, GLuint video, const model::SignalValues& signals, GLuint fbo);
     /// Targets[index] at render size, creating it (and those before it) if needed.
     auto BranchTarget(std::vector<RenderTarget>& targets, size_t index) -> RenderTarget;
     /// Compiles the plan's ISF shaders this lane doesn't have yet, reporting each one (ShaderCompiled).
@@ -213,7 +215,7 @@ private:
     std::vector<std::string> m_texturePaths;
     struct Hosted
     {
-        projectm_handle handle{nullptr};
+        projectm_handle handle{nullptr}; //!< Null for a picture with no preset (LanePlan::picture).
         LanePlan plan; //!< How the scene draws its video.
         TextureOverrides textures;
     };

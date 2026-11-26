@@ -52,13 +52,12 @@ TEST_CASE("switcher: what's wired into it decides where it can go, not a setting
     CHECK(model::ConnectErrors(scene.Graph(), switcher, "viewport", 0).empty());
     CHECK(model::ConnectErrors(scene.Graph(), switcher, opacity, 0).empty());
 
-    // Switching videos: no presets in, and not on the viewport (not yet).
+    // Switching videos: no presets in; on the viewport, or into an effect.
     model::Connect(scene.Graph(), video, switcher, 0);
     CHECK(model::SwitchesVideos(scene.Graph(), scene.Node(switcher)));
     CHECK(test::Messages(model::ConnectErrors(scene.Graph(), preset, switcher, 1)) ==
           std::vector<std::string>{"Switcher: it switches videos or presets, not both (not supported yet)."});
-    CHECK(test::Messages(model::ConnectErrors(scene.Graph(), switcher, "viewport", 0)) ==
-          std::vector<std::string>{"Viewport: show a preset here (videos on the Viewport aren't supported yet)."});
+    CHECK(model::ConnectErrors(scene.Graph(), switcher, "viewport", 0).empty());
     CHECK(model::ConnectErrors(scene.Graph(), switcher, opacity, 0).empty());
 
     // Switching presets instead: on the viewport, not into an effect.
