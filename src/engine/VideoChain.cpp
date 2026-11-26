@@ -219,6 +219,18 @@ void VideoChain::RunSteps(GLuint video, const std::vector<VideoStep>& steps, con
     }
 }
 
+void VideoChain::DrawPicture(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
+                             RenderTarget picture, RenderTarget scratch, GLuint fbo, int width, int height)
+{
+    RunSteps(video, steps, programs, clock, picture, scratch, width, height);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(0, 0, width, height);
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    Composite(picture.texture);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 void VideoChain::Composite(GLuint texture)
 {
     glUseProgram(m_compositeProgram);

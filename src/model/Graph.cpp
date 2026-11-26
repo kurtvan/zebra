@@ -165,13 +165,6 @@ auto PictureOf(const Graph& graph, const Node& node, std::set<std::string>& seen
 // --- Not supported yet ---------------------------------------------------------------------------
 // Pictures the engine can't render yet, one rule each, so each of Project E's tickets deletes its own.
 
-/// A video straight on the viewport.
-void CheckViewportShowsPreset(const Node& to, PictureFrom picture, std::vector<GraphError>& errors)
-{
-    if (to.type == NodeType::Viewport && picture.video)
-        errors.push_back({to.id, Label(to) + ": show a preset here (videos on the Viewport aren't supported yet)."});
-}
-
 /// A preset's picture into another preset.
 void CheckPresetTakesVideo(const Node& to, PictureFrom picture, std::vector<GraphError>& errors)
 {
@@ -204,7 +197,6 @@ void CheckNotSupportedYet(const Graph& graph, std::vector<GraphError>& errors)
         if (from == nullptr || to == nullptr || OutputKind(*from) != PortKind::Picture || InputKind(*to, wire.toInput) != PortKind::Picture)
             continue; // reported already, or a number
         const PictureFrom picture = PictureOf(graph, *from);
-        CheckViewportShowsPreset(*to, picture, errors);
         CheckPresetTakesVideo(*to, picture, errors);
         CheckEffectTakesVideo(*to, picture, errors);
     }

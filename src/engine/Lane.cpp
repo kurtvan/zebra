@@ -61,6 +61,13 @@ void AddPcm(projectm_handle instance, const std::vector<float>& samples)
     }
 }
 
+/// Destroys a hosted projectM instance; a picture with no preset has none.
+void Destroy(projectm_handle instance)
+{
+    if (instance != nullptr)
+        projectm_destroy(instance);
+}
+
 auto DrawsVideo(const LanePlan& plan) -> bool
 {
     return !plan.branches.empty();
@@ -340,7 +347,7 @@ void Lane::Run()
                 {
                     for (auto& [name, override] : hosted.textures)
                         DeleteOverride(override);
-                    projectm_destroy(hosted.handle);
+                    Destroy(hosted.handle);
                 }
                 m_instances.clear();
                 m_programs.clear();
@@ -404,8 +411,10 @@ void Lane::DoPrepare(const Job& job, bool keep)
     event.scene = job.scene;
     event.presetPath = job.presetPath;
 
-    projectm_handle instance = CreateInstance();
-    if (instance == nullptr)
+    // A picture with no preset has no projectM instance: only its shaders are compiled and warmed up.
+    const bool picture = job.plan.picture;
+    projectm_handle instance = picture ? nullptr : CreateInstance();
+    if (!picture && instance == nullptr)
     {
         event.error = "projectm_create failed";
         m_sink(std::move(event));
@@ -413,9 +422,12 @@ void Lane::DoPrepare(const Job& job, bool keep)
     }
 
     LoadFailure failure;
-    projectm_set_preset_switch_failed_event_callback(instance, &OnPresetFailed, &failure);
-    projectm_load_preset_file(instance, job.presetPath.c_str(), false);
-    projectm_set_preset_switch_failed_event_callback(instance, nullptr, nullptr);
+    if (!picture)
+    {
+        projectm_set_preset_switch_failed_event_callback(instance, &OnPresetFailed, &failure);
+        projectm_load_preset_file(instance, job.presetPath.c_str(), false);
+        projectm_set_preset_switch_failed_event_callback(instance, nullptr, nullptr);
+    }
 
     // Warm up with a placeholder video so the chain and blend shaders are compiled now, not on the first
     // live frame.
@@ -434,7 +446,8 @@ void Lane::DoPrepare(const Job& job, bool keep)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glBindTexture(GL_TEXTURE_2D, 0);
         }
-        onTop = RunBranches(instance, job.plan, m_placeholderVideo, nullptr);
+        if (!picture)
+            onTop = RunBranches(instance, job.plan, m_placeholderVideo, nullptr);
     }
 
     if (failure.failed)
@@ -451,6 +464,12 @@ void Lane::DoPrepare(const Job& job, bool keep)
     // Two warm-up draws absorb the driver's deferred first-draw compile (M1 results); the second is
     // close to the steady frame time and flags heavy presets.
     auto warmFrame = [&] {
+        if (picture)
+        {
+            DrawPicture(job.plan, m_placeholderVideo, {}, m_scratchFbo);
+            glFinish();
+            return;
+        }
         glBindFramebuffer(GL_FRAMEBUFFER, m_scratchFbo);
         glViewport(0, 0, m_width, m_height);
         projectm_opengl_render_frame_fbo(instance, m_scratchFbo);
@@ -465,15 +484,18 @@ void Lane::DoPrepare(const Job& job, bool keep)
     warmFrame();
     event.frameMs = MillisecondsSince(second);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    projectm_set_layer_texture(instance, PROJECTM_LAYER_FEEDBACK, 0);
-    projectm_set_layer_texture(instance, PROJECTM_LAYER_BEFORE_COMPOSITE, 0);
+    if (!picture)
+    {
+        projectm_set_layer_texture(instance, PROJECTM_LAYER_FEEDBACK, 0);
+        projectm_set_layer_texture(instance, PROJECTM_LAYER_BEFORE_COMPOSITE, 0);
+    }
 
     event.ok = true;
     event.prepareMs = MillisecondsSince(start);
 
     if (!keep)
     {
-        projectm_destroy(instance);
+        Destroy(instance);
         DropUnusedPrograms();
         m_sink(std::move(event));
         return;
@@ -486,7 +508,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     }
     if (releasedMeanwhile)
     {
-        projectm_destroy(instance);
+        Destroy(instance);
         DropUnusedPrograms();
         return;
     }
@@ -501,7 +523,7 @@ void Lane::DoRelease(InstanceId id)
     {
         for (auto& [name, override] : it->second.textures)
             DeleteOverride(override);
-        projectm_destroy(it->second.handle);
+        Destroy(it->second.handle);
         m_instances.erase(it);
         DropUnusedPrograms();
     }
@@ -522,7 +544,8 @@ void Lane::DoConfigure(const Job& job)
     CreateTargets();
     for (auto& [id, hosted] : m_instances)
     {
-        projectm_set_window_size(hosted.handle, static_cast<size_t>(m_width), static_cast<size_t>(m_height));
+        if (hosted.handle != nullptr)
+            projectm_set_window_size(hosted.handle, static_cast<size_t>(m_width), static_cast<size_t>(m_height));
     }
     glFinish();
 }
@@ -536,6 +559,8 @@ void Lane::DoTick(PendingTick tick)
     }
     for (auto& [id, hosted] : m_instances)
     {
+        if (hosted.handle == nullptr)
+            continue; // no preset: nothing hears the audio
         for (const auto& chunk : id == live ? tick.livePcm : tick.pcm)
         {
             AddPcm(hosted.handle, *chunk);
@@ -592,18 +617,26 @@ void Lane::DoTick(PendingTick tick)
     if (timeThisFrame)
         glBeginQuery(GL_TIME_ELAPSED, m_timerQuery[slot]);
 
-    const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video, &it->second.textures, tick.signals);
-    m_isfClock.frameIndex++;
-    glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
-    glViewport(0, 0, m_width, m_height);
-    projectm_opengl_render_frame_fbo(it->second.handle, m_slotFbo[slot]);
-    // On top: over the finished frame (not fed back; the feedback layer is).
-    if (!onTop.empty())
+    if (it->second.handle == nullptr) // prepared with no preset (an edit may have left it nothing to show)
     {
+        DrawPicture(plan, video, tick.signals, m_slotFbo[slot]);
+        m_isfClock.frameIndex++;
+    }
+    else
+    {
+        const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video, &it->second.textures, tick.signals);
+        m_isfClock.frameIndex++;
         glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
         glViewport(0, 0, m_width, m_height);
-        for (GLuint texture : onTop)
-            m_chain->Composite(texture);
+        projectm_opengl_render_frame_fbo(it->second.handle, m_slotFbo[slot]);
+        // On top: over the finished frame (not fed back; the feedback layer is).
+        if (!onTop.empty())
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
+            glViewport(0, 0, m_width, m_height);
+            for (GLuint texture : onTop)
+                m_chain->Composite(texture);
+        }
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -622,6 +655,25 @@ void Lane::DoTick(PendingTick tick)
     m_published = {m_slotTexture[slot], fence, tick.tick, live};
     m_publishedTaken = false;
     m_liveRenderMs = m_liveRenderMs * 0.9 + ms * 0.1;
+}
+
+void Lane::DrawPicture(const LanePlan& plan, GLuint video, const model::SignalValues& signals, GLuint fbo)
+{
+    if (plan.branches.empty())
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glClearColor(0.f, 0.f, 0.f, 1.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return;
+    }
+    const VideoBranch& branch = plan.branches.front();
+    const RenderTarget picture = BranchTarget(m_branchTargets, 0);
+    const RenderTarget scratch = BranchTarget(m_branchScratch, 0);
+    if (HasModulations(branch.steps))
+        m_chain->DrawPicture(video, Modulated(branch.steps, signals), m_programs, m_isfClock, picture, scratch, fbo, m_width, m_height);
+    else
+        m_chain->DrawPicture(video, branch.steps, m_programs, m_isfClock, picture, scratch, fbo, m_width, m_height);
 }
 
 void Lane::DeleteOverride(TextureOverride& override)

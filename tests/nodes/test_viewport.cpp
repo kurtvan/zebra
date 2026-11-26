@@ -32,14 +32,13 @@ TEST_CASE("viewport: exactly one per graph, and it can't be removed", "[node:vie
     CHECK(test::Messages(model::ValidateGraph(empty)) == std::vector<std::string>{"There's no viewport."});
 }
 
-TEST_CASE("viewport: shows a preset, not a video (not yet)", "[node:viewport]")
+TEST_CASE("viewport: shows a preset or a video", "[node:viewport]")
 {
     test::NodeScene scene;
     const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
     CHECK(model::ConnectErrors(scene.Graph(), preset, "viewport", 0).empty());
-    CHECK(test::Messages(model::ConnectErrors(scene.Graph(), video, "viewport", 0)) ==
-          std::vector<std::string>{"Viewport: show a preset here (videos on the Viewport aren't supported yet)."});
+    CHECK(model::ConnectErrors(scene.Graph(), video, "viewport", 0).empty());
 }
 
 TEST_CASE("viewport: what's wired into it is what the scene draws; nothing wired draws black", "[node:viewport]")

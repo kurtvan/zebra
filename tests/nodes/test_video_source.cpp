@@ -54,17 +54,16 @@ TEST_CASE("video source: no inputs, a video output; a looping file that restarts
     CHECK_FALSE(model::IsEffect(NodeType::VideoSource));
 }
 
-TEST_CASE("video source: feeds anything but the viewport (not yet)", "[node:video-source]")
+TEST_CASE("video source: feeds presets, effects, switchers and the viewport", "[node:video-source]")
 {
     test::NodeScene scene;
     const std::string video = scene.Add(NodeType::VideoSource);
     const std::string preset = scene.Add(NodeType::MilkdropPreset);
-    const std::string presetSwitcher = scene.Add(NodeType::Switcher);
-    model::Connect(scene.Graph(), presetSwitcher, "viewport", 0); // so only presets can go in, for now
+    const std::string switcher = scene.Add(NodeType::Switcher);
     CHECK(model::ConnectErrors(scene.Graph(), video, preset, static_cast<int>(model::PresetLayer::BeforeComposite)).empty());
     CHECK(model::ConnectErrors(scene.Graph(), video, scene.Add(NodeType::Contrast), 0).empty());
-    CHECK(test::Messages(model::ConnectErrors(scene.Graph(), video, presetSwitcher, 0)) ==
-          std::vector<std::string>{"Viewport: show a preset here (videos on the Viewport aren't supported yet)."});
+    CHECK(model::ConnectErrors(scene.Graph(), video, switcher, 0).empty());
+    CHECK(model::ConnectErrors(scene.Graph(), video, "viewport", 0).empty());
     CHECK(test::Messages(model::ConnectErrors(scene.Graph(), preset, video, 0)) == std::vector<std::string>{"Video source has no input 1."});
 }
 

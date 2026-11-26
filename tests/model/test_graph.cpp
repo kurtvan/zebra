@@ -90,7 +90,6 @@ TEST_CASE("validation reports every broken rule")
         graph.wires.push_back({"viewport", source, 0, {}});     // the viewport has no output
         graph.wires.push_back({source, "milkdrop-1", static_cast<int>(PresetLayer::Texture), {}}); // texture input without a name
         const auto errors = ValidateGraph(graph);
-        CHECK(Has(errors, "show a preset here"));
         CHECK(Has(errors, "two wires into one input"));
         CHECK(Has(errors, "isn't there"));
         CHECK(Has(errors, "has no input 8"));
@@ -194,7 +193,6 @@ TEST_CASE("ConnectErrors checks a wire on a copy, as the canvas does while one i
 
     // Refused, with the reason: pictures not supported yet, loops, missing texture names, missing nodes.
     CHECK(Has(ConnectErrors(graph, "milkdrop-1", gate, 0), "works on a video"));
-    CHECK(Has(ConnectErrors(graph, source, "viewport", 0), "show a preset here"));
     CHECK(Has(ConnectErrors(graph, source, "milkdrop-1", static_cast<int>(PresetLayer::Texture)), "needs the name"));
     CHECK(Has(ConnectErrors(graph, "gone", gate, 0), "isn't there"));
     Connect(graph, source, gate, 0);
@@ -224,8 +222,7 @@ TEST_CASE("one picture kind: what the engine can't render yet is refused, each w
 
     CHECK(OutputKind(*graph.Find(source)) == PortKind::Picture);
     CHECK(InputKind(*graph.Find("viewport"), 0) == PortKind::Picture);
-    CHECK(messages(ConnectErrors(graph, source, "viewport", 0)) ==
-          Messages{"Viewport: show a preset here (videos on the Viewport aren't supported yet)."});
+    CHECK(ConnectErrors(graph, source, "viewport", 0).empty()); // a video straight on the viewport
     CHECK(messages(ConnectErrors(graph, "milkdrop-1", other, Feedback())) ==
           Messages{"Milkdrop preset: its inputs take a video, not another preset (not supported yet)."});
     CHECK(messages(ConnectErrors(graph, "milkdrop-1", gate, 0)) ==
@@ -236,8 +233,8 @@ TEST_CASE("one picture kind: what the engine can't render yet is refused, each w
           Messages{"Switcher: it switches videos or presets, not both (not supported yet)."});
     CHECK(messages(ConnectErrors(graph, switcher, AddNode(graph, NodeType::Switcher, 0, 0), 0)) ==
           Messages{"A switcher can't be fed by another switcher."});
-    // Through a switcher too.
-    CHECK(Has(ConnectErrors(graph, switcher, "viewport", 0), "show a preset here"));
+    // A video switcher on the viewport too.
+    CHECK(ConnectErrors(graph, switcher, "viewport", 0).empty());
 }
 
 TEST_CASE("one picture kind: every wire that was legal with two kinds still is")
@@ -292,8 +289,9 @@ TEST_CASE("one picture kind: every wire that was legal with two kinds still is")
         {
             const bool kindsFit = out.kind == in.kind || out.kind == Old::Either || in.kind == Old::Either;
             const bool wasLegal = kindsFit && !(out.switcher && in.switcher);
+            const bool videoOnViewport = out.kind == Old::Video && in.id == "viewport"; // legal since one kind
             INFO(out.name << " -> " << in.name);
-            CHECK(ConnectErrors(graph, out.id, in.id, in.input).empty() == wasLegal);
+            CHECK(ConnectErrors(graph, out.id, in.id, in.input).empty() == (wasLegal || videoOnViewport));
         }
     }
 }

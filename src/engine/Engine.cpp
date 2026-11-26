@@ -151,7 +151,7 @@ void Engine::LoadPerformance(const model::Performance& performance)
     std::vector<bool> unusable;
     for (const auto& scene : m_performance.scenes)
     {
-        unusable.push_back(scene.presetMissing || scene.FirstPreset().empty());
+        unusable.push_back(!Playable(scene));
     }
 
     for (auto& lane : m_lanes)
@@ -229,7 +229,7 @@ void Engine::UpdatePerformance(const model::Performance& performance)
     std::vector<bool> unusable;
     std::vector<bool> liveEntriesChanged; // by entry of the live scene: it now loads another preset
     for (const auto& scene : performance.scenes)
-        unusable.push_back(scene.presetMissing || scene.FirstPreset().empty());
+        unusable.push_back(!Playable(scene));
 
     for (int old = 0; old < static_cast<int>(m_performance.scenes.size()); ++old)
     {
@@ -382,7 +382,8 @@ void Engine::FollowAudio(const PcmChunk& chunk)
 
 auto Engine::PlanFor(int index, const model::Scene& scene, int item) const -> LanePlan
 {
-    return {CompilePlan(scene.graph, SelectionFor(index, scene, item)).branches};
+    const RenderPlan plan = CompilePlan(scene.graph, SelectionFor(index, scene, item));
+    return {plan.branches, plan.ShowsPicture()};
 }
 
 void Engine::RefreshLivePlans()
@@ -596,7 +597,8 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
     {
         m_liveTicksByScene[live]++;
     }
-    if (m_liveLane >= 0 && live >= 0 && m_tick - m_lastActivateTick > 30)
+    // (A picture with no preset has nothing to measure by preset.)
+    if (m_liveLane >= 0 && live >= 0 && m_tick - m_lastActivateTick > 30 && !CurrentPreset(live).empty())
     {
         const auto path = CurrentPreset(live).string();
         const auto& lane = *m_lanes[static_cast<size_t>(m_liveLane)];
@@ -827,7 +829,11 @@ void Engine::HandleEvent(const LaneEvent& event)
             m_errorByShader[event.shaderPath] = event.error;
         return;
     }
-    if (event.ok)
+    if (event.presetPath.empty())
+    {
+        // A picture with no preset: nothing to measure or report by preset.
+    }
+    else if (event.ok)
     {
         const bool firstMeasurement = m_frameMsByPreset.count(event.presetPath) == 0;
         m_frameMsByPreset[event.presetPath] = event.frameMs;

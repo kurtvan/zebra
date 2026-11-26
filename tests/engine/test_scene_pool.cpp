@@ -1,4 +1,5 @@
 #include "engine/ScenePool.hpp"
+#include "engine/RenderPlan.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -587,4 +588,45 @@ TEST_CASE("the live entry was removed from the switcher: the scene cuts to entry
     h.Run(h.pool.ReloadItems({false, false})); // only two entries left
     CHECK(h.pool.LiveScene() == 1);
     CHECK(h.pool.LiveItem() == 0);
+}
+
+TEST_CASE("a scene with a picture and no preset is prepared and cut to like any other")
+{
+    using namespace gv::model;
+    // A preset scene, a video on the viewport, a generator on the viewport, and a scene with nothing wired.
+    std::vector<Scene> scenes(4);
+    for (auto& scene : scenes)
+        AddNode(scene.graph, NodeType::Viewport, 0, 0);
+    const auto preset = AddNode(scenes[0].graph, NodeType::MilkdropPreset, 0, 0);
+    std::get<MilkdropPresetParams>(scenes[0].graph.Find(preset)->params).path = "/a.milk";
+    Connect(scenes[0].graph, preset, "viewport", 0);
+    Connect(scenes[1].graph, AddNode(scenes[1].graph, NodeType::VideoSource, 0, 0), "viewport", 0);
+    const auto generator = AddNode(scenes[2].graph, NodeType::IsfShader, 0, 0);
+    std::get<IsfShaderParams>(scenes[2].graph.Find(generator)->params).path = std::string(GV_TEST_FIXTURES_DIR) + "/isf/gradient.fs";
+    Connect(scenes[2].graph, generator, "viewport", 0);
+    std::vector<bool> unusable;
+    for (auto& scene : scenes)
+    {
+        scene.Refresh();
+        unusable.push_back(!Playable(scene));
+    }
+    CHECK(unusable == std::vector<bool>{false, false, false, true});
+
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(4, unusable));
+    CHECK(h.pool.StatusOf(1).state == ScenePool::State::Ready);
+    CHECK(h.pool.StatusOf(2).state == ScenePool::State::Ready);
+    CHECK(h.pool.StatusOf(3).state == ScenePool::State::Unusable);
+
+    // Each is ready ahead of time, so every cut activates at once, to and from the preset scene too.
+    for (int scene : {1, 2, 1, 0, 1}) // each within the window around the one before
+    {
+        INFO("scene " << scene);
+        auto commands = h.pool.Trigger(scene);
+        CHECK(Find(commands, Type::Activate, scene) != nullptr);
+        CHECK(h.pool.LiveScene() == scene);
+        h.Run(std::move(commands));
+    }
+    CHECK(h.pool.Trigger(3).empty());
+    CHECK(h.pool.LiveScene() == 1);
 }

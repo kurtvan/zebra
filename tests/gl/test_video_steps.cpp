@@ -209,3 +209,86 @@ TEST_CASE("a bad edit of a shader keeps drawing the last version that compiled, 
     CHECK_FALSE(engine::CompileIsf(fresh, broken).empty());
     CHECK_FALSE(fresh.at(broken)->Ok());
 }
+
+namespace {
+
+/// The frame a scene with no preset publishes: its picture drawn straight in (VideoChain::DrawPicture).
+struct Output
+{
+    Output()
+    {
+        target.texture = test::Texture(kSize, kSize, Pixels(static_cast<size_t>(kSize * kSize * 4), 128)); // not black
+        glGenFramebuffers(1, &target.fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, target.fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target.texture, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    ~Output()
+    {
+        glDeleteFramebuffers(1, &target.fbo);
+        glDeleteTextures(1, &target.texture);
+    }
+
+    auto Draw(Branch& branch, GLuint video, const std::vector<VideoStep>& steps) -> Pixels
+    {
+        branch.chain.DrawPicture(video, steps, branch.programs, {}, branch.picture, branch.scratch, target.fbo, kSize, kSize);
+        return Branch::Read(target.fbo);
+    }
+
+    engine::RenderTarget target;
+};
+
+} // namespace
+
+TEST_CASE("a video with no preset lands in the output with its effects, and what the gate hides is black", "[gl]")
+{
+    REQUIRE_GL();
+    Branch branch;
+    Output output;
+    const std::vector<VideoStep> look = {{{{NodeType::Contrast, 1.4f, 0.f, false}, {NodeType::LumaGate, 0.4f, 0.f, false}}}};
+    const Pixels picture = branch.Run(look); // straight alpha: the gate only sets alpha
+    const Pixels out = output.Draw(branch, branch.video, look);
+    int hidden = 0;
+    int shown = 0;
+    for (size_t pixel = 0; pixel < out.size() / 4; ++pixel)
+    {
+        INFO("pixel " << pixel);
+        const float alpha = picture[pixel * 4 + 3] / 255.f;
+        hidden += alpha == 0.f;
+        shown += alpha == 1.f;
+        for (size_t channel = 0; channel < 3; ++channel)
+            CHECK(std::abs(out[pixel * 4 + channel] - picture[pixel * 4 + channel] * alpha) <= 1.5f);
+        CHECK(out[pixel * 4 + 3] == 255);
+    }
+    CHECK(hidden > 0);
+    CHECK(shown > 0);
+
+    // No effects: the video exactly as it is.
+    CHECK(output.Draw(branch, branch.video, {}) == Colours());
+}
+
+TEST_CASE("an ISF generator with no video draws its own picture into the output", "[gl]")
+{
+    REQUIRE_GL();
+    Branch branch;
+    Output output;
+    std::ifstream file(std::string(GV_TEST_FIXTURES_DIR) + "/isf/gradient.fs");
+    std::stringstream text;
+    text << file.rdbuf();
+    const auto gradient = Shader(text.str());
+    branch.Compile(gradient);
+    REQUIRE(branch.programs.at(gradient)->Ok());
+    const Pixels out = output.Draw(branch, 0, {{{}, engine::IsfStep{"isf-1", "gradient.fs", gradient, {}}}});
+    for (int y = 0; y < kSize; ++y)
+    {
+        for (int x = 0; x < kSize; ++x)
+        {
+            INFO("pixel " << x << ", " << y);
+            const size_t at = static_cast<size_t>((y * kSize + x) * 4);
+            CHECK(std::abs(out[at] - (x + 0.5f) / kSize * 255.f) <= 1.5f);     // x in red
+            CHECK(std::abs(out[at + 1] - (y + 0.5f) / kSize * 255.f) <= 1.5f); // y in green
+            CHECK(out[at + 2] == 0);
+            CHECK(out[at + 3] == 255);
+        }
+    }
+}

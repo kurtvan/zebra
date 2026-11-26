@@ -237,3 +237,148 @@ TEST_CASE("an ISF shader is a step of its own between fused effects; one whose f
     CHECK(steps[2].effects == std::vector<EffectPass>{{NodeType::Opacity, 1.f, 0.f, false}});
     CHECK(CompilePlan(graph) == plan); // the same parsed file each time, so an unchanged scene isn't replanned
 }
+
+namespace {
+
+/// A graph of `types` wired one into the next, the last into the viewport. Returns the nodes' ids, in order.
+auto Chain(Graph& graph, const std::vector<NodeType>& types) -> std::vector<std::string>
+{
+    AddNode(graph, NodeType::Viewport, 0, 0);
+    std::vector<std::string> ids;
+    for (NodeType type : types)
+    {
+        ids.push_back(AddNode(graph, type, 0, 0));
+        if (ids.size() > 1)
+            REQUIRE(Connect(graph, ids[ids.size() - 2], ids.back(), 0));
+    }
+    REQUIRE(Connect(graph, ids.back(), "viewport", 0));
+    return ids;
+}
+
+auto IsfFixture(const std::string& name) -> std::filesystem::path
+{
+    return std::string(GV_TEST_FIXTURES_DIR) + "/isf/" + name;
+}
+
+} // namespace
+
+TEST_CASE("a video straight on the viewport compiles to a picture with no preset")
+{
+    Graph graph;
+    const auto ids = Chain(graph, {NodeType::VideoSource});
+    std::get<VideoSourceParams>(graph.Find(ids[0])->params).source.videoId = "clip";
+    CHECK(ValidateGraph(graph).empty());
+
+    const auto plan = CompilePlan(graph);
+    CHECK(plan.presetNode.empty());
+    CHECK(plan.presetPath.empty());
+    CHECK(plan.ShowsPicture());
+    CHECK(plan.sourceNode == ids[0]);
+    CHECK(plan.source.videoId == "clip");
+    REQUIRE(plan.branches.size() == 1);
+    CHECK(plan.branches[0].steps.empty()); // the video as it is
+}
+
+TEST_CASE("a video through contrast and a luma gate onto the viewport keeps its effects in order")
+{
+    Graph graph;
+    const auto ids = Chain(graph, {NodeType::VideoSource, NodeType::Contrast, NodeType::LumaGate});
+    CHECK(ValidateGraph(graph).empty());
+
+    const auto plan = CompilePlan(graph);
+    CHECK(plan.ShowsPicture());
+    CHECK(plan.sourceNode == ids[0]);
+    REQUIRE(plan.branches.size() == 1);
+    REQUIRE(plan.branches[0].steps.size() == 1);
+    const auto& effects = plan.branches[0].steps[0].effects;
+    REQUIRE(effects.size() == 2);
+    CHECK(effects[0].type == NodeType::Contrast);
+    CHECK(effects[1].type == NodeType::LumaGate);
+}
+
+TEST_CASE("a video switcher on the viewport shows the selected video, with no preset")
+{
+    Graph graph;
+    AddNode(graph, NodeType::Viewport, 0, 0);
+    const auto switcher = AddNode(graph, NodeType::Switcher, 0, 0);
+    REQUIRE(Connect(graph, switcher, "viewport", 0));
+    std::vector<std::string> sources;
+    for (const char* video : {"x", "y"})
+    {
+        sources.push_back(AddNode(graph, NodeType::VideoSource, 0, 0));
+        std::get<VideoSourceParams>(graph.Find(sources.back())->params).source.videoId = video;
+        REQUIRE(Connect(graph, sources.back(), switcher, static_cast<int>(sources.size()) - 1));
+    }
+    CHECK(ValidateGraph(graph).empty());
+
+    const auto first = CompilePlan(graph, SelectionForItem(graph, 0));
+    CHECK(first.ShowsPicture());
+    CHECK(first.presetNode.empty());
+    CHECK(first.sourceNode == sources[0]);
+    CHECK(first.source.videoId == "x");
+    const auto second = CompilePlan(graph, {{switcher, 1}});
+    CHECK(second.ShowsPicture());
+    CHECK(second.source.videoId == "y");
+}
+
+TEST_CASE("an ISF generator on the viewport is a picture with no video, its effects after it")
+{
+    Graph graph;
+    const auto ids = Chain(graph, {NodeType::IsfShader, NodeType::Opacity});
+    std::get<IsfShaderParams>(graph.Find(ids[0])->params).path = IsfFixture("gradient.fs");
+    FollowWires(graph);
+    CHECK(ValidateGraph(graph).empty());
+
+    const auto plan = CompilePlan(graph);
+    CHECK(plan.ShowsPicture());
+    CHECK(plan.sourceNode.empty()); // no video to play
+    REQUIRE(plan.branches.size() == 1);
+    const auto& steps = plan.branches[0].steps;
+    REQUIRE(steps.size() == 2);
+    REQUIRE(steps[0].isf);
+    CHECK(steps[0].isf->node == ids[0]);
+    CHECK(steps[1].effects == std::vector<EffectPass>{{NodeType::Opacity, 1.f, 0.f, false}});
+
+    // A shader that takes an image, with nothing wired in, starts no picture.
+    std::get<IsfShaderParams>(graph.Find(ids[0])->params).path = IsfFixture("invert.fs");
+    CHECK_FALSE(CompilePlan(graph).ShowsPicture());
+}
+
+TEST_CASE("an LFO still moves the opacity of a picture with no preset")
+{
+    Graph graph;
+    const auto ids = Chain(graph, {NodeType::VideoSource, NodeType::Opacity});
+    const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
+    std::get<LfoParams>(graph.Find(lfo)->params).shape = LfoShape::Square;
+    std::get<OpacityParams>(graph.Find(ids[1])->params).opacity = 0.5f;
+    REQUIRE(Connect(graph, lfo, ids[1], ParamInput(*graph.Find(ids[1]), 0)));
+    CHECK(ValidateGraph(graph).empty());
+
+    const auto plan = CompilePlan(graph);
+    REQUIRE(plan.ShowsPicture());
+    const auto& steps = plan.branches[0].steps;
+    CHECK(HasModulations(steps));
+    CHECK(Modulated(steps, EvaluateSignals(graph, {0.25, 0.0}))[0].effects[0].a == 1.f); // square high
+    CHECK(Modulated(steps, EvaluateSignals(graph, {0.75, 0.0}))[0].effects[0].a == 0.f); // square low
+}
+
+TEST_CASE("a scene can play with a preset that's there, or with a picture and no preset")
+{
+    Scene scene;
+    AddNode(scene.graph, NodeType::Viewport, 0, 0);
+    scene.Refresh();
+    CHECK_FALSE(Playable(scene)); // nothing on the viewport
+
+    const auto source = AddNode(scene.graph, NodeType::VideoSource, 0, 0);
+    REQUIRE(Connect(scene.graph, source, "viewport", 0));
+    scene.Refresh();
+    CHECK(Playable(scene));
+
+    Scene withPreset;
+    const auto preset = Chain(withPreset.graph, {NodeType::MilkdropPreset})[0];
+    std::get<MilkdropPresetParams>(withPreset.graph.Find(preset)->params).path = "/a.milk";
+    withPreset.Refresh();
+    CHECK(Playable(withPreset));
+    withPreset.presetMissing = true;
+    CHECK_FALSE(Playable(withPreset));
+}
