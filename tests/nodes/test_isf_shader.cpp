@@ -315,3 +315,64 @@ TEST_CASE("ISF shader: a value set on an input an edit removes is kept, and come
     REQUIRE(back.size() == 1);
     CHECK(back[0].get(scene.Node(id)) == 0.75);
 }
+
+TEST_CASE("ISF shader: a feature that can't run yet is named on the node, and the shader isn't compiled", "[node:isf-shader]")
+{
+    const auto dir = TempDir();
+    const std::pair<const char*, const char*> cases[] = {
+        {R"("PASSES": [ { "TARGET": "bufferA", "PERSISTENT": true }, {} ])", "Uses multi-pass buffers, which aren't supported yet."},
+        {R"("IMPORTED": { "noise": { "PATH": "noise.png" } })", "Uses imported images, which aren't supported yet."},
+    };
+    for (const auto& [header, message] : cases)
+    {
+        INFO(header);
+        const auto file = dir / (std::string(header).substr(1, 6) + ".fs"); // a file per case: the cache keys on time
+        std::ofstream(file) << "/*{ \"INPUTS\": [ {\"NAME\": \"inputImage\", \"TYPE\": \"image\"} ], " << header
+                            << " }*/\nvoid main() { gl_FragColor = IMG_THIS_PIXEL(bufferA); }\n";
+        test::NodeScene scene;
+        const std::string preset = scene.Add(NodeType::MilkdropPreset);
+        const std::string video = scene.Add(NodeType::VideoSource);
+        const std::string isf = scene.Add(NodeType::IsfShader, WithPath(file));
+        model::Connect(scene.Graph(), preset, "viewport", 0);
+        model::Connect(scene.Graph(), video, isf, 0);
+        model::Connect(scene.Graph(), isf, preset, static_cast<int>(model::PresetLayer::Feedback));
+
+        CHECK(model::IsfFileAt(file).unsupported == message);
+        CHECK(model::InputCount(scene.Node(isf)) == 1); // its inputs and controls still show
+        test::FakeNodeContext context(scene);
+        const auto texts = Controls(scene.Node(isf), context, app::Control::Kind::Text);
+        REQUIRE(texts.size() == 1);
+        CHECK(texts[0].text(scene.Node(isf), context) == message);
+        const auto status = app::NodeStatusOf(scene.Node(isf), context);
+        CHECK(status.state == app::NodeState::Missing);
+        CHECK(status.tooltip == std::string(message) + " The video passes through it.");
+        CHECK(Problems(scene, scene.Node(isf)) == std::vector<model::ShowProblem>{{false, std::string("the shader can't run: ") + message}});
+
+        // Left out of the plan, so the engine never compiles it and the video passes through.
+        const auto plan = engine::CompilePlan(scene.Graph());
+        REQUIRE(plan.branches.size() == 1);
+        CHECK(plan.sourceNode == video);
+        CHECK(plan.branches[0].steps.empty());
+    }
+}
+
+TEST_CASE("ISF shader: a long error wraps inside the node's width", "[node:isf-shader]")
+{
+    const auto file = TempDir() / "wraps.fs";
+    std::ofstream(file) << "/*{ }*/\nvoid main() { gl_FragColor = vec4(1.0); }\n";
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::IsfShader, WithPath(file));
+    test::FakeNodeContext context(scene);
+    context.shaderErrors[file.string()] =
+        "ERROR: 0:354: Use of undeclared identifier 'bufferB_positionAndMass', which is a long way past the edge of any node\nmore";
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+
+    // The text is the body's widest item, and the last: nothing reaches past the node's width.
+    const ImGuiWindow* window = ImGui::FindWindowByName("node");
+    REQUIRE(window != nullptr);
+    CHECK(window->DC.CursorMaxPos.x - window->DC.CursorStartPos.x <= context.width + 0.5f);
+    CHECK(window->DC.CursorMaxPos.y - window->DC.CursorStartPos.y > 4.f * ImGui::GetTextLineHeight()); // on several lines
+    // The full message is in the status tooltip.
+    CHECK(app::NodeStatusOf(scene.Node(id), context).tooltip.ends_with("of any node\nmore"));
+}

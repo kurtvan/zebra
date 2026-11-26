@@ -186,7 +186,14 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
         {
             const std::string text = control.text(node, context);
             if (!text.empty())
-                ImGui::TextColored(control.warning ? kRed : kDim, "%s", text.c_str());
+            {
+                // Wrapped to the node's width: a compiler message would otherwise run past its edge.
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+                ImGui::PushStyleColor(ImGuiCol_Text, control.warning ? kRed : kDim);
+                ImGui::TextUnformatted(text.c_str());
+                ImGui::PopStyleColor();
+                ImGui::PopTextWrapPos();
+            }
             break;
         }
         case Control::Kind::Custom:

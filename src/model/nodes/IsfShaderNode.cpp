@@ -35,7 +35,7 @@ auto IsfFileAt(const std::filesystem::path& path) -> IsfFile
     std::error_code error;
     const auto modified = std::filesystem::last_write_time(path, error);
     if (error)
-        return {nullptr, true, {}};
+        return {nullptr, true, {}, {}};
 
     struct Cached
     {
@@ -62,6 +62,8 @@ auto IsfFileAt(const std::filesystem::path& path) -> IsfFile
         file.error = "line " + std::to_string(std::get<isf::IsfError>(parsed).line) + ": " + std::get<isf::IsfError>(parsed).message;
     if (file.shader == nullptr && cached != cache.end())
         file.shader = cached->second.file.shader; // a bad edit keeps the last version that could be read
+    if (file.shader != nullptr)
+        file.unsupported = isf::UnsupportedFeature(*file.shader);
     cache[path] = {modified, file};
     return file;
 }
@@ -140,6 +142,8 @@ auto IsfShaderDef() -> NodeDef
             problems.push_back({false, "shader file not found: " + Params(node).path.string()});
         else if (!file.error.empty())
             problems.push_back({false, "the shader file can't be read: " + file.error});
+        else if (!file.unsupported.empty())
+            problems.push_back({false, "the shader can't run: " + file.unsupported});
     };
     def.write = [](const Node& node, nlohmann::json& object) {
         object["path"] = Params(node).path.string();

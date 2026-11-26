@@ -254,6 +254,21 @@ auto ParseIsf(std::string_view source) -> std::variant<IsfShader, IsfError>
         }
     }
 
+    // A { name: { PATH } } object, or a [ { NAME, PATH } ] list in older files.
+    if (const auto imported = header.find("IMPORTED"); imported != header.end())
+    {
+        if (imported->is_object())
+        {
+            for (const auto& entry : imported->items())
+                shader.imported.push_back(entry.key());
+        }
+        else if (imported->is_array())
+        {
+            for (const auto& entry : *imported)
+                shader.imported.push_back(entry.is_object() ? StringField(entry, "NAME") : std::string());
+        }
+    }
+
     if (HasInput(shader, "startImage", InputType::Image) && HasInput(shader, "endImage", InputType::Image) &&
         HasInput(shader, "progress", InputType::Float))
         shader.kind = ShaderKind::Transition;
@@ -265,6 +280,19 @@ auto ParseIsf(std::string_view source) -> std::variant<IsfShader, IsfError>
     shader.glsl = std::string(source.substr(close + 2));
     shader.glslLine = LineAt(source, close);
     return shader;
+}
+
+auto UnsupportedFeature(const IsfShader& shader) -> std::string
+{
+    // Only one pass into the output is drawn (multi-pass is D5, #72): any buffer a pass draws into would be an
+    // undeclared sampler in the code that reads it.
+    const bool buffers = shader.passes.size() > 1 ||
+                         std::any_of(shader.passes.begin(), shader.passes.end(), [](const IsfPass& pass) { return pass.persistent || !pass.target.empty(); });
+    if (buffers)
+        return "Uses multi-pass buffers, which aren't supported yet.";
+    if (!shader.imported.empty())
+        return "Uses imported images, which aren't supported yet.";
+    return {};
 }
 
 auto FindInput(const IsfShader& shader, std::string_view name) -> const IsfInput*

@@ -79,6 +79,7 @@ struct IsfShader
     ShaderKind kind{ShaderKind::Generator};
     std::vector<IsfInput> inputs;
     std::vector<IsfPass> passes;         //!< empty means one pass into the output
+    std::vector<std::string> imported;   //!< "IMPORTED": the names of the images the file brings in
     std::string glsl;                    //!< the code after the header comment
     int glslLine{1};                     //!< the file line glsl starts on, so compiler messages name file lines
 };
@@ -101,6 +102,11 @@ auto TranslateIsf(const IsfShader& shader) -> std::string;
 
 /// The vertex shader every ISF program shares: a full-screen triangle that hands isf_FragNormCoord on.
 auto IsfVertexShader() -> const char*;
+
+/// What `shader` uses that the loader can't run yet, as a sentence for the artist ("Uses multi-pass buffers,
+/// which aren't supported yet."), or "" if it can run. Such a shader isn't compiled: the compiler's error
+/// wouldn't say why it fails.
+auto UnsupportedFeature(const IsfShader& shader) -> std::string;
 
 /// The input called `name`, if the shader has one.
 auto FindInput(const IsfShader& shader, std::string_view name) -> const IsfInput*;
