@@ -110,6 +110,8 @@ public:
     virtual auto ShaderError(const std::filesystem::path& shader) const -> std::string = 0;
     /// This frame's value of every Number output in the scene (model::EvaluateSignals).
     virtual auto Signals() const -> model::SignalValues = 0;
+    /// What the scene's Number outputs follow now: the running clock's position and the time.
+    virtual auto SignalInputs() const -> model::SignalInputs = 0;
     /// The texture names `preset` samples.
     virtual auto TexturesOf(const std::filesystem::path& preset) -> const std::vector<std::string>& = 0;
 
