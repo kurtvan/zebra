@@ -269,17 +269,25 @@ TEST_CASE("every param has its pin, a depth that's saved, and moves with its wir
             CHECK(def.get(model::ModulatedNode(node, signals, {{wired.lfo, 1.f}})) == want);
             CHECK(def.get(model::ModulatedNode(node, signals, {})) == middle); // no value yet: the slider's
 
-            // The engine renders effects from the modulated copy.
+            // The engine renders effects from the modulated copy: into a preset, and straight onto the
+            // viewport with no preset.
             if (model::IsEffect(type))
             {
-                const auto plan = engine::CompilePlan(wired.scene.Graph());
-                REQUIRE(plan.branches.size() == 1);
-                const auto& step = plan.branches[0].steps.at(0);
-                REQUIRE(step.modulations.size() == 1);
-                CHECK(step.modulations[0].signals == signals);
                 model::Node expected = node;
                 def.set(expected, want);
-                CHECK(engine::Modulated(plan.branches[0].steps, {{wired.lfo, 1.f}})[0].effects[0] == model::Def(type).pass(expected));
+                for (const bool preset : {true, false})
+                {
+                    INFO((preset ? "into a preset" : "no preset"));
+                    if (!preset)
+                        model::Connect(wired.scene.Graph(), wired.node, "viewport", 0);
+                    const auto plan = engine::CompilePlan(wired.scene.Graph());
+                    REQUIRE(plan.branches.size() == 1);
+                    CHECK(plan.presetNode.empty() == !preset);
+                    const auto& step = plan.branches[0].steps.at(0);
+                    REQUIRE(step.modulations.size() == 1);
+                    CHECK(step.modulations[0].signals == signals);
+                    CHECK(engine::Modulated(plan.branches[0].steps, {{wired.lfo, 1.f}})[0].effects[0] == model::Def(type).pass(expected));
+                }
             }
         }
     }
