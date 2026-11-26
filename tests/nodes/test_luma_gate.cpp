@@ -70,14 +70,14 @@ TEST_CASE("luma gate: compiles to a gate pass carrying all three settings", "[no
 
 TEST_CASE("luma gate: on the canvas, two sliders and an Invert checkbox with its own undo labels", "[node:luma-gate]")
 {
-    const auto sliders = test::ControlsOf(NodeType::LumaGate, app::Control::Kind::Slider);
+    const auto sliders = test::ParamSliders(NodeType::LumaGate);
     REQUIRE(sliders.size() == 2);
-    CHECK(std::string(sliders[0]->field) == "threshold");
-    CHECK(std::string(sliders[1]->field) == "softness");
-    for (const auto* slider : sliders)
+    CHECK(std::string(sliders[0].field) == "threshold");
+    CHECK(std::string(sliders[1].field) == "softness");
+    for (const auto& slider : sliders)
     {
-        CHECK(slider->min == 0.0);
-        CHECK(slider->max == 1.0);
+        CHECK(slider.min == 0.0);
+        CHECK(slider.max == 1.0);
     }
     const auto& invert = test::ControlById(NodeType::LumaGate, "##invert");
     CHECK(std::string(invert.undo) == "Invert Luma Gate");

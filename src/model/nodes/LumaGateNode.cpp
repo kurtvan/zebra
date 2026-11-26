@@ -3,9 +3,31 @@
 
 namespace gv::model::nodes {
 
+namespace {
+
+constexpr ParamDef kParams[] = {
+    {.name = "threshold",
+     .label = "Threshold",
+     .get = [](const Node& node) { return ParamsOf<LumaGateParams>(node).threshold; },
+     .set = [](Node& node, float value) { ParamsOf<LumaGateParams>(node).threshold = value; },
+     .format = "threshold %.2f",
+     .tooltip = "Pixels darker than this are cut (brighter ones when inverted).",
+     .undo = "Change Luma Gate"},
+    {.name = "softness",
+     .label = "Softness",
+     .get = [](const Node& node) { return ParamsOf<LumaGateParams>(node).softness; },
+     .set = [](Node& node, float value) { ParamsOf<LumaGateParams>(node).softness = value; },
+     .format = "softness %.2f",
+     .tooltip = "The cut's edge: 0 is hard, higher feathers it.",
+     .undo = "Change Softness"},
+};
+
+} // namespace
+
 auto LumaGateDef() -> NodeDef
 {
     NodeDef def = EffectBase(NodeType::LumaGate, "lumaGate", "gate", "Luma gate", LumaGateParams{});
+    def.params = kParams;
     def.checkParams = [](const Node& node, std::vector<GraphError>& errors) {
         const auto& params = ParamsOf<LumaGateParams>(node);
         CheckRange(errors, node, "threshold", params.threshold, 0.0, 1.0, "0 and 1");

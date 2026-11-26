@@ -166,14 +166,15 @@ public:
     virtual auto PresetBrowser(const model::Node& node) -> PresetBrowserState& = 0;
 };
 
-/// One control in a node's body. Most are declared (a slider, a checkbox, a choice) and drawn by
-/// DrawNodeBody; `Custom` ones draw themselves.
+/// One control in a node's body. Most are declared (a checkbox, a choice) and drawn by DrawNodeBody; `Custom`
+/// ones draw themselves. A node's sliders are its params (model::ParamDef): `Params` puts their rows here.
 struct Control
 {
     enum class Kind
     {
         Inputs,   //!< The node's input rows.
-        Slider,   //!< A number: get/set, min..max.
+        Params,   //!< A slider row per NodeDef::params entry, each with its modulation pin (ParamSlider).
+        Slider,   //!< A number: get/set, min..max. Hand-written only where it can't be a param yet.
         Checkbox, //!< On or off: get/set as 0 or 1.
         Choice,   //!< One of `options`: get/set the index. Radio buttons, or a button that opens a list.
         Text,     //!< A dim line: `text`.
@@ -189,8 +190,8 @@ struct Control
     bool integer{false};
     bool logarithmic{false};
     const char* format{"%.2f"};                 //!< Slider format; formatFor overrides it.
-    /// Sliders: the NodeDef::params entry it edits. Its modulation pin starts the row and, while wired, the row
-    /// also shows the modulated value (a marker on the slider) and the depth. -1: none.
+    /// Sliders made by ParamSlider: the NodeDef::params entry it edits. Its modulation pin starts the row and,
+    /// while wired, the row also shows the modulated value (a marker on the slider) and the depth. -1: none.
     int param{-1};
     const char* (*formatFor)(double){nullptr};  //!< The format for a value (contrast: decimals below 10).
 
@@ -256,7 +257,10 @@ auto NodeUis() -> std::span<const NodeUi>;
 auto NodeTitle(const model::Node& node, NodeContext& context) -> std::string;
 auto NodeStatusOf(const model::Node& node, NodeContext& context) -> NodeStatus;
 auto NodeInputs(const model::Node& node, NodeContext& context) -> std::vector<InputSpec>;
-/// The node's controls: its type's controlsFor, else its controls.
+/// The slider for `node`'s param `param` (NodeDef::params), all from its ParamDef: what a `Params` control
+/// draws, one per param.
+auto ParamSlider(const model::Node& node, int param) -> Control;
+/// The node's controls: its type's controlsFor, else its controls; a `Params` control becomes its sliders.
 auto NodeControls(const model::Node& node, NodeContext& context) -> std::vector<Control>;
 /// The node's controls (and input rows), below its title bar.
 void DrawNodeBody(const model::Node& node, NodeContext& context);

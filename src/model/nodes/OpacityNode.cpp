@@ -8,8 +8,13 @@ namespace {
 constexpr const char* kFormerJsonNames[] = {"mix"};
 
 constexpr ParamDef kParams[] = {
-    {"opacity", "Opacity", 0.0f, 1.0f, [](const Node& node) { return ParamsOf<OpacityParams>(node).opacity; },
-     [](Node& node, float value) { ParamsOf<OpacityParams>(node).opacity = value; }},
+    {.name = "opacity",
+     .label = "Opacity",
+     .get = [](const Node& node) { return ParamsOf<OpacityParams>(node).opacity; },
+     .set = [](Node& node, float value) { ParamsOf<OpacityParams>(node).opacity = value; },
+     .format = "opacity %.2f",
+     .tooltip = "How strongly the video goes into the input it's wired to.",
+     .undo = "Change Opacity"},
 };
 
 } // namespace

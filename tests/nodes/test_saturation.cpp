@@ -31,7 +31,7 @@ TEST_CASE("saturation: an effect, video in and out, leaving the video as it is b
     CHECK(node.id == "saturation-1");
     CHECK(Saturation(node) == 1.0f);
     CHECK(model::OutputKind(node) == model::PortKind::Picture);
-    CHECK(model::InputCount(node) == 1);
+    CHECK(model::InputCount(node) == 2); // the video, and its slider's modulation input
 }
 
 TEST_CASE("saturation: 0 (black and white) to 2", "[node:saturation]")
@@ -77,7 +77,9 @@ TEST_CASE("saturation: on the canvas, a video input and a 0..2 slider", "[node:s
     test::FakeNodeContext context(scene);
     CHECK(app::NodeTitle(scene.Node(id), context) == "Saturation");
     CHECK(app::NodeInputs(scene.Node(id), context) == std::vector<app::InputSpec>{{0, {}, model::PortKind::Picture, "Video"}});
-    const auto& slider = test::ControlById(NodeType::Saturation, "##saturation");
+    const auto sliders = test::ParamSliders(NodeType::Saturation);
+    REQUIRE(sliders.size() == 1);
+    const auto& slider = sliders[0];
     CHECK(slider.min == 0.0);
     CHECK(slider.max == 2.0);
     CHECK_FALSE(slider.logarithmic);

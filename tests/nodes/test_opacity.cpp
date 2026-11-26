@@ -62,7 +62,9 @@ TEST_CASE("opacity: compiles to an opacity pass; through a Video switcher too", 
 
 TEST_CASE("opacity: on the canvas, an opacity slider", "[node:opacity]")
 {
-    const auto& slider = test::ControlById(NodeType::Opacity, "##opacity");
+    const auto sliders = test::ParamSliders(NodeType::Opacity);
+    REQUIRE(sliders.size() == 1);
+    const auto& slider = sliders[0];
     CHECK(slider.min == 0.0);
     CHECK(slider.max == 1.0);
     CHECK(std::string(slider.format) == "opacity %.2f");

@@ -4,11 +4,13 @@
 
 #include "nodes/NodeTestKit.hpp"
 
+#include "engine/RenderPlan.hpp"
 #include "model/PerformanceJson.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <map>
 #include <set>
 
 using namespace gv;
@@ -165,7 +167,128 @@ TEST_CASE("every param has a range, get and set, a modulation input, and a slide
             REQUIRE(p.get != nullptr);
             REQUIRE(p.set != nullptr);
             CHECK(model::InputKind(node, model::ParamInput(node, param)) == model::PortKind::Number);
-            CHECK(std::ranges::count_if(app::Ui(type).controls, [&](const app::Control& c) { return c.param == param; }) == 1);
+            CHECK(std::string(p.undo).size() > 0);
+        }
+        if (!def.params.empty()) // the node's rows for them, placed among its other controls once
+            CHECK(std::ranges::count(app::Ui(type).controls, app::Control::Kind::Params, &app::Control::kind) == 1);
+    }
+}
+
+namespace {
+
+/// Node types that still have sliders of their own, not params, and why. Each is a follow-up, so this list
+/// only ever shrinks; an entry whose node no longer has such a slider fails below.
+const std::map<NodeType, const char*> kSlidersNotParamsYet = {
+    {NodeType::Lfo, "its settings become params once Number nodes can move each other"},
+    {NodeType::Envelope, "its settings become params once Number nodes can move each other"},
+    {NodeType::Band, "its range becomes params once Number wires can move audio settings"},
+    {NodeType::IsfShader, "its file's sliders become params once a node's params can come from the node"},
+    {NodeType::Switcher, "its interval isn't followed by the switcher clock as a param yet"},
+};
+
+/// A scene with a `type` node whose param `param` is at the middle of its range, at depth 0.5, with an LFO
+/// wired into its modulation input. Effects also sit in a video chain, so they're in the render plan.
+struct WiredParam
+{
+    WiredParam(NodeType type, int param)
+        : def(model::Def(type).params[static_cast<size_t>(param)])
+    {
+        node = scene.Add(type, [&](model::Node& n) {
+            def.set(n, (def.low + def.high) * 0.5f);
+            n.depths[def.name] = 0.5f;
+        });
+        lfo = scene.Add(NodeType::Lfo);
+        model::Connect(scene.Graph(), lfo, node, model::ParamInput(scene.Node(node), param));
+        if (model::IsEffect(type))
+        {
+            const std::string preset = scene.Add(NodeType::MilkdropPreset);
+            model::Connect(scene.Graph(), scene.Add(NodeType::VideoSource), node, 0);
+            model::Connect(scene.Graph(), node, preset, 0);
+            model::Connect(scene.Graph(), preset, "viewport", 0);
+        }
+        REQUIRE(test::Messages(model::ValidateGraph(scene.Graph())).empty());
+    }
+    const model::ParamDef& def;
+    test::NodeScene scene;
+    std::string node, lfo;
+};
+
+} // namespace
+
+TEST_CASE("every slider on every node type is a param, so a Number wire can move it", "[node-types]")
+{
+    for (NodeType type : AllTypes())
+    {
+        INFO(model::DisplayName(type));
+        Lone lone(type);
+        test::FakeNodeContext context(lone.scene);
+        const auto controls = app::NodeControls(lone.scene.Node(lone.id), context);
+        const bool handSliders = std::ranges::any_of(controls, [](const app::Control& c) { return c.kind == app::Control::Kind::Slider && c.param < 0; });
+        if (const auto it = kSlidersNotParamsYet.find(type); it != kSlidersNotParamsYet.end())
+        {
+            INFO("not a param yet: " << it->second);
+            if (app::Ui(type).controlsFor == nullptr) // a node whose sliders come from its file has none by default
+                CHECK(handSliders);
+            continue;
+        }
+        INFO("declare the slider as a ParamDef in NodeDef::params, and put a Params control where its row goes");
+        CHECK_FALSE(handSliders);
+    }
+}
+
+TEST_CASE("every param has its pin, a depth that's saved, and moves with its wire on the canvas and in the engine", "[node-types]")
+{
+    for (NodeType type : AllTypes())
+    {
+        for (int param = 0; param < static_cast<int>(model::Def(type).params.size()); ++param)
+        {
+            WiredParam wired(type, param);
+            const auto& def = wired.def;
+            INFO(model::DisplayName(type) << ": " << def.name);
+            const model::Node& node = wired.scene.Node(wired.node);
+            const int input = model::ParamInput(node, param);
+
+            // The canvas: the pin, and while wired the depth.
+            test::FakeNodeContext context(wired.scene);
+            context.signals[wired.lfo] = 1.f;
+            test::HeadlessUi ui;
+            ui.Frame(context, wired.node);
+            CHECK(std::ranges::count(context.paramPins, app::InputSpec{input, {}, model::PortKind::Number, def.label}) == 1);
+            CHECK(context.itemRects.contains("How far the wire moves the setting either side of the slider (negative: the other way)."));
+            CHECK(context.edits.empty());
+
+            // Saved and read back: the wire and the depth.
+            const auto loaded = model::ParsePerformance(model::SerializePerformance(wired.scene.performance));
+            REQUIRE(loaded.ok);
+            CHECK(loaded.performance.scenes.at(0).graph == wired.scene.Graph());
+
+            // The modulated value: the middle, plus half the depth of the range at a full signal.
+            const float middle = def.get(node);
+            const float want = std::clamp(middle + 0.5f * 0.5f * (def.high - def.low), def.low, def.high);
+            const std::vector<std::pair<int, std::string>> signals{{param, wired.lfo}};
+            CHECK(def.get(model::ModulatedNode(node, signals, {{wired.lfo, 1.f}})) == want);
+            CHECK(def.get(model::ModulatedNode(node, signals, {})) == middle); // no value yet: the slider's
+
+            // The engine renders effects from the modulated copy: into a preset, and straight onto the
+            // viewport with no preset.
+            if (model::IsEffect(type))
+            {
+                model::Node expected = node;
+                def.set(expected, want);
+                for (const bool preset : {true, false})
+                {
+                    INFO((preset ? "into a preset" : "no preset"));
+                    if (!preset)
+                        model::Connect(wired.scene.Graph(), wired.node, "viewport", 0);
+                    const auto plan = engine::CompilePlan(wired.scene.Graph());
+                    REQUIRE(plan.branches.size() == 1);
+                    CHECK(plan.presetNode.empty() == !preset);
+                    const auto& step = plan.branches[0].steps.at(0);
+                    REQUIRE(step.modulations.size() == 1);
+                    CHECK(step.modulations[0].signals == signals);
+                    CHECK(engine::Modulated(plan.branches[0].steps, {{wired.lfo, 1.f}})[0].effects[0] == model::Def(type).pass(expected));
+                }
+            }
         }
     }
 }
@@ -211,15 +334,17 @@ TEST_CASE("every node type's controls are complete and stay within its valid set
 {
     for (NodeType type : AllTypes())
     {
-        const auto& ui = app::Ui(type);
         INFO(model::DisplayName(type));
         std::set<std::string> ids;
         bool showsInputs = false;
-        for (const auto& control : ui.controls)
+        Lone shown(type);
+        test::FakeNodeContext context(shown.scene);
+        for (const auto& control : app::NodeControls(shown.scene.Node(shown.id), context)) // with the param sliders
         {
-            INFO("control " << control.id);
+            INFO("control " << control.id << " " << control.param);
             using Kind = app::Control::Kind;
-            if (control.kind != Kind::Inputs && control.kind != Kind::Text)
+            CHECK(control.kind != Kind::Params);
+            if (control.kind != Kind::Inputs && control.kind != Kind::Text && control.param < 0)
                 CHECK(ids.insert(control.id).second);
             showsInputs |= control.kind == Kind::Inputs;
             switch (control.kind)
@@ -269,6 +394,7 @@ TEST_CASE("every node type's controls are complete and stay within its valid set
                     CHECK(control.draw != nullptr);
                     break;
                 case Kind::Inputs:
+                case Kind::Params:
                     break;
             }
         }

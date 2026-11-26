@@ -102,6 +102,18 @@ auto Modulate(const Node& node, int param, float signal) -> float
     return std::clamp(value, def.low, def.high);
 }
 
+auto ModulatedNode(const Node& node, std::span<const std::pair<int, std::string>> wired, const SignalValues& signals) -> Node
+{
+    Node modulated = node;
+    const auto& params = Def(node.type).params;
+    for (const auto& [param, from] : wired)
+    {
+        if (const auto it = signals.find(from); it != signals.end())
+            params[static_cast<size_t>(param)].set(modulated, Modulate(node, param, it->second));
+    }
+    return modulated;
+}
+
 namespace nodes {
 
 auto EffectBase(NodeType type, const char* jsonName, const char* idPrefix, const char* displayName, NodeParams defaults) -> NodeDef

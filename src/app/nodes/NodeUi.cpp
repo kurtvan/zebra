@@ -56,6 +56,16 @@ auto RemainingWidth(const std::vector<Control>& controls, size_t index, const mo
     return std::max(rowStart + nodeWidth - ImGui::GetCursorScreenPos().x - after, 20.f);
 }
 
+/// Where `value` sits along `control`'s slider, 0..1, as ImGui places its grab: a logarithmic slider spaces
+/// values by ratio, from its smallest step (0.01) up.
+auto SliderRatio(const Control& control, double value) -> double
+{
+    if (!control.logarithmic)
+        return (value - control.min) / (control.max - control.min);
+    const double floor = std::max(control.min, 0.01);
+    return std::log(std::max(value, floor) / floor) / std::log(control.max / floor);
+}
+
 /// After a modulated slider, on its row: the value the setting has this frame, as a marker on the slider, then
 /// the depth.
 void DrawModulation(const model::Node& node, const Control& control, const model::Node& modulator, float width, NodeContext& context)
@@ -67,7 +77,7 @@ void DrawModulation(const model::Node& node, const Control& control, const model
         const float grab = 2.f + ImGui::GetStyle().GrabMinSize * 0.5f; // where ImGui's grab centre stops at either end
         const ImVec2 min = ImGui::GetItemRectMin();
         const ImVec2 max = ImGui::GetItemRectMax();
-        const float x = min.x + grab + static_cast<float>((value - control.min) / (control.max - control.min)) * (max.x - min.x - 2.f * grab);
+        const float x = min.x + grab + static_cast<float>(SliderRatio(control, value)) *(max.x - min.x - 2.f * grab);
         ImGui::GetWindowDrawList()->AddLine(ImVec2(x, min.y + 1.f), ImVec2(x, max.y - 1.f), ImGui::GetColorU32(WireColor(model::PortKind::Number)), 2.f);
     }
     const std::string name = model::Def(node.type).params[static_cast<size_t>(control.param)].name;
@@ -200,6 +210,8 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
         case Control::Kind::Custom:
             control.draw(node, context);
             break;
+        case Control::Kind::Params:
+            break; // NodeControls has made it the param sliders
     }
     if (control.tooltip != nullptr && modulator == nullptr)
         context.Tooltip(control.tooltip);
@@ -264,10 +276,42 @@ auto NodeInputs(const model::Node& node, NodeContext& context) -> std::vector<In
     return inputs;
 }
 
+auto ParamSlider(const model::Node& node, int param) -> Control
+{
+    const model::ParamDef& def = model::Def(node.type).params[static_cast<size_t>(param)];
+    Control slider;
+    slider.kind = Control::Kind::Slider;
+    slider.id = "##param"; // each control has its own ImGui id scope (its index), so this needn't be unique
+    slider.get = [get = def.get](const model::Node& n) { return static_cast<double>(get(n)); };
+    slider.set = [set = def.set](model::Node& n, double value) { set(n, static_cast<float>(value)); };
+    slider.min = def.low;
+    slider.max = def.high;
+    slider.integer = def.integer;
+    slider.logarithmic = def.logarithmic;
+    slider.format = def.format;
+    slider.formatFor = def.formatFor;
+    slider.param = param;
+    slider.undo = def.undo;
+    slider.field = def.name;
+    slider.tooltip = def.tooltip;
+    return slider;
+}
+
 auto NodeControls(const model::Node& node, NodeContext& context) -> std::vector<Control>
 {
     const NodeUi& ui = Ui(node.type);
-    return ui.controlsFor != nullptr ? ui.controlsFor(node, context) : ui.controls;
+    std::vector<Control> controls;
+    for (auto& control : ui.controlsFor != nullptr ? ui.controlsFor(node, context) : ui.controls)
+    {
+        if (control.kind != Control::Kind::Params)
+        {
+            controls.push_back(std::move(control));
+            continue;
+        }
+        for (int param = 0; param < static_cast<int>(model::Def(node.type).params.size()); ++param)
+            controls.push_back(ParamSlider(node, param));
+    }
+    return controls;
 }
 
 void DrawNodeBody(const model::Node& node, NodeContext& context)
