@@ -54,7 +54,7 @@ public:
         Ready,
         Live,
         Failed,   //!< The preset failed to load.
-        Unusable, //!< Not preparable (e.g. preset file missing).
+        Unusable, //!< Not preparable: its preset file is missing, or nothing is wired to the output.
     };
 
     struct Status

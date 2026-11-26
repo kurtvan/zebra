@@ -193,13 +193,14 @@ TEST_CASE("every node type is saved and read back unchanged, alone and in a show
         CHECK(test::RoundTrip(node) == node);
 
         // A show file reads it back exactly; the only problems are the ones the node itself reports (a
-        // preset node with no file, say). Only an error stops the show from loading.
+        // preset node with no file, say), and that nothing is wired to the output. Only an error stops the
+        // show from loading.
         lone.scene.performance.scenes[0].cc20Value = 1;
         std::vector<model::ShowProblem> problems;
         if (const auto& def = model::Def(type); def.checkInShow != nullptr)
             def.checkInShow(lone.scene.performance, node, problems);
         const auto loaded = model::ParsePerformance(model::SerializePerformance(lone.scene.performance));
-        CHECK(loaded.issues.size() == problems.size());
+        CHECK(loaded.issues.size() == problems.size() + 1); // nothing on the viewport
         CHECK(loaded.ok == std::ranges::none_of(problems, &model::ShowProblem::error));
         REQUIRE(loaded.performance.scenes.size() == 1);
         CHECK(loaded.performance.scenes[0].graph == lone.scene.Graph());

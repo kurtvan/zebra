@@ -624,6 +624,9 @@ auto Validate(const Performance& performance) -> std::vector<Issue>
 
         for (const auto& error : ValidateGraph(scene.graph))
             issues.push_back(Error(path + "/graph", NodeLabel(error) + error.message));
+        // A preset, a video or a shader on the viewport is all a scene needs; with nothing there it can't play.
+        if (const Node* viewport = scene.graph.Viewport(); viewport != nullptr && scene.graph.Upstream(viewport->id, 0) == nullptr)
+            issues.push_back(Warning(path + "/graph", "Nothing is wired to the output."));
         // A node with nothing chosen yet (as the canvas adds them) is unfinished, not broken: a warning, so the
         // show still saves, opens and recovers after a crash. A video the pool doesn't have is broken.
         for (const auto& node : scene.graph.nodes)

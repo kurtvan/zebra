@@ -93,7 +93,8 @@ auto CanvasSize(int size) -> int
     return std::clamp(size, model::kMinCanvasSize, model::kMaxCanvasSize) & ~1;
 }
 
-auto StateLabel(const engine::Engine::SceneInfo& info, bool pending, ImVec4& color) -> const char*
+/// `presetMissing`: why an unusable scene can't play (its preset file is gone, else nothing is on the output).
+auto StateLabel(const engine::Engine::SceneInfo& info, bool pending, bool presetMissing, ImVec4& color) -> const char*
 {
     using State = engine::ScenePool::State;
     color = kDim;
@@ -117,7 +118,7 @@ auto StateLabel(const engine::Engine::SceneInfo& info, bool pending, ImVec4& col
             return "failed";
         case State::Unusable:
             color = kRed;
-            return "preset missing";
+            return presetMissing ? "preset missing" : "nothing wired";
         case State::None:
             return "";
     }
@@ -670,7 +671,7 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
                         actions.Edit(std::move(edited), "Delete Scene");
                 }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Reveal Preset in Finder", nullptr, false, !scene.presetMissing))
+                if (ImGui::MenuItem("Reveal Preset in Finder", nullptr, false, !scene.presetMissing && !scene.FirstPreset().empty()))
                     RevealInFinder(scene.FirstPreset());
                 ImGui::EndPopup();
             }
@@ -704,15 +705,26 @@ void Shell::DrawScenes(ShellState& state, AppActions& actions)
             else
             {
                 const auto& preset = scene.FirstPreset();
-                ImGui::TextColored(scene.presetMissing ? kRed : kDim, "%s", preset.empty() ? "(no preset)" : preset.stem().c_str());
-                if (ImGui::IsItemHovered() && !preset.empty())
-                    ImGui::SetTooltip("%s%s", preset.c_str(), scene.presetMissing ? "\n(file not found)" : "");
+                if (preset.empty())
+                {
+                    // No preset: what's on the output instead.
+                    const auto plan = engine::CompilePlan(scene.graph, engine::SelectionForItem(scene.graph, 0));
+                    ImGui::TextColored(kDim, "%s", !plan.ShowsPicture() ? "(nothing wired)" : plan.sourceNode.empty() ? "(shader)" : "(video)");
+                    if (ImGui::IsItemHovered() && !plan.ShowsPicture())
+                        ImGui::SetTooltip("Nothing is wired to the output.");
+                }
+                else
+                {
+                    ImGui::TextColored(scene.presetMissing ? kRed : kDim, "%s", preset.stem().c_str());
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s%s", preset.c_str(), scene.presetMissing ? "\n(file not found)" : "");
+                }
             }
 
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
             ImVec4 color;
-            const char* label = StateLabel(info, i == pending, color);
+            const char* label = StateLabel(info, i == pending, scene.presetMissing, color);
             ImGui::TextColored(color, "%s", label);
             if (!info.error.empty() && ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s", info.error.c_str());
