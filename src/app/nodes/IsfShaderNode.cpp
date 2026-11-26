@@ -23,8 +23,8 @@ auto NameOf(const isf::IsfInput& input) -> const std::string&
     return input.label.empty() ? input.name : input.label;
 }
 
-/// "Missing file", "can't read it" or "doesn't compile" as one line, or "" when the shader is fine (or none
-/// is chosen). The dot's tooltip has the compiler's whole message.
+/// "Missing file", "can't read it", "uses a feature that can't run yet" or "doesn't compile", or "" when the
+/// shader is fine (or none is chosen). Only the compiler's first line: the dot's tooltip has its whole message.
 auto FileProblem(const model::Node& node, NodeContext& context) -> std::string
 {
     const auto file = model::IsfFileAt(PathOf(node));
@@ -32,6 +32,8 @@ auto FileProblem(const model::Node& node, NodeContext& context) -> std::string
         return "File not found.";
     if (!file.error.empty())
         return "Can't read the shader: " + file.error;
+    if (!file.unsupported.empty())
+        return file.unsupported;
     const std::string error = context.ShaderError(PathOf(node));
     return error.empty() ? std::string() : "Doesn't compile: " + error.substr(0, error.find('\n'));
 }
@@ -169,6 +171,8 @@ auto IsfShaderUi() -> NodeUi
         if (!file.error.empty())
             return {NodeState::Missing, "Can't read the shader: " + file.error +
                                             (file.shader != nullptr ? "\nThe last version that could be read keeps running." : "")};
+        if (!file.unsupported.empty())
+            return {NodeState::Missing, file.unsupported + " The video passes through it."};
         if (const std::string error = context.ShaderError(PathOf(node)); !error.empty())
             return {NodeState::Missing, "The shader doesn't compile. The last version that did keeps running; without one, the "
                                         "video passes through it:\n" + error};

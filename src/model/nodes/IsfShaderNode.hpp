@@ -20,6 +20,9 @@ struct IsfFile
     std::shared_ptr<const isf::IsfShader> shader;
     bool missing{false}; //!< A path is set but there's no file there.
     std::string error;   //!< Why the file can't be read ("line 3: ..."); empty if it can.
+    /// What `shader` uses that can't run yet (isf::UnsupportedFeature), or empty. Such a shader is never
+    /// compiled: the video passes through it.
+    std::string unsupported;
 };
 
 /// The file at `path`, read and parsed again only when its modification time changes. Thread-safe.

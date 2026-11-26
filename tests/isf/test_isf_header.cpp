@@ -259,3 +259,28 @@ TEST_CASE("the fixture shaders parse")
     }
     CHECK(Parse(Fixture("invert.fs")).kind == ShaderKind::Filter);
 }
+
+TEST_CASE("a shader that needs buffers between passes is unsupported, in plain words")
+{
+    const std::string multiPass = "Uses multi-pass buffers, which aren't supported yet.";
+    CHECK(UnsupportedFeature(Parse(kEveryType)) == multiPass); // a persistent target, then the output
+    // One pass, but into a persistent buffer the code reads back (as Lorenz system.fs does).
+    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ { "TARGET": "lastData", "PERSISTENT": true } ] }*/ void main() {})")) == multiPass);
+    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ { "TARGET": "half" } ] }*/ void main() {})")) == multiPass);
+    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ {}, {} ] }*/ void main() {})")) == multiPass);
+    // One pass into the output is what's drawn anyway.
+    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ { "WIDTH": "$WIDTH" } ] }*/ void main() {})")).empty());
+    for (const char* name : {"passthrough.fs", "invert.fs", "box_blur.fs", "gradient.fs"})
+        CHECK(UnsupportedFeature(Parse(Fixture(name))).empty());
+}
+
+TEST_CASE("a shader with imported images is unsupported, in plain words")
+{
+    const auto byName = Parse(R"(/*{ "IMPORTED": { "noise": { "PATH": "noise.png" } } }*/ void main() {})");
+    CHECK(byName.imported == std::vector<std::string>{"noise"});
+    CHECK(UnsupportedFeature(byName) == "Uses imported images, which aren't supported yet.");
+    const auto listed = Parse(R"(/*{ "IMPORTED": [ { "NAME": "noise", "PATH": "noise.png" } ] }*/ void main() {})");
+    CHECK(listed.imported == std::vector<std::string>{"noise"});
+    CHECK(UnsupportedFeature(listed) == "Uses imported images, which aren't supported yet.");
+    CHECK(Parse(R"(/*{ "IMPORTED": {} }*/ void main() {})").imported.empty());
+}
