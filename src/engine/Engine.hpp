@@ -2,10 +2,10 @@
 
 #include "engine/BeatGrid.hpp"
 #include "engine/BeatHit.hpp"
-#include "engine/EnvelopeFollower.hpp"
 #include "engine/FileWatcher.hpp"
 #include "engine/Lane.hpp"
 #include "engine/RenderPlan.hpp"
+#include "engine/SceneAudio.hpp"
 #include "engine/ScenePool.hpp"
 #include "engine/SwitcherClock.hpp"
 #include "model/Performance.hpp"
@@ -244,7 +244,7 @@ private:
     auto Needs() const -> VideoNeeds;
     auto CurrentPreset(int scene) const -> std::filesystem::path;
     void CreatePresentTargets();
-    /// Feeds this tick's audio (silence without any) to every scene's Envelopes, whether live or not, so the
+    /// Feeds this tick's audio (silence without any) to every scene's Bands and Envelopes, whether live or not, so the
     /// canvas shows them moving while a scene is being built.
     void FollowAudio(const PcmChunk& chunk);
 
@@ -319,8 +319,8 @@ private:
     std::map<int, long long> m_heldByScene;
     std::map<int, long long> m_liveTicksByScene;
     float m_audioLevel{0.f};
-    /// Each Envelope's follower, by scene id, then node id.
-    std::map<std::string, std::map<std::string, EnvelopeFollower>> m_envelopes;
+    /// Each scene's Envelopes and Bands, by scene id.
+    std::map<std::string, SceneAudio> m_sceneAudio;
 };
 
 } // namespace gv::engine

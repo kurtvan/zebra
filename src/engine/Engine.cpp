@@ -7,7 +7,6 @@
 #include <cmath>
 #include <set>
 #include <span>
-#include <variant>
 
 namespace gv::engine {
 
@@ -343,11 +342,8 @@ auto Engine::SignalInputsNow(int scene) const -> model::SignalInputs
     inputs.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_signalStart).count();
     if (scene >= 0 && scene < static_cast<int>(m_performance.scenes.size()))
     {
-        if (const auto it = m_envelopes.find(m_performance.scenes[static_cast<size_t>(scene)].id); it != m_envelopes.end())
-        {
-            for (const auto& [node, follower] : it->second)
-                inputs.levels[node] = follower.Level();
-        }
+        if (const auto it = m_sceneAudio.find(m_performance.scenes[static_cast<size_t>(scene)].id); it != m_sceneAudio.end())
+            inputs.levels = it->second.Levels();
     }
     return inputs;
 }
@@ -358,26 +354,13 @@ void Engine::FollowAudio(const PcmChunk& chunk)
     if (!chunk)
         silence.assign(static_cast<size_t>(m_sampleRate / 60) * 2, 0.f);
     const std::span<const float> pcm = chunk ? std::span<const float>(*chunk) : std::span<const float>(silence);
-    std::map<std::string, std::map<std::string, EnvelopeFollower>> followers; // only the Envelopes still there
+    std::map<std::string, SceneAudio> kept; // only the scenes still there
     for (const auto& scene : m_performance.scenes)
     {
-        auto& kept = m_envelopes[scene.id];
-        for (const auto& node : scene.graph.nodes)
-        {
-            if (node.type != model::NodeType::Envelope || !std::holds_alternative<model::EnvelopeParams>(node.params))
-                continue;
-            EnvelopeFollower follower = kept[node.id];
-            follower.SetParams(model::ParamsOf<model::EnvelopeParams>(node));
-            // The audio wired in: the whole range from Audio In (a Band would filter it first).
-            const model::Node* from = scene.graph.Upstream(node.id, 0);
-            if (from != nullptr && from->type == model::NodeType::AudioIn)
-                follower.Process(pcm, m_sampleRate);
-            else
-                follower.Reset();
-            followers[scene.id][node.id] = follower;
-        }
+        SceneAudio& audio = kept[scene.id] = std::move(m_sceneAudio[scene.id]);
+        audio.Process(scene.graph, pcm, m_sampleRate);
     }
-    m_envelopes = std::move(followers);
+    m_sceneAudio = std::move(kept);
 }
 
 auto Engine::PlanFor(int index, const model::Scene& scene, int item) const -> LanePlan

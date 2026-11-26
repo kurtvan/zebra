@@ -158,6 +158,7 @@ auto IsfShaderDef() -> NodeDef;
 auto LfoDef() -> NodeDef;
 auto AudioInDef() -> NodeDef;
 auto EnvelopeDef() -> NodeDef;
+auto BandDef() -> NodeDef;
 
 /// The parts every effect shares: one video input, one video output.
 auto EffectBase(NodeType type, const char* jsonName, const char* idPrefix, const char* displayName, NodeParams defaults) -> NodeDef;

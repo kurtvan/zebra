@@ -11,7 +11,8 @@ set(GV_NODE_TESTS
     nodes/test_isf_shader.cpp
     nodes/test_lfo.cpp
     nodes/test_audio_in.cpp
-    nodes/test_envelope.cpp)
+    nodes/test_envelope.cpp
+    nodes/test_band.cpp)
 
 add_executable(gv_tests
     common/test_log.cpp
@@ -37,6 +38,8 @@ add_executable(gv_tests
     engine/test_file_watcher.cpp
     engine/test_beat_hit.cpp
     engine/test_envelope_follower.cpp
+    engine/test_band_filter.cpp
+    engine/test_scene_audio.cpp
     engine/test_render_plan.cpp
     library/test_library.cpp
     thumbnails/test_slot_plan.cpp

@@ -55,13 +55,14 @@ enum class NodeType
     IsfShader,
     Lfo,
     AudioIn,
-    Envelope
+    Envelope,
+    Band
 };
-constexpr int kNodeTypeCount = 12; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
+constexpr int kNodeTypeCount = 13; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
 
 /// What travels along a wire: a picture (a video's, an effect's, or a preset's finished frame), a number
-/// (0..1 this frame, an LFO's, say) that moves a setting, or audio (the Setup panel's input, for an Envelope
-/// to follow). A wire joins two ports of the same kind; what the engine can't render yet is refused by the
+/// (0..1 this frame, an LFO's, say) that moves a setting, or audio (the Setup panel's input, or one range of
+/// it from a Band, for an Envelope to follow). A wire joins two ports of the same kind; what the engine can't render yet is refused by the
 /// picture rules in ValidateGraph.
 enum class PortKind
 {
@@ -170,9 +171,17 @@ struct EnvelopeParams
     bool autoLevel{true};  //!< The loudest of the last few seconds is 1, so quiet and loud passages use 0..1.
     auto operator==(const EnvelopeParams&) const -> bool = default;
 };
+/// One frequency range of the audio: what a Band lets through (model/nodes/BandNode.hpp has its presets).
+struct BandParams
+{
+    double low{20.0};   //!< 20..20000 Hz, at most `high`: below this is cut.
+    double high{250.0}; //!< 20..20000 Hz: above this is cut.
+    auto operator==(const BandParams&) const -> bool = default;
+};
 
 using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, OpacityParams, MilkdropPresetParams,
-                                SwitcherParams, ViewportParams, IsfShaderParams, LfoParams, AudioInParams, EnvelopeParams>;
+                                SwitcherParams, ViewportParams, IsfShaderParams, LfoParams, AudioInParams, EnvelopeParams,
+                                BandParams>;
 
 struct Node
 {
