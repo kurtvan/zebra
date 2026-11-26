@@ -136,7 +136,7 @@ auto Takes(PortKind kind) -> std::string
     {
         case PortKind::Picture: return KindName(kind);
         case PortKind::Number: return "a number (from an LFO or an Envelope)";
-        case PortKind::Audio: return "audio (from Audio In)";
+        case PortKind::Audio: return "audio (from Audio In or a Band)";
     }
     return {};
 }
