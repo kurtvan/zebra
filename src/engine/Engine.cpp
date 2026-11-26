@@ -238,7 +238,7 @@ void Engine::UpdatePerformance(const model::Performance& performance)
             continue;
         oldToNew[static_cast<size_t>(old)] = it->second;
         const auto& after = performance.scenes[static_cast<size_t>(it->second)];
-        presetChanged[static_cast<size_t>(it->second)] = before.FirstPreset() != after.FirstPreset();
+        presetChanged[static_cast<size_t>(it->second)] = NeedsNewInstances(before, after);
 
         // The live scene's preset switcher got other presets: its next one is planned again, from the
         // one on screen. (Timing edits just apply: the clock reads them every frame.)
@@ -489,9 +489,11 @@ void Engine::Trigger(int index)
     const auto status = m_pool.StatusOf(index).state;
     if (status == ScenePool::State::Unusable || status == ScenePool::State::Failed)
     {
-        GV_LOG_WARN(kLogCategory, "scene %d (%s) can't be played: %s", index,
-                    m_performance.scenes[static_cast<size_t>(index)].DisplayName().c_str(),
-                    status == ScenePool::State::Unusable ? "preset file missing" : "preset failed to load");
+        const auto& scene = m_performance.scenes[static_cast<size_t>(index)];
+        GV_LOG_WARN(kLogCategory, "scene %d (%s) can't be played: %s", index, scene.DisplayName().c_str(),
+                    status == ScenePool::State::Failed ? "preset failed to load"
+                    : scene.presetMissing             ? "preset file missing"
+                                                      : "nothing is wired to the output");
         return;
     }
     if (status != ScenePool::State::Ready && index != m_pool.LiveScene())

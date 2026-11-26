@@ -104,6 +104,11 @@ auto HasModulations(const std::vector<VideoStep>& steps) -> bool;
 /// shows a picture on the viewport.
 auto Playable(const model::Scene& scene) -> bool;
 
+/// True when the instances prepared for `before` (at its first entry) can't show `after` and must be prepared
+/// again (ScenePool::Remap's presetChanged): its first preset changed, or it went between a preset and a picture
+/// with no preset, either way, including through a step with nothing wired.
+auto NeedsNewInstances(const model::Scene& before, const model::Scene& after) -> bool;
+
 /// The selection that passes the `item`-th wired input of the switcher feeding the viewport
 /// (Scene::presetEntries entry `item`). Empty when there's no such switcher.
 auto SelectionForItem(const model::Graph& graph, int item) -> SwitcherSelection;

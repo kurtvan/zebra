@@ -199,6 +199,15 @@ auto Playable(const model::Scene& scene) -> bool
     return !scene.FirstPreset().empty() || CompilePlan(scene.graph, SelectionForItem(scene.graph, 0)).ShowsPicture();
 }
 
+auto NeedsNewInstances(const model::Scene& before, const model::Scene& after) -> bool
+{
+    if (before.FirstPreset() != after.FirstPreset())
+        return true;
+    // Same (or no) preset: a picture appearing or going away changes what kind of instance shows it.
+    auto showsPicture = [](const model::Scene& scene) { return CompilePlan(scene.graph, SelectionForItem(scene.graph, 0)).ShowsPicture(); };
+    return showsPicture(before) != showsPicture(after);
+}
+
 auto SelectionForItem(const Graph& graph, int item) -> SwitcherSelection
 {
     const Node* viewport = graph.Viewport();

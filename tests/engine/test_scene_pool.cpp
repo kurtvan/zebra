@@ -630,3 +630,123 @@ TEST_CASE("a scene with a picture and no preset is prepared and cut to like any 
     CHECK(h.pool.Trigger(3).empty());
     CHECK(h.pool.LiveScene() == 1);
 }
+
+namespace {
+
+/// One scene as the editor leaves it after each edit: a preset, a video, or nothing on the viewport.
+auto SceneShowing(const char* what) -> gv::model::Scene
+{
+    using namespace gv::model;
+    Scene scene;
+    AddNode(scene.graph, NodeType::Viewport, 0, 0);
+    const auto video = AddNode(scene.graph, NodeType::VideoSource, 0, 0);
+    if (std::string(what) == "preset")
+    {
+        const auto preset = AddNode(scene.graph, NodeType::MilkdropPreset, 0, 0);
+        std::get<MilkdropPresetParams>(scene.graph.Find(preset)->params).path = "/a.milk";
+        Connect(scene.graph, preset, "viewport", 0);
+        Connect(scene.graph, video, preset, 0);
+    }
+    else if (std::string(what) == "video")
+    {
+        Connect(scene.graph, video, "viewport", 0);
+    }
+    scene.Refresh();
+    return scene;
+}
+
+/// Remaps four unmoved scenes after scene `scene` was edited from `before` to `after`, as the engine does.
+auto Edit(Harness& h, int scene, const gv::model::Scene& before, const gv::model::Scene& after) -> std::vector<PoolCommand>
+{
+    std::vector<bool> unusable(4, false);
+    std::vector<bool> changed(4, false);
+    unusable[static_cast<size_t>(scene)] = !Playable(after);
+    changed[static_cast<size_t>(scene)] = NeedsNewInstances(before, after);
+    return h.pool.Remap(4, {0, 1, 2, 3}, unusable, changed);
+}
+
+/// The live instance is replaced: `commands` prepare scene `scene` with priority, and it goes live when ready.
+void SwappedIn(Harness& h, int scene, const std::vector<PoolCommand>& commands)
+{
+    const auto old = h.pool.LiveInstance();
+    const auto* prepare = Find(commands, Type::Prepare, scene);
+    REQUIRE(prepare != nullptr);
+    CHECK(prepare->priority);
+    CHECK(h.pool.LiveInstance() == old); // the old picture holds meanwhile
+    const auto after = h.pool.OnPrepared(prepare->instance, true);
+    CHECK(Find(after, Type::Activate, scene) != nullptr);
+    CHECK(h.pool.LiveInstance() == prepare->instance);
+    CHECK(std::any_of(after.begin(), after.end(), [&](const PoolCommand& c) { return c.type == Type::Release && c.instance == old; }));
+    h.Run(after);
+}
+
+} // namespace
+
+TEST_CASE("a scene needs new instances when it goes between a preset and a picture, not for other edits")
+{
+    const auto preset = SceneShowing("preset");
+    const auto video = SceneShowing("video");
+    const auto nothing = SceneShowing("nothing");
+    CHECK(NeedsNewInstances(preset, video));
+    CHECK(NeedsNewInstances(video, preset));
+    CHECK(NeedsNewInstances(preset, nothing));
+    CHECK(NeedsNewInstances(nothing, video)); // the preset was unwired first, then the video wired in
+    CHECK(NeedsNewInstances(video, nothing));
+    CHECK_FALSE(NeedsNewInstances(preset, preset));
+    CHECK_FALSE(NeedsNewInstances(video, video));
+
+    // Effects added to the picture: the instance just gets the new plan.
+    auto gated = video;
+    const auto gate = gv::model::AddNode(gated.graph, gv::model::NodeType::LumaGate, 0, 0);
+    gv::model::Connect(gated.graph, gated.graph.Upstream("viewport", 0)->id, gate, 0);
+    gv::model::Connect(gated.graph, gate, "viewport", 0);
+    gated.Refresh();
+    CHECK_FALSE(NeedsNewInstances(video, gated));
+}
+
+TEST_CASE("the live scene changed from a preset to a picture is prepared again and swapped in, and back")
+{
+    const auto preset = SceneShowing("preset");
+    const auto video = SceneShowing("video");
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(4, std::vector<bool>(4, false)));
+    h.Run(h.pool.Trigger(1));
+
+    SwappedIn(h, 1, Edit(h, 1, preset, video));
+    SwappedIn(h, 1, Edit(h, 1, video, preset));
+}
+
+TEST_CASE("the live preset unwired, then a video wired in: the preset holds, then the video is swapped in")
+{
+    const auto preset = SceneShowing("preset");
+    const auto nothing = SceneShowing("nothing");
+    const auto video = SceneShowing("video");
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(4, std::vector<bool>(4, false)));
+    h.Run(h.pool.Trigger(1));
+    const auto old = h.pool.LiveInstance();
+
+    const auto unwired = Edit(h, 1, preset, nothing);
+    CHECK(Find(unwired, Type::Prepare, 1) == nullptr); // nothing to prepare: the last picture stays on screen
+    CHECK(h.pool.LiveInstance() == old);
+    SwappedIn(h, 1, Edit(h, 1, nothing, video));
+}
+
+TEST_CASE("a prepared scene that isn't live is prepared again when it goes between a preset and a picture")
+{
+    const auto preset = SceneShowing("preset");
+    const auto video = SceneShowing("video");
+    Harness h({3, 1, 3});
+    h.Run(h.pool.Reset(4, std::vector<bool>(4, false)));
+    h.Run(h.pool.Trigger(1));
+    for (const auto& [before, after] : {std::pair{preset, video}, std::pair{video, preset}})
+    {
+        REQUIRE(h.pool.StatusOf(2).state == ScenePool::State::Ready);
+        const auto old = h.pool.InstancesOf(2).front().instance;
+        const auto commands = Edit(h, 2, before, after);
+        CHECK(std::any_of(commands.begin(), commands.end(), [&](const PoolCommand& c) { return c.type == Type::Release && c.instance == old; }));
+        CHECK(Find(commands, Type::Prepare, 2) != nullptr);
+        CHECK(h.pool.LiveScene() == 1);
+        h.Run(commands);
+    }
+}

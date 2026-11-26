@@ -639,3 +639,28 @@ TEST_CASE("saving over an older format keeps one backup of it")
     CHECK(BackupOlderFormat(dir / "missing.json").empty());
     std::filesystem::remove_all(dir);
 }
+
+TEST_CASE("a scene needs something on the output, not a preset")
+{
+    Performance performance;
+    performance.videos = {PoolVideo{"v", "", "/v.mp4"}};
+    Scene video;
+    video.id = "video";
+    AddNode(video.graph, NodeType::Viewport, 0, 0);
+    const auto source = AddNode(video.graph, NodeType::VideoSource, 0, 0);
+    ParamsOf<VideoSourceParams>(*video.graph.Find(source)).source.videoId = "v";
+    Connect(video.graph, source, "viewport", 0);
+    video.Refresh();
+    Scene empty;
+    empty.id = "empty";
+    empty.cc20Value = 1;
+    AddNode(empty.graph, NodeType::Viewport, 0, 0);
+    empty.Refresh();
+    performance.scenes = {video, empty};
+
+    const auto issues = Validate(performance);
+    CHECK_FALSE(HasIssueAt(issues, "/scenes/0/graph")); // a video on the output: nothing to warn about
+    REQUIRE(CountIssuesAt(issues, "/scenes/1/graph") == 1);
+    CHECK(issues.back().message == "Nothing is wired to the output.");
+    CHECK(issues.back().severity == Issue::Severity::Warning);
+}
