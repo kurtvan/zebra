@@ -16,6 +16,7 @@ auto BuildDefs() -> std::array<NodeDef, kNodeTypeCount>
         nodes::VideoSourceDef(), nodes::ContrastDef(), nodes::SaturationDef(), nodes::LumaGateDef(),
         nodes::OpacityDef(),         nodes::MilkdropPresetDef(),   nodes::SwitcherDef(),   nodes::ViewportDef(),
         nodes::IsfShaderDef(),  nodes::LfoDef(),          nodes::AudioInDef(),    nodes::EnvelopeDef(),
+        nodes::BandDef(),
     };
     // Def() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < kNodeTypeCount; ++i)

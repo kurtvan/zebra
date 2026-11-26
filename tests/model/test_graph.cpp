@@ -353,10 +353,43 @@ TEST_CASE("audio wires: Audio only into Audio; an Envelope's number moves Opacit
     CHECK(Has(ConnectErrors(graph, audio, preset, Feedback()), "takes a picture, not audio"));
     CHECK(Has(ConnectErrors(graph, audio, "viewport", 0), "takes a picture, not audio"));
     // A picture or a number into the Envelope's audio input.
-    CHECK(Has(ConnectErrors(graph, video, envelope, 0), "Envelope: this input takes audio (from Audio In), not a picture."));
-    CHECK(Has(ConnectErrors(graph, lfo, envelope, 0), "Envelope: this input takes audio (from Audio In), not a number."));
+    CHECK(Has(ConnectErrors(graph, video, envelope, 0), "Envelope: this input takes audio (from Audio In or a Band), not a picture."));
+    CHECK(Has(ConnectErrors(graph, lfo, envelope, 0), "Envelope: this input takes audio (from Audio In or a Band), not a number."));
     // An Envelope's number isn't a picture either.
     CHECK(Has(ConnectErrors(graph, envelope, opacity, 0), "Opacity: this input takes a picture, not a number."));
+}
+
+TEST_CASE("audio wires: Audio In -> Band -> Envelope -> Opacity; a Band takes and gives only audio")
+{
+    Graph graph = Basic();
+    const auto preset = graph.nodes[0].id;
+    const auto video = AddNode(graph, NodeType::VideoSource, 0, 0);
+    const auto opacity = AddNode(graph, NodeType::Opacity, 0, 0);
+    const auto audio = AddNode(graph, NodeType::AudioIn, 0, 0);
+    const auto band = AddNode(graph, NodeType::Band, 0, 0);
+    const auto narrower = AddNode(graph, NodeType::Band, 0, 0);
+    const auto envelope = AddNode(graph, NodeType::Envelope, 0, 0);
+    const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
+    Connect(graph, video, opacity, 0);
+    Connect(graph, opacity, preset, Feedback());
+    const int modulation = ParamInput(*graph.Find(opacity), 0);
+
+    CHECK(Connect(graph, audio, band, 0));
+    CHECK(Connect(graph, band, envelope, 0));
+    CHECK(Connect(graph, envelope, opacity, modulation));
+    CHECK(ValidateGraph(graph).empty());
+    // A Band after a Band narrows it; two back into each other is a loop.
+    CHECK(ConnectErrors(graph, band, narrower, 0).empty());
+    Connect(graph, band, narrower, 0);
+    CHECK(Has(ConnectErrors(graph, narrower, band, 0), "This would make a loop."));
+
+    // Only audio in.
+    CHECK(Has(ConnectErrors(graph, video, band, 0), "Band: this input takes audio (from Audio In or a Band), not a picture."));
+    CHECK(Has(ConnectErrors(graph, lfo, band, 0), "Band: this input takes audio (from Audio In or a Band), not a number."));
+    // Only audio out.
+    CHECK(Has(ConnectErrors(graph, band, opacity, modulation), "Opacity: this input takes a number (from an LFO or an Envelope), not audio."));
+    CHECK(Has(ConnectErrors(graph, band, opacity, 0), "Opacity: this input takes a picture, not audio."));
+    CHECK(Has(ConnectErrors(graph, band, preset, Feedback()), "takes a picture, not audio"));
 }
 
 TEST_CASE("queries: presets and pool videos of a graph")

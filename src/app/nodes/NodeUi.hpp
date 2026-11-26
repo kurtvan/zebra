@@ -277,6 +277,7 @@ auto IsfShaderUi() -> NodeUi;
 auto LfoUi() -> NodeUi;
 auto AudioInUi() -> NodeUi;
 auto EnvelopeUi() -> NodeUi;
+auto BandUi() -> NodeUi;
 
 /// Control get/set for one field of `Params` (a pointer to member): a number, or a bool as 0 or 1.
 template <class Params, auto Member>
