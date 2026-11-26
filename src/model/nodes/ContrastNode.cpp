@@ -3,9 +3,28 @@
 
 namespace gv::model::nodes {
 
+namespace {
+
+constexpr ParamDef kParams[] = {
+    {.name = "contrast",
+     .label = "Contrast",
+     .low = 0.0f,
+     .high = kMaxContrast,
+     .get = [](const Node& node) { return ParamsOf<ContrastParams>(node).contrast; },
+     .set = [](Node& node, float value) { ParamsOf<ContrastParams>(node).contrast = value; },
+     .formatFor = [](double value) { return value < 10.0 ? "%.2f" : "%.0f"; },
+     .logarithmic = true,
+     .tooltip = "1.00 leaves the video as it is. All the way up, with Saturation at 0, gives hard black and white.\n"
+                "Double-click (or Cmd+click) to type a value.",
+     .undo = "Change Contrast"},
+};
+
+} // namespace
+
 auto ContrastDef() -> NodeDef
 {
     NodeDef def = EffectBase(NodeType::Contrast, "contrast", "contrast", "Contrast", ContrastParams{});
+    def.params = kParams;
     def.checkParams = [](const Node& node, std::vector<GraphError>& errors) {
         CheckRange(errors, node, "contrast", ParamsOf<ContrastParams>(node).contrast, 0.0, kMaxContrast, "0 and 100");
     };

@@ -34,7 +34,7 @@ TEST_CASE("contrast: an effect, video in and out, leaving the video as it is by 
     CHECK(node.id == "contrast-1");
     CHECK(Contrast(node) == 1.0f);
     CHECK(model::OutputKind(node) == model::PortKind::Picture);
-    CHECK(model::InputCount(node) == 1);
+    CHECK(model::InputCount(node) == 2); // the video, and its slider's modulation input
     CHECK(model::InputKind(node, 0) == model::PortKind::Picture);
 }
 
@@ -92,7 +92,9 @@ TEST_CASE("contrast: on the canvas, a video input and a logarithmic slider over 
     context.live = true;
     CHECK(app::NodeStatusOf(scene.Node(id), context).state == app::NodeState::Live);
 
-    const auto& slider = test::ControlById(NodeType::Contrast, "##contrast");
+    const auto sliders = test::ParamSliders(NodeType::Contrast);
+    REQUIRE(sliders.size() == 1);
+    const auto& slider = sliders[0];
     CHECK(slider.kind == app::Control::Kind::Slider);
     CHECK(slider.min == 0.0);
     CHECK(slider.max == model::kMaxContrast);

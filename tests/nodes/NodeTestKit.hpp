@@ -411,6 +411,18 @@ inline auto ControlsOf(model::NodeType type, app::Control::Kind kind) -> std::ve
     return found;
 }
 
+/// The sliders a `type` node with its default settings draws for its params (app::ParamSlider), in order.
+inline auto ParamSliders(model::NodeType type) -> std::vector<app::Control>
+{
+    model::Node node;
+    node.type = type;
+    node.params = model::Def(type).defaults;
+    std::vector<app::Control> sliders;
+    for (int param = 0; param < static_cast<int>(model::Def(type).params.size()); ++param)
+        sliders.push_back(app::ParamSlider(node, param));
+    return sliders;
+}
+
 /// The control of `type` with ImGui id `id`.
 inline auto ControlById(model::NodeType type, const std::string& id) -> const app::Control&
 {

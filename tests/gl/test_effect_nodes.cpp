@@ -220,6 +220,43 @@ TEST_CASE("an LFO driving opacity: a square at its high and low gives the pixels
     }
 }
 
+TEST_CASE("every effect param moved by a steady signal renders as its slider set to the moved value", "[gl]")
+{
+    REQUIRE_GL();
+    using namespace gv::model;
+    for (const auto& def : NodeDefs())
+    {
+        for (int param = 0; def.effect && param < static_cast<int>(def.params.size()); ++param)
+        {
+            const ParamDef& p = def.params[static_cast<size_t>(param)];
+            INFO(def.displayName << ": " << p.name);
+            Graph graph;
+            const auto preset = AddNode(graph, NodeType::MilkdropPreset, 0, 0);
+            const auto video = AddNode(graph, NodeType::VideoSource, 0, 0);
+            const auto effect = AddNode(graph, def.type, 0, 0);
+            const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
+            p.set(*graph.Find(effect), p.low + (p.high - p.low) * 0.3f);
+            Connect(graph, preset, AddNode(graph, NodeType::Viewport, 0, 0), 0);
+            Connect(graph, video, effect, 0);
+            Connect(graph, effect, preset, 0);
+            Connect(graph, lfo, effect, ParamInput(*graph.Find(effect), param));
+            REQUIRE(ValidateGraph(graph).empty());
+
+            // A signal held at 0.7 moves the slider up a fifth of its range (depth 1).
+            const auto steps = gv::engine::CompilePlan(graph).branches.at(0).steps;
+            const auto got = Run(gv::engine::Modulated(steps, {{lfo, 0.7f}}).at(0).effects);
+            Node slid = *graph.Find(effect);
+            p.set(slid, p.low + (p.high - p.low) * 0.5f);
+            const auto want = Run({def.pass(slid)});
+            REQUIRE(got.size() == want.size());
+            int differ = 0;
+            for (size_t i = 0; i < got.size(); ++i)
+                differ += std::abs(got[i].r - want[i].r) + std::abs(got[i].g - want[i].g) + std::abs(got[i].a - want[i].a) > kTolerance ? 1 : 0;
+            CHECK(differ == 0);
+        }
+    }
+}
+
 TEST_CASE("every effect node has a shader, and the chain compiles with all of them", "[gl]")
 {
     REQUIRE_GL();

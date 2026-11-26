@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace gv::model {
@@ -50,15 +51,26 @@ struct SignalInputs
 /// Every Number output's value this frame (0..1), by node id.
 using SignalValues = std::map<std::string, float>;
 
-/// A setting a Number wire can move (NodeDef::params): its own modulation input, after the node's others.
+/// A slider of a node (NodeDef::params), declared once: the canvas draws its row from this (the slider, its
+/// modulation pin and, while wired, the modulated value and the depth), it gets its own modulation input after
+/// the node's others, its depth is saved under `name`, and the engine applies the modulated value
+/// (ModulatedNode).
 struct ParamDef
 {
-    const char* name{""};  //!< "opacity": its depth's key in Node::depths.
-    const char* label{""}; //!< "Opacity": its input row.
+    const char* name{""};  //!< "opacity": its depth's key in Node::depths; slider drags of it coalesce.
+    const char* label{""}; //!< "Opacity": its modulation pin's name.
     float low{0.0f};
     float high{1.0f};
     float (*get)(const Node&){nullptr};
     void (*set)(Node&, float){nullptr};
+
+    // The slider.
+    const char* format{"%.2f"};                //!< "opacity %.2f"; formatFor overrides it.
+    const char* (*formatFor)(double){nullptr}; //!< The format for a value (contrast: decimals below 10).
+    bool logarithmic{false};
+    bool integer{false};
+    const char* tooltip{nullptr};
+    const char* undo{""}; //!< "Change Opacity"
 };
 
 /// Everything the model knows about one node type, in one place: model/nodes/<Type>Node.cpp. The graph
@@ -142,6 +154,10 @@ auto EvaluateSignals(const Graph& graph, const SignalInputs& inputs) -> SignalVa
 auto Modulate(const Node& node, int param, float signal) -> float;
 /// The depth of `node`'s param `param` (Node::depths; 1 if not set).
 auto DepthOf(const Node& node, int param) -> float;
+/// What the engine renders for `node` this frame: a copy with each param in `wired` (param index -> the node
+/// its modulation input is wired from) at its modulated value (Modulate). A param whose signal has no value
+/// keeps the slider's. An effect then compiles the copy to its pass as usual (NodeDef::pass).
+auto ModulatedNode(const Node& node, std::span<const std::pair<int, std::string>> wired, const SignalValues& signals) -> Node;
 
 namespace nodes {
 

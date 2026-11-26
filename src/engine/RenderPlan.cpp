@@ -45,6 +45,8 @@ void AddStep(std::vector<VideoStep>& steps, const Graph& graph, const Node& node
 {
     if (node.type == NodeType::IsfShader)
     {
+        // Its sliders aren't params yet. Once they are, this step records its wired params as effects do
+        // below, and Modulated() takes the uniforms from the modulated copy.
         const auto& params = model::ParamsOf<model::IsfShaderParams>(node);
         if (auto file = model::IsfFileAt(params.path); file.shader != nullptr && file.unsupported.empty())
             steps.push_back({{}, IsfStep{node.id, params.path, std::move(file.shader), params.values}});
@@ -125,15 +127,12 @@ auto Modulated(const std::vector<VideoStep>& steps, const model::SignalValues& s
     std::vector<VideoStep> modulated = steps;
     for (auto& step : modulated)
     {
+        // One path for every modulated node: a modulated copy, rendered as the node itself would be. An effect
+        // compiles it to its pass. An ISF shader's uniforms and a preset's variables can come from the same
+        // copy once their sliders are params.
         for (const auto& modulation : step.modulations)
         {
-            Node node = modulation.node;
-            const auto& params = model::Def(node.type).params;
-            for (const auto& [param, from] : modulation.signals)
-            {
-                if (const auto it = signals.find(from); it != signals.end())
-                    params[static_cast<size_t>(param)].set(node, model::Modulate(modulation.node, param, it->second));
-            }
+            const Node node = model::ModulatedNode(modulation.node, modulation.signals, signals);
             step.effects.at(modulation.effect) = model::Def(node.type).pass(node);
         }
     }
