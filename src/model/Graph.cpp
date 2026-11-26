@@ -117,6 +117,30 @@ auto InputKind(const Node& node, int input) -> std::optional<PortKind>
 
 namespace {
 
+/// "a picture": what a wire of `kind` carries, for messages.
+auto KindName(PortKind kind) -> std::string
+{
+    switch (kind)
+    {
+        case PortKind::Picture: return "a picture";
+        case PortKind::Number: return "a number";
+        case PortKind::Audio: return "audio";
+    }
+    return {};
+}
+
+/// "a number (from an LFO or an Envelope)": what an input of `kind` takes, and where it comes from.
+auto Takes(PortKind kind) -> std::string
+{
+    switch (kind)
+    {
+        case PortKind::Picture: return KindName(kind);
+        case PortKind::Number: return "a number (from an LFO or an Envelope)";
+        case PortKind::Audio: return "audio (from Audio In)";
+    }
+    return {};
+}
+
 auto PictureOf(const Graph& graph, const Node& node, std::set<std::string>& seen) -> PictureFrom
 {
     if (node.type == NodeType::MilkdropPreset)
@@ -254,10 +278,8 @@ auto ValidateGraph(const Graph& graph) -> std::vector<GraphError>
             errors.push_back({from->id, Label(*from) + " has no output."});
         else if (!InputKind(*to, wire.toInput))
             errors.push_back({to->id, Label(*to) + " has no input " + std::to_string(wire.toInput + 1) + "."});
-        else if (*InputKind(*to, wire.toInput) == PortKind::Number && *OutputKind(*from) != PortKind::Number)
-            errors.push_back({to->id, Label(*to) + ": this input takes a number (from an LFO), not a picture."});
-        else if (*InputKind(*to, wire.toInput) != PortKind::Number && *OutputKind(*from) == PortKind::Number)
-            errors.push_back({to->id, Label(*to) + ": this input takes a picture, not a number."});
+        else if (*InputKind(*to, wire.toInput) != *OutputKind(*from))
+            errors.push_back({to->id, Label(*to) + ": this input takes " + Takes(*InputKind(*to, wire.toInput)) + ", not " + KindName(*OutputKind(*from)) + "."});
         if (textureInput && wire.textureName.empty())
             errors.push_back({to->id, "A texture input needs the name of the texture it replaces."});
         else if (!textureInput && !wire.textureName.empty())

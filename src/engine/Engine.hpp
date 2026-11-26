@@ -2,6 +2,7 @@
 
 #include "engine/BeatGrid.hpp"
 #include "engine/BeatHit.hpp"
+#include "engine/EnvelopeFollower.hpp"
 #include "engine/FileWatcher.hpp"
 #include "engine/Lane.hpp"
 #include "engine/RenderPlan.hpp"
@@ -128,8 +129,9 @@ public:
     /// point, and a whole interval before the next. Preset switchers jump with TriggerItem.
     void JumpVideo(int index, const std::string& switcherId, int input);
 
-    /// What LFOs and other Number outputs follow now: the running clock's song position, and the time.
-    auto SignalInputsNow() const -> model::SignalInputs;
+    /// What LFOs and other Number outputs of scene `scene` (an index; -1: none) follow now: the running clock's
+    /// song position, the time, and its Envelopes' levels.
+    auto SignalInputsNow(int scene) const -> model::SignalInputs;
 
     /// The MIDI clock, for switchers that count beats or bars. Call every frame before Tick().
     void SetClock(const ClockInput& clock)
@@ -242,6 +244,9 @@ private:
     auto Needs() const -> VideoNeeds;
     auto CurrentPreset(int scene) const -> std::filesystem::path;
     void CreatePresentTargets();
+    /// Feeds this tick's audio (silence without any) to every scene's Envelopes, whether live or not, so the
+    /// canvas shows them moving while a scene is being built.
+    void FollowAudio(const PcmChunk& chunk);
 
     std::vector<std::unique_ptr<Lane>> m_lanes;
     VideoProvider* m_videoProvider{nullptr};
@@ -314,6 +319,8 @@ private:
     std::map<int, long long> m_heldByScene;
     std::map<int, long long> m_liveTicksByScene;
     float m_audioLevel{0.f};
+    /// Each Envelope's follower, by scene id, then node id.
+    std::map<std::string, std::map<std::string, EnvelopeFollower>> m_envelopes;
 };
 
 } // namespace gv::engine

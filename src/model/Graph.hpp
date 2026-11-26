@@ -53,17 +53,21 @@ enum class NodeType
     Switcher,
     Viewport,
     IsfShader,
-    Lfo
+    Lfo,
+    AudioIn,
+    Envelope
 };
-constexpr int kNodeTypeCount = 10; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
+constexpr int kNodeTypeCount = 12; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
 
-/// What travels along a wire: a picture (a video's, an effect's, or a preset's finished frame), or a number
-/// (0..1 this frame, an LFO's, say) that moves a setting. A wire joins two ports of the same kind; what the
-/// engine can't render yet is refused by the picture rules in ValidateGraph.
+/// What travels along a wire: a picture (a video's, an effect's, or a preset's finished frame), a number
+/// (0..1 this frame, an LFO's, say) that moves a setting, or audio (the Setup panel's input, for an Envelope
+/// to follow). A wire joins two ports of the same kind; what the engine can't render yet is refused by the
+/// picture rules in ValidateGraph.
 enum class PortKind
 {
     Picture,
-    Number
+    Number,
+    Audio
 };
 
 /// The video inputs of a preset node (Wire::toInput).
@@ -153,8 +157,22 @@ struct LfoParams
     auto operator==(const LfoParams&) const -> bool = default;
 };
 
+struct AudioInParams
+{
+    auto operator==(const AudioInParams&) const -> bool = default;
+};
+struct EnvelopeParams
+{
+    double attack{0.01};   //!< 0.001..1 s: how fast it rises when the audio gets louder.
+    double release{0.25};  //!< 0.01..5 s: how fast it falls when the audio gets quieter.
+    double gain{1.0};      //!< 0.1..20: without auto-level, the level is the audio's times this.
+    double threshold{0.0}; //!< 0..0.99: levels below this are 0, the rest spread over 0..1.
+    bool autoLevel{true};  //!< The loudest of the last few seconds is 1, so quiet and loud passages use 0..1.
+    auto operator==(const EnvelopeParams&) const -> bool = default;
+};
+
 using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, OpacityParams, MilkdropPresetParams,
-                                SwitcherParams, ViewportParams, IsfShaderParams, LfoParams>;
+                                SwitcherParams, ViewportParams, IsfShaderParams, LfoParams, AudioInParams, EnvelopeParams>;
 
 struct Node
 {

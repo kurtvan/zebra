@@ -247,7 +247,7 @@ public:
     }
     auto SignalInputs() const -> model::SignalInputs override
     {
-        return m_state.engine != nullptr ? m_state.engine->SignalInputsNow() : model::SignalInputs{};
+        return m_state.engine != nullptr ? m_state.engine->SignalInputsNow(m_scene) : model::SignalInputs{};
     }
     void ParamPin(const model::Node& node, const InputSpec& spec) override
     {

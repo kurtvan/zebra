@@ -19,7 +19,7 @@ auto BuildUis() -> std::array<NodeUi, model::kNodeTypeCount>
     std::array<NodeUi, model::kNodeTypeCount> uis = {
         nodes::VideoSourceUi(), nodes::ContrastUi(), nodes::SaturationUi(), nodes::LumaGateUi(),
         nodes::OpacityUi(),         nodes::MilkdropPresetUi(),   nodes::SwitcherUi(),   nodes::ViewportUi(),
-        nodes::IsfShaderUi(),  nodes::LfoUi(),
+        nodes::IsfShaderUi(),  nodes::LfoUi(),          nodes::AudioInUi(),     nodes::EnvelopeUi(),
     };
     // Ui() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < model::kNodeTypeCount; ++i)
