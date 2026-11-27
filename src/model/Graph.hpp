@@ -79,7 +79,8 @@ enum class PresetLayer
     OnTop = 2,           //!< Over the finished frame.
     Texture = 3,         //!< In place of one of the preset's textures (Wire::textureName).
 };
-constexpr int kPresetInputs = 4;
+constexpr int kPresetAudioInput = 4; //!< A preset's Audio input, after its layers: all it hears (nothing unwired).
+constexpr int kPresetInputs = 5;
 
 struct VideoSourceParams
 {
@@ -201,7 +202,7 @@ struct Wire
 {
     std::string fromNode; //!< Every node has at most one output.
     std::string toNode;
-    int toInput{0};          //!< Preset: a PresetLayer. Switcher: the input index. Others: 0.
+    int toInput{0};          //!< Preset: a PresetLayer or kPresetAudioInput. Switcher: the input index. Others: 0.
     std::string textureName; //!< Preset texture inputs only: the texture it replaces.
 
     auto operator==(const Wire&) const -> bool = default;
@@ -309,5 +310,16 @@ auto ConnectErrors(const Graph& graph, const std::string& from, const std::strin
 auto PresetsOf(const Graph& graph) -> std::vector<std::filesystem::path>;
 /// The pool video ids of every file video source node, in node order.
 auto VideoIdsOf(const Graph& graph) -> std::vector<std::string>;
+
+/// Wires preset `preset`'s Audio input to the graph's Audio In (the first), adding one above the preset when
+/// there's none. Returns the Audio In's id.
+auto WireToAudioIn(Graph& graph, const std::string& preset) -> std::string;
+/// Adds a preset node that already hears the scene's audio (WireToAudioIn), so a new preset isn't silently deaf.
+/// Returns its id.
+auto AddPreset(Graph& graph, float x, float y, const std::filesystem::path& path = {}) -> std::string;
+/// For shows from before presets had an Audio input, when every preset heard the input: wires every preset
+/// with nothing in its Audio input to one Audio In, added above the presets if the graph has none.
+/// Returns the number of wires added.
+auto WireUpAudio(Graph& graph) -> int;
 
 } // namespace gv::model

@@ -185,6 +185,7 @@ TEST_CASE("every preset input compiles to a branch, texture inputs by name")
     REQUIRE(Connect(graph, source, contrast, 0));
     REQUIRE(Connect(graph, contrast, preset, static_cast<int>(PresetLayer::Texture), "worms"));
     REQUIRE(Connect(graph, source, preset, static_cast<int>(PresetLayer::Texture), "clouds"));
+    REQUIRE(Connect(graph, AddNode(graph, NodeType::AudioIn, 0, 0), preset, kPresetAudioInput)); // not a picture: no branch
     CHECK(ValidateGraph(graph).empty());
 
     const auto plan = CompilePlan(graph);

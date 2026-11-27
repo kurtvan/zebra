@@ -461,6 +461,8 @@ auto ParsePerformance(const std::string& text) -> LoadResult
             graph.wires.clear();
             FollowWires(graph);
         }
+        if (version < 4)
+            WireUpAudio(graph); // every preset heard the input: now the wire shows it
         performance.scenes[i].Refresh();
     }
 

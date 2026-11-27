@@ -436,4 +436,61 @@ auto VideoIdsOf(const Graph& graph) -> std::vector<std::string>
     return ids;
 }
 
+namespace {
+
+constexpr float kAudioInAbove = 200.0f; //!< How far above a preset a new Audio In goes.
+constexpr float kAudioInLeft = 240.0f;  //!< And how far left: over the effects before it, clear of its wires.
+
+auto FirstAudioIn(const Graph& graph) -> const Node*
+{
+    const auto it = std::find_if(graph.nodes.begin(), graph.nodes.end(), [](const Node& node) { return node.type == NodeType::AudioIn; });
+    return it != graph.nodes.end() ? &*it : nullptr;
+}
+
+} // namespace
+
+auto WireToAudioIn(Graph& graph, const std::string& preset) -> std::string
+{
+    const Node* node = graph.Find(preset);
+    if (node == nullptr)
+        return {};
+    std::string audioIn;
+    if (const Node* existing = FirstAudioIn(graph))
+        audioIn = existing->id;
+    else
+        audioIn = AddNode(graph, NodeType::AudioIn, node->x - kAudioInLeft, node->y - kAudioInAbove);
+    Connect(graph, audioIn, preset, kPresetAudioInput);
+    return audioIn;
+}
+
+auto AddPreset(Graph& graph, float x, float y, const std::filesystem::path& path) -> std::string
+{
+    const std::string id = AddNode(graph, NodeType::MilkdropPreset, x, y);
+    ParamsOf<MilkdropPresetParams>(*graph.Find(id)).path = path;
+    WireToAudioIn(graph, id);
+    return id;
+}
+
+auto WireUpAudio(Graph& graph) -> int
+{
+    std::vector<std::string> deaf;
+    float left = 0.0f;
+    float top = 0.0f;
+    for (const auto& node : graph.nodes)
+    {
+        if (node.type != NodeType::MilkdropPreset || graph.WireInto(node.id, kPresetAudioInput) != nullptr)
+            continue;
+        left = deaf.empty() ? node.x : std::min(left, node.x);
+        top = deaf.empty() ? node.y : std::min(top, node.y);
+        deaf.push_back(node.id);
+    }
+    if (deaf.empty())
+        return 0;
+    if (FirstAudioIn(graph) == nullptr)
+        AddNode(graph, NodeType::AudioIn, left - kAudioInLeft, top - kAudioInAbove); // above the topmost preset
+    for (const auto& id : deaf)
+        WireToAudioIn(graph, id);
+    return static_cast<int>(deaf.size());
+}
+
 } // namespace gv::model

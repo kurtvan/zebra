@@ -244,9 +244,14 @@ private:
     auto Needs() const -> VideoNeeds;
     auto CurrentPreset(int scene) const -> std::filesystem::path;
     void CreatePresentTargets();
-    /// Feeds this tick's audio (silence without any) to every scene's Bands and Envelopes, whether live or not, so the
-    /// canvas shows them moving while a scene is being built.
-    void FollowAudio(const PcmChunk& chunk);
+    /// Feeds this tick's audio (silence without any) to every scene's Bands, Envelopes and presets, whether live or
+    /// not, so the canvas shows them moving while a scene is being built. `pcm` must live until the lanes are fed.
+    void FollowAudio(const std::vector<float>& pcm);
+    /// What every scene's presets hear this tick, after FollowAudio(*pcm): what's wired into each one's Audio
+    /// input, silence for those with nothing wired. `input`: there was input audio this tick; without it, only
+    /// the live scene's wired presets hear the hit. Second: the live scene's wired presets with `hit` (the beat
+    /// hit, as long as `pcm`, or empty) mixed in, for the live lane.
+    auto HeardAudioNow(const PcmChunk& pcm, bool input, const std::vector<float>& hit) const -> std::pair<HeardAudio, HeardAudio>;
 
     std::vector<std::unique_ptr<Lane>> m_lanes;
     VideoProvider* m_videoProvider{nullptr};

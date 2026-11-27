@@ -1496,8 +1496,7 @@ void GraphEditor::DropFiles(ShellState& state, AppActions& actions, int scene, c
         std::string id;
         if (Lower(file.extension().string()) == ".milk")
         {
-            id = model::AddNode(graph, model::NodeType::MilkdropPreset, at.x, at.y);
-            model::ParamsOf<model::MilkdropPresetParams>(*graph.Find(id)).path = file;
+            id = model::AddPreset(graph, at.x, at.y, file);
         }
         else if (IsVideoFile(file))
         {
@@ -1524,6 +1523,8 @@ void GraphEditor::AddNodeAt(AppActions& actions, int scene, model::NodeType type
             const std::string id = model::AddNode(graph, type, at.x, at.y);
             if (configure)
                 configure(*graph.Find(id));
+            if (type == model::NodeType::MilkdropPreset)
+                model::WireToAudioIn(graph, id); // a new preset hears the scene's audio
         },
         std::string("Add ") + model::DisplayName(type));
     if (!errors.empty())
