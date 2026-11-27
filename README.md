@@ -4,11 +4,14 @@ A live visuals app for macOS. You build each scene as a node graph: Milkdrop pre
 
 <!-- Screenshot / demo video goes here. -->
 
-- **Node graph per scene:** wire presets, videos, shaders and effects together. Every wire's colour tells you what flows along it.
-- **Milkdrop presets** through projectM. Videos can feed a preset's feedback, layers or textures.
-- **Videos and ISF shaders** can drive the output on their own, with no preset. This includes multi-pass shaders from VDMX, Resolume and isf.video.
-- **Modulation:** any slider can be moved by an LFO or by the music (Audio In → Band → Envelope).
-- **Built for shows:** cuts are instant because scenes are prepared ahead of time, it follows the MIDI clock, has a Syphon input, crash recovery and a fullscreen output.
+## What makes it different
+
+- **Milkdrop, video and shaders in one graph.** Milkdrop presets, videos (from files or Syphon) and ISF shaders are all nodes you wire together. A video or shader can go *inside* a preset, through a patched projectM: into its feedback, so the preset warps and smears it; before or after its composite; or in place of one of its textures. A video or shader can also drive the output on its own, with no preset.
+- **Every slider can be moved by the music.** Any slider takes a modulation wire. Audio In → Band (a frequency range you choose, e.g. just the kick) → Envelope gives a number that follows that part of the mix. LFOs follow Ableton's MIDI clock. Number nodes can drive other number nodes, so an Envelope can speed up an LFO.
+- **Audio flow you can see.** Each preset hears only the audio wired into it, so two presets in one scene can follow the bass and the hats.
+- **Most ISF shaders just work.** Load filters and generators from VDMX, Resolume or isf.video, including multi-pass simulations (slime mould, fluids, reaction-diffusion) with persistent buffers and a per-node resolution setting. Save a `.fs` file in your editor and it updates live, even on air; a broken save keeps the last working version on screen.
+- **Cuts with no wait.** Upcoming scenes are compiled and warmed in the background on separate render lanes, so a cut never waits for a preset to load. Changes on the clock land on bar lines.
+- **Made for a live show.** Scenes go live from MIDI CC, timings follow Ableton's clock, and Cmd+F gives a clean fullscreen output with no menu bar or Dock.
 
 ## Quick start
 
@@ -62,33 +65,27 @@ Every scene ends in a **Viewport** node: whatever is wired into it is what the a
 **Presets hear only the audio wired into them.** An unwired preset is still. New presets arrive already wired to the scene's Audio In.
 
 **Canvas controls:**
-- Scroll to pan.
-- Pinch or Cmd+scroll to zoom.
+- Scroll to pan, and pinch or Cmd+scroll to zoom.
 - **F** fits the view to the graph.
 - **Arrange** lays the scene out from its wires.
-- The **Mini-map** shows where you are.
-- Delete or Backspace removes the selection.
-- Every edit can be undone with Cmd+Z.
+- Wires route around nodes like circuit traces, and several wires into one pin spread out across a pill-shaped pin so you can follow each one.
 
 ### Library and videos
 
-- **Presets tab:**
-  - Search, browse by category, mark favourites, and hide broken presets. Heavy presets and missing textures are flagged.
-  - Double-click a preset to put it in the live scene.
-  - Drag a preset onto a scene or the canvas.
-- **Videos tab:** the show's shared video pool. Each video has a start point, speed (0.1x–4x) and fit (Fill, Fit or Stretch). Drop files here to add them.
+- **Presets tab:** your whole preset library, indexed in the background, shown as a grid of small live previews. Presets that can't hold 60 fps on your machine are flagged from their measured frame time, and so are presets with missing textures. Double-click a preset to put it in the live scene.
+- **In-node browser:** a preset node can open the library in place, so you can swap its preset without leaving the canvas.
+- **Videos tab:** the show's shared video pool. Each video has a start point, speed (0.1x–4x) and fit (Fill, Fit or Stretch). Scenes that use the same video share one player, so it carries on across cuts.
 
 ### Performing
 
 - **Going live:** each scene is triggered by **MIDI CC 20** on your channel, with the scene's CC value. **Renumber CCs** numbers them in list order.
 - **MIDI clock:** beat and bar timings follow Ableton's MIDI clock, and changes land on bar lines.
 - **Cmd+F** shows only the visuals, fullscreen on the screen the window is on. Press Esc or Cmd+F to come back. Move the window to your output screen first.
-- **Saving:** unsaved changes are asked about when you quit, and recovered after a crash.
 - **Before a show,** go through [the show checklist](docs/2026-10-25-show-checklist.md).
 
 ### Files
 
-- **Shows** are JSON files. Keep them outside this repo: `performances/` is ignored. Older shows are upgraded when they open, and a backup of the old version is saved the first time you save over one.
+- **Shows** are JSON files. Keep them outside this repo: `performances/` is ignored.
 - **Settings:** `~/Library/Application Support/Govtech Visualizer/settings.json`
 - **Logs:** `~/Library/Logs/Govtech Visualizer/`
 - **Converting a show from the old libprojectM fork:**
