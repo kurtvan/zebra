@@ -1,6 +1,6 @@
 # Issues
 
-Tickets live in **GitHub Issues** (`kurtvan/govtech-visualizer`), not in this folder.
+Tickets live in **GitHub Issues** (`kurtvan/zebra`), not in this folder.
 
 - **Projects** are parent issues labelled `project`, with one label each (`project:A` … `project:E`). Their tickets are sub-issues, so each parent shows a progress bar.
   - A: Navigation and play, #45

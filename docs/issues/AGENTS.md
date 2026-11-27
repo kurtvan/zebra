@@ -1,6 +1,6 @@
 # Rules for agents picking up a ticket
 
-You were given a ticket: a GitHub issue in `kurtvan/govtech-visualizer`, e.g. `A3` (#48). **GitHub Issues are the source of truth.** Read this file, then the ticket (`gh issue view <n> --comments`), then its project's parent issue (linked at the bottom of the ticket), then the files the ticket lists under **Read first**.
+You were given a ticket: a GitHub issue in `kurtvan/zebra`, e.g. `A3` (#48). **GitHub Issues are the source of truth.** Read this file, then the ticket (`gh issue view <n> --comments`), then its project's parent issue (linked at the bottom of the ticket), then the files the ticket lists under **Read first**.
 
 ## 1. Before you start
 - The ticket's **Grill notes** section and later comments record decisions made after it was written. They override the rest of the body.
