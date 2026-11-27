@@ -49,6 +49,8 @@ public:
     virtual void TriggerItem(int scene, int item) = 0; //!< Go live on a preset entry (Scene::presetEntries).
     /// Switches switcher `switcherId` of scene `scene` to `input` now (see NodeContext::JumpSwitcher).
     virtual void JumpSwitcher(int scene, const std::string& switcherId, int input) = 0;
+    /// Clears ISF node `nodeId`'s buffers in scene `scene`'s loaded instances (see NodeContext::ResetShader).
+    virtual void ResetShader(int scene, const std::string& nodeId) = 0;
     virtual void ToggleFullscreen() = 0;
     virtual void SetAudioDevice(const std::string& deviceName) = 0; //!< Empty: system default.
     virtual void SetMidiChannel(int channel) = 0;

@@ -149,6 +149,8 @@ public:
     /// Switches switcher `node` to `input` now: a preset switcher goes live on that preset (entering its
     /// scene if needed), a video switcher of the live scene jumps to that video.
     virtual void JumpSwitcher(const model::Node& node, int input) = 0;
+    /// Clears ISF shader `node`'s buffers wherever its scene is loaded, so the shader starts fresh.
+    virtual void ResetShader(const model::Node& node) = 0;
 
     // The canvas.
     /// A row with input pin `spec` of `node` at the left and its label. True if the label was double-clicked.

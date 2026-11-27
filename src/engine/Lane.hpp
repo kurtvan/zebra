@@ -96,6 +96,9 @@ public:
     /// Its ISF nodes keep their buffers; those of nodes the plan no longer has are freed.
     void SetPlan(InstanceId instance, LanePlan plan);
 
+    /// Clears the buffers of ISF node `node` in a hosted instance, so its shader starts fresh.
+    void ResetShader(InstanceId instance, std::string node);
+
     /// Drops queued (not started) Prepare and Warm jobs. Returns the dropped prepares and warm scenes.
     auto CancelQueued() -> std::pair<std::vector<InstanceId>, std::vector<std::pair<int, std::string>>>;
 
@@ -133,12 +136,14 @@ private:
             Release,
             Configure,
             SetPlan,
+            ResetShader,
             Shutdown,
         };
         Type type{Type::Prepare};
         InstanceId instance{0};
         int scene{-1};
         std::string presetPath;
+        std::string node; //!< ResetShader
         int width{0};
         int height{0};
         std::vector<std::string> texturePaths;

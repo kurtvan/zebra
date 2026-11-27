@@ -129,6 +129,10 @@ public:
     /// point, and a whole interval before the next. Preset switchers jump with TriggerItem.
     void JumpVideo(int index, const std::string& switcherId, int input);
 
+    /// Clears the buffers of ISF node `nodeId` in every loaded instance of scene `index`, so its shader starts
+    /// fresh (the node's Reset). Nothing happens for a scene that isn't loaded.
+    void ResetShader(int index, const std::string& nodeId);
+
     /// What LFOs and other Number outputs of scene `scene` (an index; -1: none) follow now: the running clock's
     /// song position, the time, and its Envelopes' levels.
     auto SignalInputsNow(int scene) const -> model::SignalInputs;
