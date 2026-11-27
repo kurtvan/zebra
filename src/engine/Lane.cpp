@@ -80,6 +80,14 @@ auto DrawsTexture(const LanePlan& plan, const std::string& name) -> bool
     });
 }
 
+/// True if `plan` draws ISF node `node`.
+auto DrawsShader(const LanePlan& plan, const std::string& node) -> bool
+{
+    return std::any_of(plan.branches.begin(), plan.branches.end(), [&](const VideoBranch& branch) {
+        return std::any_of(branch.steps.begin(), branch.steps.end(), [&](const VideoStep& step) { return step.isf && step.isf->node == node; });
+    });
+}
+
 
 auto AttachedFbo(GLuint texture) -> GLuint
 {
@@ -339,6 +347,7 @@ void Lane::Run()
                     CompileShaders(job.plan);
                     hosted->second.plan = job.plan;
                     RestoreTextures(job.instance, job.plan, hosted->second.textures);
+                    std::erase_if(hosted->second.buffers, [&](const auto& entry) { return !DrawsShader(job.plan, entry.first); });
                     DropUnusedPrograms();
                 }
                 break;
@@ -432,6 +441,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     // Warm up with a placeholder video so the chain and blend shaders are compiled now, not on the first
     // live frame.
     std::vector<GLuint> onTop;
+    IsfNodeBuffers buffers; // made now, so the warm-up draws compile and allocate everything
     if (DrawsVideo(job.plan))
     {
         CompileShaders(job.plan);
@@ -447,7 +457,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
             glBindTexture(GL_TEXTURE_2D, 0);
         }
         if (!picture)
-            onTop = RunBranches(instance, job.plan, m_placeholderVideo, nullptr);
+            onTop = RunBranches(instance, job.plan, m_placeholderVideo, nullptr, buffers);
     }
 
     if (failure.failed)
@@ -466,7 +476,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
     auto warmFrame = [&] {
         if (picture)
         {
-            DrawPicture(job.plan, m_placeholderVideo, {}, m_scratchFbo);
+            DrawPicture(job.plan, m_placeholderVideo, {}, buffers, m_scratchFbo);
             glFinish();
             return;
         }
@@ -490,6 +500,10 @@ void Lane::DoPrepare(const Job& job, bool keep)
         projectm_set_layer_texture(instance, PROJECTM_LAYER_BEFORE_COMPOSITE, 0);
     }
 
+    // The warm-up drew into the buffers: the shaders start fresh when the scene goes live.
+    for (auto& [node, nodeBuffers] : buffers)
+        nodeBuffers.Clear();
+
     event.ok = true;
     event.prepareMs = MillisecondsSince(start);
 
@@ -512,7 +526,7 @@ void Lane::DoPrepare(const Job& job, bool keep)
         DropUnusedPrograms();
         return;
     }
-    m_instances[job.instance] = {instance, job.plan, {}};
+    m_instances[job.instance] = {instance, job.plan, {}, std::move(buffers)};
     m_sink(std::move(event));
 }
 
@@ -619,12 +633,12 @@ void Lane::DoTick(PendingTick tick)
 
     if (it->second.handle == nullptr) // prepared with no preset (an edit may have left it nothing to show)
     {
-        DrawPicture(plan, video, tick.signals, m_slotFbo[slot]);
+        DrawPicture(plan, video, tick.signals, it->second.buffers, m_slotFbo[slot]);
         m_isfClock.frameIndex++;
     }
     else
     {
-        const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video, &it->second.textures, tick.signals);
+        const std::vector<GLuint> onTop = RunBranches(it->second.handle, plan, video, &it->second.textures, it->second.buffers, tick.signals);
         m_isfClock.frameIndex++;
         glBindFramebuffer(GL_FRAMEBUFFER, m_slotFbo[slot]);
         glViewport(0, 0, m_width, m_height);
@@ -657,7 +671,7 @@ void Lane::DoTick(PendingTick tick)
     m_liveRenderMs = m_liveRenderMs * 0.9 + ms * 0.1;
 }
 
-void Lane::DrawPicture(const LanePlan& plan, GLuint video, const model::SignalValues& signals, GLuint fbo)
+void Lane::DrawPicture(const LanePlan& plan, GLuint video, const model::SignalValues& signals, IsfNodeBuffers& buffers, GLuint fbo)
 {
     if (plan.branches.empty())
     {
@@ -671,9 +685,9 @@ void Lane::DrawPicture(const LanePlan& plan, GLuint video, const model::SignalVa
     const RenderTarget picture = BranchTarget(m_branchTargets, 0);
     const RenderTarget scratch = BranchTarget(m_branchScratch, 0);
     if (HasModulations(branch.steps))
-        m_chain->DrawPicture(video, Modulated(branch.steps, signals), m_programs, m_isfClock, picture, scratch, fbo, m_width, m_height);
+        m_chain->DrawPicture(video, Modulated(branch.steps, signals), m_programs, buffers, m_isfClock, picture, scratch, fbo, m_width, m_height);
     else
-        m_chain->DrawPicture(video, branch.steps, m_programs, m_isfClock, picture, scratch, fbo, m_width, m_height);
+        m_chain->DrawPicture(video, branch.steps, m_programs, buffers, m_isfClock, picture, scratch, fbo, m_width, m_height);
 }
 
 void Lane::DeleteOverride(TextureOverride& override)
@@ -687,7 +701,7 @@ void Lane::DeleteOverride(TextureOverride& override)
     override = {};
 }
 
-auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides,
+auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides, IsfNodeBuffers& buffers,
                        const model::SignalValues& signals) -> std::vector<GLuint>
 {
     GLuint feedback = 0;
@@ -704,9 +718,9 @@ auto Lane::RunBranches(projectm_handle instance, const LanePlan& plan, GLuint vi
             const bool ping = std::any_of(branch.steps.begin(), branch.steps.end(), [](const VideoStep& step) { return step.isf.has_value(); });
             const RenderTarget scratch = ping ? BranchTarget(m_branchScratch, i) : RenderTarget{};
             if (HasModulations(branch.steps))
-                m_chain->RunSteps(video, Modulated(branch.steps, signals), m_programs, m_isfClock, picture, scratch, m_width, m_height);
+                m_chain->RunSteps(video, Modulated(branch.steps, signals), m_programs, buffers, m_isfClock, picture, scratch, m_width, m_height);
             else
-                m_chain->RunSteps(video, branch.steps, m_programs, m_isfClock, picture, scratch, m_width, m_height);
+                m_chain->RunSteps(video, branch.steps, m_programs, buffers, m_isfClock, picture, scratch, m_width, m_height);
             const GLuint texture = picture.texture;
             const GLuint fbo = picture.fbo;
             switch (branch.layer)

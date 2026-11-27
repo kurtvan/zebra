@@ -131,12 +131,20 @@ struct ViewportParams
 {
     auto operator==(const ViewportParams&) const -> bool = default;
 };
+/// How big an ISF shader renders, before it's scaled up to the canvas: smaller is lighter on the GPU.
+enum class IsfResolution
+{
+    Full,
+    Half,
+    Quarter
+};
 struct IsfShaderParams
 {
     std::filesystem::path path; //!< The .fs file; its header gives the node's inputs and controls.
     /// The controls' values, by ISF input name (1 number for float, bool and long). Values for inputs the file
     /// no longer has are kept but unused.
     std::map<std::string, std::vector<float>> values;
+    IsfResolution resolution{IsfResolution::Full}; //!< Its passes and buffers render at this fraction of the canvas.
     /// Not saved: 1 + the highest wired input (FollowWires), so a missing or edited file keeps its wires.
     int wiredInputs{0};
     auto operator==(const IsfShaderParams&) const -> bool = default;

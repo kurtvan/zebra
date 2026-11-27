@@ -90,7 +90,7 @@ struct Branch
     /// Runs `steps` and reads the branch's picture back.
     auto Run(const std::vector<VideoStep>& steps, bool withScratch = true) -> Pixels
     {
-        chain.RunSteps(video, steps, programs, {}, picture, withScratch ? scratch : engine::RenderTarget{}, kSize, kSize);
+        chain.RunSteps(video, steps, programs, buffers, {}, picture, withScratch ? scratch : engine::RenderTarget{}, kSize, kSize);
         return Read(picture.fbo);
     }
 
@@ -112,6 +112,7 @@ struct Branch
 
     engine::VideoChain chain;
     engine::IsfPrograms programs;
+    engine::IsfNodeBuffers buffers;
     GLuint video{0};
     engine::RenderTarget picture;
     engine::RenderTarget scratch;
@@ -231,7 +232,7 @@ struct Output
 
     auto Draw(Branch& branch, GLuint video, const std::vector<VideoStep>& steps) -> Pixels
     {
-        branch.chain.DrawPicture(video, steps, branch.programs, {}, branch.picture, branch.scratch, target.fbo, kSize, kSize);
+        branch.chain.DrawPicture(video, steps, branch.programs, branch.buffers, {}, branch.picture, branch.scratch, target.fbo, kSize, kSize);
         return Branch::Read(target.fbo);
     }
 
