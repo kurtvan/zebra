@@ -1,4 +1,4 @@
-# Govtech Visualizer
+# Zebra
 
 A live visuals app for macOS. You build each scene as a node graph: Milkdrop presets, videos and ISF shaders, wired through effects, and moved by LFOs and live audio. Then you cut between scenes during a show, from the keyboard, a MIDI controller or Ableton's clock.
 
