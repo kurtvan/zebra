@@ -1,7 +1,7 @@
 /*{
     "ISFVSN": "2",
     "DESCRIPTION": "Inverts the colours, mixed in by amount",
-    "CREDIT": "Govtech Visualizer tests",
+    "CREDIT": "Zebra tests",
     "CATEGORIES": ["Color Effect"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },

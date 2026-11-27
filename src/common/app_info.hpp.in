@@ -7,5 +7,7 @@ namespace gv::app_info {
 constexpr const char* kName = "@GV_APP_NAME@";
 constexpr const char* kBundleId = "@GV_BUNDLE_ID@";
 constexpr const char* kVersion = "@PROJECT_VERSION@";
+/// The app's name before it was Zebra: the settings and logs folders under this name are copied across once.
+constexpr const char* kLegacyName = "@GV_LEGACY_APP_NAME@";
 
 } // namespace gv::app_info

@@ -5,6 +5,8 @@ add_library(gv_common STATIC
     common/log.hpp
     common/paths.mm
     common/paths.hpp
+    common/FolderMigration.cpp
+    common/FolderMigration.hpp
     common/memory.cpp
     common/memory.hpp
     common/SpscRingBuffer.hpp
@@ -156,7 +158,7 @@ add_library(gv_app_settings STATIC
     app/Settings.hpp)
 target_link_libraries(gv_app_settings PUBLIC gv_common nlohmann_json::nlohmann_json PRIVATE gv_warnings)
 
-add_executable(govtech-visualizer
+add_executable(zebra
     app/main.cpp
     app/Shell.cpp
     app/Shell.hpp
@@ -175,7 +177,7 @@ add_executable(govtech-visualizer
     app/macos/Menu.hpp
     app/macos/Window.mm
     app/macos/Window.hpp)
-target_link_libraries(govtech-visualizer PRIVATE
+target_link_libraries(zebra PRIVATE
     gv_warnings
     gv_common
     gv_model
@@ -191,9 +193,9 @@ target_link_libraries(govtech-visualizer PRIVATE
     OpenGL::GL
     "-framework AppKit"
     "-framework UniformTypeIdentifiers")
-target_compile_definitions(govtech-visualizer PRIVATE GL_SILENCE_DEPRECATION)
+target_compile_definitions(zebra PRIVATE GL_SILENCE_DEPRECATION)
 # Syphon.framework's install name is @rpath-relative.
-set_target_properties(govtech-visualizer PROPERTIES BUILD_RPATH "${SYPHON_FRAMEWORK_DIR}")
+set_target_properties(zebra PROPERTIES BUILD_RPATH "${SYPHON_FRAMEWORK_DIR}")
 
 # Objective-C++ sources use ARC.
 set_source_files_properties(common/paths.mm io/macos/CoreMidiInput.mm app/macos/FileDialog.mm app/macos/Menu.mm app/macos/Window.mm
