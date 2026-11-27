@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a performance.json from the libprojectM-4.1.4 fork into the Govtech Visualizer format (version 1).
+"""Convert a performance.json from the libprojectM-4.1.4 fork into the Zebra format (version 1).
 
 The fork's scenes name presets by alias (looked up in favourites.txt) or by path, and use flat video fields.
 The CC 20 value of each scene is its position in the fork's file, matching how the fork triggered scenes.

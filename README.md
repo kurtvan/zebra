@@ -17,7 +17,7 @@ A live visuals app for macOS. You build each scene as a node graph: Milkdrop pre
 
 1. **Build it** (see [Build](#build) below), then run:
    ```sh
-   ./build/src/govtech-visualizer --performance ~/Shows/my-show.json
+   ./build/src/zebra --performance ~/Shows/my-show.json
    ```
    Leave out `--performance` to open the last show, or start a new one from **File > New**.
 2. **Setup** (right panel): pick your audio input, MIDI channel, and your preset and texture folders.
@@ -86,8 +86,8 @@ Every scene ends in a **Viewport** node: whatever is wired into it is what the a
 ### Files
 
 - **Shows** are JSON files. Keep them outside this repo: `performances/` is ignored.
-- **Settings:** `~/Library/Application Support/Govtech Visualizer/settings.json`
-- **Logs:** `~/Library/Logs/Govtech Visualizer/`
+- **Settings:** `~/Library/Application Support/Zebra/settings.json`
+- **Logs:** `~/Library/Logs/Zebra/`
 - **Converting a show from the old libprojectM fork:**
   ```sh
   scripts/convert_fork_performance.py <fork>/performance.json <fork>/favourites.txt ~/Shows/my-show.json
@@ -100,8 +100,8 @@ Every scene ends in a **Viewport** node: whatever is wired into it is what the a
 Requirements: macOS 12+ (developed on Apple Silicon), Xcode or the Command Line Tools, CMake 3.24+ and SDL2 (`brew install cmake sdl2`). You also need **Syphon.framework** in `/Library/Frameworks`, `~/Library/Frameworks` or `third_party/Syphon/` ([releases](https://github.com/Syphon/Syphon-Framework/releases)). The build fails without it.
 
 ```sh
-git clone --recursive https://github.com/kurtvan/govtech-visualizer.git
-cd govtech-visualizer
+git clone --recursive https://github.com/kurtvan/zebra.git
+cd zebra
 cmake -S . -B build          # add -G Ninja for faster builds
 cmake --build build -j
 ```
@@ -122,7 +122,7 @@ The GL tests open a hidden OpenGL context. Each node type has its own test file 
 ### Headless smoke run
 
 ```sh
-./build/src/govtech-visualizer --smoke --smoke-seconds 30 --smoke-cut-every 2 --performance ~/Shows/my-show.json
+./build/src/zebra --smoke --smoke-seconds 30 --smoke-cut-every 2 --performance ~/Shows/my-show.json
 ```
 
 This plays the show in a hidden window, cutting every 2 seconds, then logs held frames and exits with status 0 on success.

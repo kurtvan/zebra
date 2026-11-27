@@ -1,5 +1,7 @@
 #include "app/macos/Menu.hpp"
 
+#include "app_info.hpp"
+
 #import <AppKit/AppKit.h>
 
 #include <map>
@@ -25,8 +27,17 @@ NSMenu* g_recentMenu = nil;
 {
     g_commands.push_back(static_cast<int>(sender.tag));
 }
+- (void)about:(NSMenuItem*)sender
+{
+    [NSApp orderFrontStandardAboutPanelWithOptions:@{
+        NSAboutPanelOptionApplicationName : @(gv::app_info::kName),
+        NSAboutPanelOptionApplicationVersion : @(gv::app_info::kVersion),
+    }];
+}
 - (BOOL)validateMenuItem:(NSMenuItem*)item
 {
+    if (item.action == @selector(about:))
+        return YES;
     if (auto checked = g_checked.find(static_cast<int>(item.tag)); checked != g_checked.end())
         item.state = checked->second ? NSControlStateValueOn : NSControlStateValueOff;
     auto it = g_enabled.find(static_cast<int>(item.tag));
@@ -60,6 +71,28 @@ auto AddMenu(NSString* title, NSInteger index) -> NSMenu*
     return menu;
 }
 
+/// SDL names its application menu items after the executable ("About zebra", "Quit zebra"): use the app's
+/// name instead, and show it in the About panel too.
+void NameApplicationMenu()
+{
+    NSMenu* bar = [NSApp mainMenu];
+    NSMenu* appMenu = bar.numberOfItems > 0 ? [bar itemAtIndex:0].submenu : nil;
+    if (appMenu == nil)
+        return;
+    NSString* process = [NSProcessInfo processInfo].processName;
+    NSString* name = @(gv::app_info::kName);
+    for (NSMenuItem* item in appMenu.itemArray)
+    {
+        if (process.length > 0)
+            item.title = [item.title stringByReplacingOccurrencesOfString:process withString:name];
+        if (item.action == @selector(orderFrontStandardAboutPanel:))
+        {
+            item.action = @selector(about:);
+            item.target = g_target;
+        }
+    }
+}
+
 } // namespace
 
 void InstallMenus()
@@ -69,6 +102,7 @@ void InstallMenus()
         if (g_target != nil || [NSApp mainMenu] == nil)
             return;
         g_target = [[GVMenuTarget alloc] init];
+        NameApplicationMenu();
 
         // SDL's application menu is first; ours follow it, before SDL's Window menu.
         NSMenu* file = AddMenu(@"File", 1);

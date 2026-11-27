@@ -1,6 +1,6 @@
 # Rules for agents picking up a ticket
 
-You were given a ticket: a GitHub issue in `kurtvan/govtech-visualizer`, e.g. `A3` (#48). **GitHub Issues are the source of truth.** Read this file, then the ticket (`gh issue view <n> --comments`), then its project's parent issue (linked at the bottom of the ticket), then the files the ticket lists under **Read first**.
+You were given a ticket: a GitHub issue in `kurtvan/zebra`, e.g. `A3` (#48). **GitHub Issues are the source of truth.** Read this file, then the ticket (`gh issue view <n> --comments`), then its project's parent issue (linked at the bottom of the ticket), then the files the ticket lists under **Read first**.
 
 ## 1. Before you start
 - The ticket's **Grill notes** section and later comments record decisions made after it was written. They override the rest of the body.
@@ -24,7 +24,7 @@ ctest --test-dir build --output-on-failure
 - GPU behaviour gets a test in `tests/gl/`. These tests skip themselves when there's no GL context.
 
 ## 4. Never launch the real app
-- **Never** run `./build/src/govtech-visualizer` without `--smoke`. A normal launch opens the user's real show, restores their crash-recovery file and rewrites their settings. `--help` doesn't exist: unknown flags are ignored and the app starts normally.
+- **Never** run `./build/src/zebra` without `--smoke`. A normal launch opens the user's real show, restores their crash-recovery file and rewrites their settings. `--help` doesn't exist: unknown flags are ignored and the app starts normally.
 - For a headless check, run against a copy of `tests/fixtures/govtech-nov-6th.json` in a temp directory: `--smoke --smoke-seconds 20 --smoke-cut-every 2 [--smoke-editor-snapshot FILE] <copy>`. To find other flags, read the argument parser in `src/app/main.cpp`.
 - Anything that needs a real window or hands (trackpad, drag, click) goes in the PR as a **Hand check** list for the user to try.
 

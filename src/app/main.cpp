@@ -1,4 +1,4 @@
-// Govtech Visualizer: editor window, performance output and the main loop.
+// Zebra: editor window, performance output and the main loop.
 
 #include "app/Settings.hpp"
 #include "app/Shell.hpp"
@@ -1576,8 +1576,12 @@ int main(int argc, char* argv[])
 {
     const auto options = ParseOptions(argc, argv);
 
+    // Before anything creates Zebra's folders, so the old ones are copied across on the first launch.
+    const std::string migration = gv::paths::MigrateLegacyFolders();
     gv::log::Init(gv::paths::LogsDir());
     GV_LOG_INFO(kLogCategory, "%s %s starting", gv::app_info::kName, gv::app_info::kVersion);
+    if (!migration.empty())
+        GV_LOG_INFO(kLogCategory, "%s", migration.c_str());
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER) != 0)
     {

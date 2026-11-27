@@ -1,7 +1,7 @@
 /*{
     "ISFVSN": "2",
     "DESCRIPTION": "A 3 x 3 box blur",
-    "CREDIT": "Govtech Visualizer tests",
+    "CREDIT": "Zebra tests",
     "CATEGORIES": ["Blur"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" }

@@ -36,11 +36,11 @@ void Init(const std::filesystem::path& dir, std::uintmax_t maxBytes)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    const auto path = dir / "govtech-visualizer.log";
+    const auto path = dir / "zebra.log";
     std::error_code ec;
     if (std::filesystem::exists(path, ec) && std::filesystem::file_size(path, ec) > maxBytes)
     {
-        std::filesystem::rename(path, dir / "govtech-visualizer.1.log", ec);
+        std::filesystem::rename(path, dir / "zebra.1.log", ec);
     }
 
     g_file.open(path, std::ios::app);
