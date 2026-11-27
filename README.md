@@ -100,8 +100,8 @@ Every scene ends in a **Viewport** node: whatever is wired into it is what the a
 Requirements: macOS 12+ (developed on Apple Silicon), Xcode or the Command Line Tools, CMake 3.24+ and SDL2 (`brew install cmake sdl2`). You also need **Syphon.framework** in `/Library/Frameworks`, `~/Library/Frameworks` or `third_party/Syphon/` ([releases](https://github.com/Syphon/Syphon-Framework/releases)). The build fails without it.
 
 ```sh
-git clone --recursive https://github.com/kurtvan/govtech-visualizer.git
-cd govtech-visualizer
+git clone --recursive https://github.com/kurtvan/zebra.git
+cd zebra
 cmake -S . -B build          # add -G Ninja for faster builds
 cmake --build build -j
 ```
