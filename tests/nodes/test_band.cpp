@@ -33,7 +33,7 @@ TEST_CASE("band: one Audio input, an Audio output; the bass by default", "[node:
     const auto& node = scene.Node(scene.Add(NodeType::Band));
     CHECK(node.id == "band-1");
     CHECK(model::OutputKind(node) == model::PortKind::Audio);
-    CHECK(model::InputCount(node) == 1);
+    CHECK(model::InputCount(node) == 3); // the audio, then the modulation inputs of low and high
     CHECK(model::InputKind(node, 0) == model::PortKind::Audio);
     CHECK(model::Def(NodeType::Band).signal == nullptr); // its audio goes on to an Envelope, not a number
     CHECK(model::ParamsOf<BandParams>(node) == BandParams{20.0, 250.0});
@@ -65,8 +65,10 @@ TEST_CASE("band: saved and read back", "[node:band]")
 TEST_CASE("band: a preset sets the range; the range can still be set by hand", "[node:band]")
 {
     const auto& preset = Control("##preset");
-    const auto& low = Control("##low");
-    const auto& high = Control("##high");
+    const auto sliders = test::ParamSliders(NodeType::Band); // low, then high
+    REQUIRE(sliders.size() == 2);
+    const auto& low = sliders[0];
+    const auto& high = sliders[1];
     model::Node node;
     node.type = NodeType::Band;
     node.params = BandParams{};

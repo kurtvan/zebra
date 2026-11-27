@@ -55,12 +55,8 @@ void AddStep(std::vector<VideoStep>& steps, const Graph& graph, const Node& node
     if (steps.empty() || steps.back().isf)
         steps.emplace_back();
     steps.back().effects.push_back(model::Def(node.type).pass(node));
-    PassModulation modulation{steps.back().effects.size() - 1, {node.id, node.type, 0.f, 0.f, true, node.params, node.depths}, {}};
-    for (int param = 0; param < static_cast<int>(model::Def(node.type).params.size()); ++param)
-    {
-        if (const Node* from = graph.Upstream(node.id, model::ParamInput(node, param)); from != nullptr)
-            modulation.signals.emplace_back(param, from->id);
-    }
+    PassModulation modulation{steps.back().effects.size() - 1, {node.id, node.type, 0.f, 0.f, true, node.params, node.depths},
+                              model::WiredParams(graph, node)};
     if (!modulation.signals.empty())
         steps.back().modulations.push_back(std::move(modulation));
 }

@@ -68,32 +68,6 @@ auto EnvelopeUi() -> NodeUi
     ui.menuGroup = 4;
     ui.inputLabel = "Audio";
 
-    Control attack;
-    attack.kind = Control::Kind::Slider;
-    attack.id = "##attack";
-    attack.get = ParamGet<EnvelopeParams, &EnvelopeParams::attack>;
-    attack.set = ParamSet<EnvelopeParams, &EnvelopeParams::attack>;
-    attack.min = 0.001;
-    attack.max = 1.0;
-    attack.logarithmic = true;
-    attack.format = "attack %.3f s";
-    attack.undo = "Change Envelope Attack";
-    attack.field = "attack";
-    attack.tooltip = "How fast it rises when the music gets louder: short follows every hit.";
-
-    Control release;
-    release.kind = Control::Kind::Slider;
-    release.id = "##release";
-    release.get = ParamGet<EnvelopeParams, &EnvelopeParams::release>;
-    release.set = ParamSet<EnvelopeParams, &EnvelopeParams::release>;
-    release.min = 0.01;
-    release.max = 5.0;
-    release.logarithmic = true;
-    release.format = "release %.2f s";
-    release.undo = "Change Envelope Release";
-    release.field = "release";
-    release.tooltip = "How fast it falls when the music gets quieter: long makes it glide.";
-
     Control autoLevel;
     autoLevel.kind = Control::Kind::Checkbox;
     autoLevel.id = "##autoLevel";
@@ -104,38 +78,13 @@ auto EnvelopeUi() -> NodeUi
     autoLevel.undoOff = "Turn Off Envelope Auto-level";
     autoLevel.tooltip = "The loudest of the last few seconds is 1, so quiet and loud passages both use the whole range. Off: the gain sets it.";
 
-    Control gain;
-    gain.kind = Control::Kind::Slider;
-    gain.id = "##gain";
-    gain.get = ParamGet<EnvelopeParams, &EnvelopeParams::gain>;
-    gain.set = ParamSet<EnvelopeParams, &EnvelopeParams::gain>;
-    gain.min = 0.1;
-    gain.max = 20.0;
-    gain.logarithmic = true;
-    gain.format = "gain %.1f";
-    gain.undo = "Change Envelope Gain";
-    gain.field = "gain";
-    gain.visible = [](const model::Node& node) { return !model::ParamsOf<EnvelopeParams>(node).autoLevel; };
-    gain.tooltip = "How much the music's level is raised: turn it up until the loudest parts reach 1.";
-
-    Control threshold;
-    threshold.kind = Control::Kind::Slider;
-    threshold.id = "##threshold";
-    threshold.get = ParamGet<EnvelopeParams, &EnvelopeParams::threshold>;
-    threshold.set = ParamSet<EnvelopeParams, &EnvelopeParams::threshold>;
-    threshold.max = 0.99;
-    threshold.format = "threshold %.2f";
-    threshold.undo = "Change Envelope Threshold";
-    threshold.field = "threshold";
-    threshold.tooltip = "Levels below this are 0, so quiet sounds don't move anything.";
-
     Control level;
     level.kind = Control::Kind::Custom;
     level.id = "##level";
     level.draw = DrawLevel;
     level.tooltip = "How loud the audio is now, from 0 to 1, over the last two seconds. Wire it into a setting's diamond to move that setting.";
 
-    ui.controls = {{Control::Kind::Inputs}, attack, release, autoLevel, gain, threshold, level};
+    ui.controls = {{Control::Kind::Inputs}, ParamRow(0), ParamRow(1), autoLevel, ParamRow(2), ParamRow(3), level};
     ui.addItems = {{"Envelope", nullptr, "A number that follows how loud the music is, to move a setting."}};
     return ui;
 }

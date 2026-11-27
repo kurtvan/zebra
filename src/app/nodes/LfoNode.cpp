@@ -80,36 +80,13 @@ auto LfoUi() -> NodeUi
     beats.undo = "Change LFO Rate";
     beats.tooltip = "One cycle's length while the MIDI clock runs, in time with the song.";
 
-    Control phase;
-    phase.kind = Control::Kind::Slider;
-    phase.id = "##phase";
-    phase.get = ParamGet<LfoParams, &LfoParams::phase>;
-    phase.set = ParamSet<LfoParams, &LfoParams::phase>;
-    phase.format = "phase %.2f";
-    phase.undo = "Change LFO Phase";
-    phase.field = "phase";
-    phase.tooltip = "How far into its cycle the LFO starts: 0.5 is half a cycle later.";
-
-    Control period;
-    period.kind = Control::Kind::Slider;
-    period.id = "##period";
-    period.get = ParamGet<LfoParams, &LfoParams::periodSeconds>;
-    period.set = ParamSet<LfoParams, &LfoParams::periodSeconds>;
-    period.min = 0.1;
-    period.max = 60.0;
-    period.logarithmic = true;
-    period.format = "no clock: %.1f s";
-    period.undo = "Change LFO Period";
-    period.field = "periodSeconds";
-    period.tooltip = "One cycle's length when there's no MIDI clock running.";
-
     Control wave;
     wave.kind = Control::Kind::Custom;
     wave.id = "##wave";
     wave.draw = DrawWave;
     wave.tooltip = "One cycle of the LFO, and where it is now (the dot). Wire it into a setting's diamond to move that setting.";
 
-    ui.controls = {shape, beats, phase, period, wave};
+    ui.controls = {shape, beats, {Control::Kind::Params}, wave};
     ui.addItems = {{"LFO", nullptr, "A number that rises and falls in time with the beat, to move a setting."}};
     return ui;
 }

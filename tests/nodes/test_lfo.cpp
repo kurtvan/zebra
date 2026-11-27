@@ -31,12 +31,12 @@ auto AtBeat(const model::Node& node, double beats) -> float
 
 } // namespace
 
-TEST_CASE("lfo: a Number output, no inputs; a sine every beat, or every 2 s with no clock", "[node:lfo]")
+TEST_CASE("lfo: a Number output, no other inputs; a sine every beat, or every 2 s with no clock", "[node:lfo]")
 {
     const auto node = Lfo(LfoShape::Sine);
     CHECK(node.id == "lfo-1");
     CHECK(model::OutputKind(node) == model::PortKind::Number);
-    CHECK(model::InputCount(node) == 0);
+    CHECK(model::InputCount(node) == 2); // only the modulation inputs of its phase and its cycle without a clock
     CHECK(model::ParamsOf<model::LfoParams>(node) == model::LfoParams{LfoShape::Sine, 1.f, 0.f, 2.0});
 }
 
@@ -73,6 +73,54 @@ TEST_CASE("lfo: follows the clock's song position in beats, and its fallback per
     CHECK_THAT(model::EvaluateSignals(scene.Graph(), {std::nullopt, 17.5}).at(id), WithinAbs(0.75, 1e-5));
     // Only Number outputs have a value.
     CHECK(model::EvaluateSignals(scene.Graph(), {}).size() == 1);
+}
+
+TEST_CASE("lfo: an LFO or an Envelope moves its cycle without a clock, this frame, whatever order the nodes are in", "[node:lfo]")
+{
+    test::NodeScene scene;
+    // Added first, so only wire order puts its driver before it.
+    const std::string lfo = scene.Add(NodeType::Lfo, [](model::Node& node) {
+        model::ParamsOf<model::LfoParams>(node) = {LfoShape::Saw, 1.f, 0.f, 10.0};
+        node.depths["periodSeconds"] = 20.f / 59.9f; // a full signal: 10 s more
+    });
+    const int period = model::ParamInput(scene.Node(lfo), 1);
+    const model::SignalInputs fiveSeconds{std::nullopt, 5.0};
+    CHECK_THAT(model::EvaluateSignals(scene.Graph(), fiveSeconds).at(lfo), WithinAbs(0.5, 1e-5)); // 5 s of 10
+
+    SECTION("an LFO")
+    {
+        const std::string driver = scene.Add(NodeType::Lfo, [](model::Node& node) {
+            model::ParamsOf<model::LfoParams>(node) = {LfoShape::Square, 1.f, 0.f, 40.0}; // high for its first 20 s
+        });
+        REQUIRE(model::Connect(scene.Graph(), driver, lfo, period));
+        REQUIRE(model::ValidateGraph(scene.Graph()).empty());
+        const auto values = model::EvaluateSignals(scene.Graph(), fiveSeconds);
+        CHECK(values.at(driver) == 1.f);
+        CHECK_THAT(values.at(lfo), WithinAbs(0.25, 1e-4)); // 5 s of 20
+    }
+    SECTION("an Envelope")
+    {
+        const std::string envelope = scene.Add(NodeType::Envelope);
+        REQUIRE(model::Connect(scene.Graph(), envelope, lfo, period));
+        REQUIRE(model::ValidateGraph(scene.Graph()).empty());
+        auto inputs = fiveSeconds;
+        inputs.levels[envelope] = 1.f;
+        CHECK_THAT(model::EvaluateSignals(scene.Graph(), inputs).at(lfo), WithinAbs(0.25, 1e-4));
+        inputs.levels[envelope] = 0.5f; // the middle: the slider's own 10 s
+        CHECK_THAT(model::EvaluateSignals(scene.Graph(), inputs).at(lfo), WithinAbs(0.5, 1e-4));
+    }
+}
+
+TEST_CASE("lfo: Number nodes moving each other in a loop are refused, in plain words", "[node:lfo]")
+{
+    test::NodeScene scene;
+    const std::string a = scene.Add(NodeType::Lfo);
+    const std::string b = scene.Add(NodeType::Lfo);
+    REQUIRE(model::Connect(scene.Graph(), a, b, model::ParamInput(scene.Node(b), 0)));
+    const auto errors = model::ConnectErrors(scene.Graph(), b, a, model::ParamInput(scene.Node(a), 1));
+    CHECK(test::Messages(errors) == std::vector<std::string>{"LFO: this would make a loop, where its number ends up moving its own settings."});
+    // Into itself, too.
+    CHECK(test::Messages(model::ConnectErrors(scene.Graph(), a, a, model::ParamInput(scene.Node(a), 0))).size() == 1);
 }
 
 TEST_CASE("lfo: its settings' ranges", "[node:lfo]")

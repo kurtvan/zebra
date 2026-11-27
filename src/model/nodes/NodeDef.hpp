@@ -4,6 +4,7 @@
 
 #include <nlohmann/json_fwd.hpp>
 
+#include <cmath>
 #include <map>
 #include <optional>
 #include <span>
@@ -51,18 +52,21 @@ struct SignalInputs
 /// Every Number output's value this frame (0..1), by node id.
 using SignalValues = std::map<std::string, float>;
 
-/// A slider of a node (NodeDef::params), declared once: the canvas draws its row from this (the slider, its
+/// A slider of a node (ParamsFor), declared once: the canvas draws its row from this (the slider, its
 /// modulation pin and, while wired, the modulated value and the depth), it gets its own modulation input after
-/// the node's others, its depth is saved under `name`, and the engine applies the modulated value
-/// (ModulatedNode).
+/// the node's others, its depth and the wire into it are saved under `name`, and the engine applies the
+/// modulated value (ModulatedNode).
 struct ParamDef
 {
-    const char* name{""};  //!< "opacity": its depth's key in Node::depths; slider drags of it coalesce.
+    /// "opacity": unique in the node. Its depth's key in Node::depths, the name its wire is saved and kept
+    /// by (Wire::param), and slider drags of it coalesce.
+    const char* name{""};
     const char* label{""}; //!< "Opacity": its modulation pin's name.
     float low{0.0f};
     float high{1.0f};
-    float (*get)(const Node&){nullptr};
-    void (*set)(Node&, float){nullptr};
+    /// The value, given this ParamDef: a node type with params of its own (an ISF shader's) finds it by name.
+    float (*get)(const Node&, const ParamDef&){nullptr};
+    void (*set)(Node&, const ParamDef&, float){nullptr};
 
     // The slider.
     const char* format{"%.2f"};                //!< "opacity %.2f"; formatFor overrides it.
@@ -71,7 +75,15 @@ struct ParamDef
     bool integer{false};
     const char* tooltip{nullptr};
     const char* undo{""}; //!< "Change Opacity"
+    bool (*visible)(const Node&){nullptr}; //!< Null: always shown. Hidden, it keeps its pin's wire.
 };
+
+/// A param's value (a float) for a setting kept as a double: rounded to 6 decimals, so the slider's end
+/// (0.01f is a little under 0.01) is the setting's end too.
+inline auto ParamToDouble(float value) -> double
+{
+    return std::round(static_cast<double>(value) * 1e6) / 1e6;
+}
 
 /// Everything the model knows about one node type, in one place: model/nodes/<Type>Node.cpp. The graph
 /// (ports, validation, edits), saving and loading, and the render plan all read it from here, so a new node
@@ -101,6 +113,9 @@ struct NodeDef
     void (*followWires)(const Graph&, Node&){nullptr};
     /// The settings Number wires can move, each with a modulation input after the inputs above.
     std::span<const ParamDef> params{};
+    /// This node's params, in place of `params`, for a type whose params depend on the node (an ISF shader's
+    /// come from its file). The span is the type's to keep alive. Null: `params`.
+    std::span<const ParamDef> (*paramsFor)(const Node&){nullptr};
     /// Number outputs: the value this frame, 0..1.
     float (*signal)(const Node&, const SignalInputs&){nullptr};
 
@@ -147,7 +162,15 @@ void CheckRange(std::vector<GraphError>& errors, const Node& node, const char* w
 /// a Video switcher). Null if the chain has no start yet or loops.
 auto ChainStart(const Graph& graph, const Node* node) -> const Node*;
 
-/// The value of every Number output in `graph` this frame.
+/// `node`'s params: its type's paramsFor, else its params.
+auto ParamsFor(const Node& node) -> std::span<const ParamDef>;
+/// The index in ParamsFor(node) of the param called `name`, or -1.
+auto ParamIndex(const Node& node, std::string_view name) -> int;
+/// `node`'s params that have a wire in: param index -> the node it comes from.
+auto WiredParams(const Graph& graph, const Node& node) -> std::vector<std::pair<int, std::string>>;
+
+/// The value of every Number output in `graph` this frame. Number nodes run in wire order, so one whose
+/// settings another moves sees that one's value of this frame.
 auto EvaluateSignals(const Graph& graph, const SignalInputs& inputs) -> SignalValues;
 /// `node`'s param `param` moved by `signal` around its own value: clamp(value + (signal - 0.5) * depth *
 /// (high - low)), with the depth from Node::depths.
@@ -158,6 +181,8 @@ auto DepthOf(const Node& node, int param) -> float;
 /// its modulation input is wired from) at its modulated value (Modulate). A param whose signal has no value
 /// keeps the slider's. An effect then compiles the copy to its pass as usual (NodeDef::pass).
 auto ModulatedNode(const Node& node, std::span<const std::pair<int, std::string>> wired, const SignalValues& signals) -> Node;
+/// ModulatedNode with the wires of `graph`.
+auto ModulatedNode(const Graph& graph, const Node& node, const SignalValues& signals) -> Node;
 
 namespace nodes {
 

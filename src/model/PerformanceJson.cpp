@@ -93,7 +93,13 @@ auto NodeJson(const Node& node) -> json
 auto WireJson(const Wire& wire, const Graph& graph) -> json
 {
     json object = {{"from", wire.fromNode}, {"to", wire.toNode}, {"input", wire.toInput}};
-    if (const Node* to = graph.Find(wire.toNode); to != nullptr)
+    if (!wire.param.empty())
+    {
+        // By the param's name, so the wire stays on it when the node's params or inputs change.
+        object.erase("input");
+        object["param"] = wire.param;
+    }
+    else if (const Node* to = graph.Find(wire.toNode); to != nullptr)
     {
         if (const auto names = Def(to->type).inputNames; wire.toInput >= 0 && wire.toInput < static_cast<int>(names.size()))
             object["input"] = names[static_cast<size_t>(wire.toInput)];
@@ -164,6 +170,23 @@ auto ParseWire(const json& object, const Graph& graph, const std::string& path, 
     else
     {
         ReadField(object, "input", wire.toInput, path, issues);
+    }
+    const Node* to = graph.Find(wire.toNode);
+    if (to == nullptr)
+        return wire;
+    if (ReadField(object, "param", wire.param, path, issues); !wire.param.empty())
+    {
+        const int param = ParamIndex(*to, wire.param);
+        if (param < 0)
+        {
+            issues.push_back(Warning(path + "/param", Label(*to) + " has no setting \"" + wire.param + "\" any more: the wire was left out"));
+            return std::nullopt;
+        }
+        wire.toInput = ParamInput(*to, param);
+    }
+    else if (const int param = wire.toInput - ParamInput(*to, 0); param >= 0 && param < static_cast<int>(ParamsFor(*to).size()))
+    {
+        wire.param = ParamsFor(*to)[static_cast<size_t>(param)].name; // saved by number before params had names
     }
     return wire;
 }

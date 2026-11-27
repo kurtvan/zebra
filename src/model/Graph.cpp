@@ -103,7 +103,7 @@ auto ParamInput(const Node& node, int param) -> int
 
 auto InputCount(const Node& node) -> int
 {
-    return ParamInput(node, static_cast<int>(Def(node.type).params.size()));
+    return ParamInput(node, static_cast<int>(ParamsFor(node).size()));
 }
 
 auto InputKind(const Node& node, int input) -> std::optional<PortKind>
@@ -294,7 +294,16 @@ auto ValidateGraph(const Graph& graph) -> std::vector<GraphError>
         {
             if (state[next] == 1)
             {
-                if (!loop)
+                // A loop through a Number node (an LFO, an Envelope) says which number would move itself.
+                const Node* number = nullptr;
+                for (const Node* end : {graph.Find(next), graph.Find(id)})
+                {
+                    if (number == nullptr && end != nullptr && OutputKind(*end) == PortKind::Number)
+                        number = end;
+                }
+                if (!loop && number != nullptr)
+                    errors.push_back({number->id, Label(*number) + ": this would make a loop, where its number ends up moving its own settings."});
+                else if (!loop)
                     errors.push_back({next, "This would make a loop."});
                 loop = true;
             }
@@ -377,7 +386,11 @@ auto Connect(Graph& graph, const std::string& from, const std::string& to, int i
     if (graph.Find(from) == nullptr || graph.Find(to) == nullptr)
         return false;
     Disconnect(graph, to, input, textureName);
-    graph.wires.push_back({from, to, input, textureName});
+    Wire wire{from, to, input, textureName};
+    const Node& node = *graph.Find(to);
+    if (const int param = input - ParamInput(node, 0); param >= 0 && param < static_cast<int>(ParamsFor(node).size()))
+        wire.param = ParamsFor(node)[static_cast<size_t>(param)].name;
+    graph.wires.push_back(std::move(wire));
     FollowWires(graph);
     return true;
 }
@@ -409,6 +422,16 @@ void FollowWires(Graph& graph)
         if (const auto follow = Def(node.type).followWires; follow != nullptr)
             follow(graph, node);
     }
+    // Wires into modulation inputs follow their param by name, after the inputs before them have settled.
+    std::erase_if(graph.wires, [&](Wire& wire) {
+        const Node* node = wire.param.empty() ? nullptr : graph.Find(wire.toNode);
+        if (node == nullptr)
+            return false;
+        const int param = ParamIndex(*node, wire.param);
+        if (param >= 0)
+            wire.toInput = ParamInput(*node, param);
+        return param < 0;
+    });
 }
 
 auto PresetsOf(const Graph& graph) -> std::vector<std::filesystem::path>

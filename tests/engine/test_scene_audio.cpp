@@ -52,11 +52,11 @@ struct Scene
             REQUIRE(model::Connect(graph, from, id, 0));
         return id;
     }
-    /// Feeds `stereo` a tick at a time; returns the levels after it.
-    auto Feed(const std::vector<float>& stereo) -> std::map<std::string, float>
+    /// Feeds `stereo` a tick at a time, with Number outputs at `signals`; returns the levels after it.
+    auto Feed(const std::vector<float>& stereo, const model::SignalValues& signals = {}) -> std::map<std::string, float>
     {
         for (size_t at = 0; at < stereo.size(); at += kChunk)
-            sceneAudio.Process(graph, std::span<const float>(stereo).subspan(at, std::min(kChunk, stereo.size() - at)), kRate);
+            sceneAudio.Process(graph, std::span<const float>(stereo).subspan(at, std::min(kChunk, stereo.size() - at)), kRate, signals);
         return sceneAudio.Levels();
     }
     engine::SceneAudio sceneAudio;
@@ -116,4 +116,22 @@ TEST_CASE("scene audio: a Band after a Band narrows it; an Envelope with no audi
     // A removed Envelope is forgotten.
     model::RemoveNode(scene.graph, followMid);
     CHECK(scene.Feed(Sine(1500.0)).count(followMid) == 0);
+}
+
+TEST_CASE("scene audio: Number wires move a Band's range and an Envelope's settings", "[scene-audio]")
+{
+    Scene scene;
+    const auto treble = scene.Band(model::kBandPresets[2], scene.audio);
+    const auto follow = scene.Envelope(treble);
+    model::ParamsOf<model::EnvelopeParams>(*scene.graph.Find(follow)).autoLevel = false;
+    const auto lfo = model::AddNode(scene.graph, NodeType::Lfo, 0, 0);
+    REQUIRE(model::Connect(scene.graph, lfo, treble, model::ParamInput(*scene.graph.Find(treble), 0)));
+    scene.graph.Find(treble)->depths["low"] = -1.f; // a full signal takes the low end all the way down
+
+    CHECK(scene.Feed(Sine(60.0), {{lfo, 0.5f}}).at(follow) < 0.05f); // the middle: treble, as set
+    CHECK(scene.Feed(Sine(60.0), {{lfo, 1.f}}).at(follow) > 0.4f);   // down to 20 Hz: the 60 Hz tone passes
+
+    // The Envelope's threshold moved to its top shuts the level.
+    REQUIRE(model::Connect(scene.graph, lfo, follow, model::ParamInput(*scene.graph.Find(follow), 3)));
+    CHECK(scene.Feed(Sine(60.0), {{lfo, 1.f}}).at(follow) == 0.f);
 }

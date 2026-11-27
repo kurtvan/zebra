@@ -28,7 +28,7 @@ auto SwitcherDef() -> NodeDef
         int last = -1;
         for (const auto& wire : graph.wires)
         {
-            if (wire.toNode == node.id)
+            if (wire.toNode == node.id && wire.param.empty()) // not its modulation inputs, which come after
                 last = std::max(last, wire.toInput);
         }
         params->inputCount = last + 2;

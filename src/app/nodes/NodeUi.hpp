@@ -173,7 +173,7 @@ struct Control
     enum class Kind
     {
         Inputs,   //!< The node's input rows.
-        Params,   //!< A slider row per NodeDef::params entry, each with its modulation pin (ParamSlider).
+        Params,   //!< A slider row per model::ParamsFor entry (or just `param`'s), each with its pin (ParamSlider).
         Slider,   //!< A number: get/set, min..max. Hand-written only where it can't be a param yet.
         Checkbox, //!< On or off: get/set as 0 or 1.
         Choice,   //!< One of `options`: get/set the index. Radio buttons, or a button that opens a list.
@@ -190,8 +190,9 @@ struct Control
     bool integer{false};
     bool logarithmic{false};
     const char* format{"%.2f"};                 //!< Slider format; formatFor overrides it.
-    /// Sliders made by ParamSlider: the NodeDef::params entry it edits. Its modulation pin starts the row and,
+    /// Sliders made by ParamSlider: the model::ParamsFor entry it edits. Its modulation pin starts the row and,
     /// while wired, the row also shows the modulated value (a marker on the slider) and the depth. -1: none.
+    /// A `Params` control: the one param whose row goes here, so other controls can sit between; -1: all.
     int param{-1};
     const char* (*formatFor)(double){nullptr};  //!< The format for a value (contrast: decimals below 10).
 
@@ -257,6 +258,14 @@ auto NodeUis() -> std::span<const NodeUi>;
 auto NodeTitle(const model::Node& node, NodeContext& context) -> std::string;
 auto NodeStatusOf(const model::Node& node, NodeContext& context) -> NodeStatus;
 auto NodeInputs(const model::Node& node, NodeContext& context) -> std::vector<InputSpec>;
+/// A `Params` control for just param `param`'s row, so other controls can sit between a node's params.
+inline auto ParamRow(int param) -> Control
+{
+    Control control;
+    control.kind = Control::Kind::Params;
+    control.param = param;
+    return control;
+}
 /// The slider for `node`'s param `param` (NodeDef::params), all from its ParamDef: what a `Params` control
 /// draws, one per param.
 auto ParamSlider(const model::Node& node, int param) -> Control;

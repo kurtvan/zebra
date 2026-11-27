@@ -203,6 +203,10 @@ struct Wire
     std::string toNode;
     int toInput{0};          //!< Preset: a PresetLayer. Switcher: the input index. Others: 0.
     std::string textureName; //!< Preset texture inputs only: the texture it replaces.
+    /// Modulation inputs only: the param's name (ParamDef::name). The wire follows it: FollowWires moves
+    /// `toInput` to that param's input when the node's params or inputs change, and drops the wire if the
+    /// param is gone. Show files save the wire by this name.
+    std::string param{};
 
     auto operator==(const Wire&) const -> bool = default;
 };
