@@ -52,6 +52,14 @@ struct SignalInputs
 /// Every Number output's value this frame (0..1), by node id.
 using SignalValues = std::map<std::string, float>;
 
+/// How a param's row shows its value.
+enum class ParamKind
+{
+    Slider,
+    Checkbox, //!< Off below the middle of low..high, on from it (an ISF bool).
+    Choice,   //!< One of `options`, by index low..high; a value in between picks the nearest (an ISF long).
+};
+
 /// A slider of a node (ParamsFor), declared once: the canvas draws its row from this (the slider, its
 /// modulation pin and, while wired, the modulated value and the depth), it gets its own modulation input after
 /// the node's others, its depth and the wire into it are saved under `name`, and the engine applies the
@@ -76,6 +84,14 @@ struct ParamDef
     const char* tooltip{nullptr};
     const char* undo{""}; //!< "Change Opacity"
     bool (*visible)(const Node&){nullptr}; //!< Null: always shown. Hidden, it keeps its pin's wire.
+
+    ParamKind kind{ParamKind::Slider};
+    std::span<const char* const> options{}; //!< Choice labels, by index.
+    const char* undoOff{nullptr};           //!< Checkboxes: the undo label when turned off; null: `undo`.
+    const void* data{nullptr};              //!< For get and set: what the node type keeps per param (an ISF input).
+    /// Kept only so a wire into a setting the node no longer has stays (NodeDef::keepsLostParams): it moves
+    /// nothing, and the canvas shows `tooltip` as a note on its row in place of a slider.
+    bool lost{false};
 };
 
 /// A param's value (a float) for a setting kept as a double: rounded to 6 decimals, so the slider's end
@@ -116,6 +132,9 @@ struct NodeDef
     /// This node's params, in place of `params`, for a type whose params depend on the node (an ISF shader's
     /// come from its file). The span is the type's to keep alive. Null: `params`.
     std::span<const ParamDef> (*paramsFor)(const Node&){nullptr};
+    /// A wire into a param the node doesn't have is kept, not dropped (an ISF input its file lost): its
+    /// paramsFor gives the wire a `lost` param of its own, so it works again when the param comes back.
+    bool keepsLostParams{false};
     /// Number outputs: the value this frame, 0..1.
     float (*signal)(const Node&, const SignalInputs&){nullptr};
 

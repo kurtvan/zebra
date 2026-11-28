@@ -88,7 +88,7 @@ TEST_CASE("ISF shader: a Video input per image input, following the file as it c
     test::NodeScene scene;
     const std::string id = scene.Add(NodeType::IsfShader, WithPath(file));
     test::FakeNodeContext context(scene);
-    CHECK(model::InputCount(scene.Node(id)) == 2);
+    CHECK(model::InputCount(scene.Node(id)) == 3); // and amount's modulation input
     auto inputs = app::NodeInputs(scene.Node(id), context);
     REQUIRE(inputs.size() == 2);
     CHECK(inputs[0].label == "inputImage");
@@ -100,7 +100,7 @@ TEST_CASE("ISF shader: a Video input per image input, following the file as it c
     CHECK(app::NodeTitle(scene.Node(id), context) == "mix");
 
     scene.Node(id).params = IsfShaderParams{kInvert, {}};
-    CHECK(model::InputCount(scene.Node(id)) == 1);
+    CHECK(model::ParamInput(scene.Node(id), 0) == 1); // one picture input, then Amount's
 }
 
 TEST_CASE("ISF shader: a missing or shrunk file keeps its wires, as inputs it no longer has", "[node:isf-shader]")
@@ -340,7 +340,7 @@ TEST_CASE("ISF shader: an edit the parser can't read keeps the last version, wit
     test::NodeScene scene;
     const std::string id = scene.Add(NodeType::IsfShader, WithPath(file));
     test::FakeNodeContext context(scene);
-    CHECK(model::InputCount(scene.Node(id)) == 1);
+    CHECK(model::InputCount(scene.Node(id)) == 2); // and amount's modulation input
     CHECK(app::NodeStatusOf(scene.Node(id), context).tooltip.ends_with("The last version that could be read keeps running."));
 
     WriteShader(file, R"({"NAME": "inputImage", "TYPE": "image"})");
@@ -428,4 +428,171 @@ TEST_CASE("ISF shader: a long error wraps inside the node's width", "[node:isf-s
     CHECK(window->DC.CursorMaxPos.y - window->DC.CursorStartPos.y > 4.f * ImGui::GetTextLineHeight()); // on several lines
     // The full message is in the status tooltip.
     CHECK(app::NodeStatusOf(scene.Node(id), context).tooltip.ends_with("of any node\nmore"));
+}
+
+// Modulation (D10, #77): the file's float, bool and long inputs are params, with pins, depths and wires.
+
+namespace {
+
+constexpr const char* kModulated = R"({"NAME": "inputImage", "TYPE": "image"},
+    {"NAME": "radius", "LABEL": "Radius", "TYPE": "float", "MIN": 0.0, "MAX": 32.0, "DEFAULT": 4.0},
+    {"NAME": "mirror", "LABEL": "Mirror", "TYPE": "bool"},
+    {"NAME": "mode", "LABEL": "Mode", "TYPE": "long", "VALUES": [2, 5, 9], "LABELS": ["Soft", "Hard", "Max"], "DEFAULT": 2},
+    {"NAME": "tint", "TYPE": "color"}, {"NAME": "centre", "TYPE": "point2D"}, {"NAME": "flash", "TYPE": "event"})";
+
+/// The value `param` of `node` takes from `signal` through a wire, at `depth`.
+auto Moved(model::Node node, const std::string& param, float signal, float depth = 1.f) -> std::vector<float>
+{
+    node.depths[param] = depth;
+    const int index = model::ParamIndex(node, param);
+    REQUIRE(index >= 0);
+    const std::vector<std::pair<int, std::string>> wired{{index, "lfo"}};
+    return model::ParamsOf<IsfShaderParams>(model::ModulatedNode(node, wired, {{"lfo", signal}})).values.at(param);
+}
+
+} // namespace
+
+TEST_CASE("ISF shader: each float, bool and long has a modulation pin starting its row; colour, point and event don't", "[node:isf-shader]")
+{
+    const auto file = TempDir() / "pins.fs";
+    WriteShader(file, kModulated);
+    test::NodeScene scene;
+    const std::string id = scene.Add(NodeType::IsfShader, WithPath(file));
+    const auto params = model::ParamsFor(scene.Node(id));
+    REQUIRE(params.size() == 3);
+    CHECK(params[0].kind == model::ParamKind::Slider);
+    CHECK(params[1].kind == model::ParamKind::Checkbox);
+    CHECK(params[2].kind == model::ParamKind::Choice);
+    CHECK(model::ParamInput(scene.Node(id), 0) == 1); // after its picture input
+    CHECK(model::InputCount(scene.Node(id)) == 4);
+    for (int param = 0; param < 3; ++param)
+        CHECK(model::InputKind(scene.Node(id), model::ParamInput(scene.Node(id), param)) == model::PortKind::Number);
+
+    test::FakeNodeContext context(scene);
+    test::HeadlessUi ui;
+    ui.Frame(context, id);
+    REQUIRE(context.paramPins.size() == 3);
+    CHECK(context.paramPins[0] == app::InputSpec{1, {}, model::PortKind::Number, "Radius"});
+    CHECK(context.paramPins[1].label == "Mirror");
+    CHECK(context.paramPins[2].label == "Mode");
+    CHECK(context.edits.empty());
+
+    // A wire in, and the checkbox and choice rows also show its depth.
+    const std::string lfo = scene.Add(NodeType::Lfo);
+    REQUIRE(model::Connect(scene.Graph(), lfo, id, model::ParamInput(scene.Node(id), 2)));
+    CHECK(scene.Graph().wires.back().param == "mode");
+    CHECK(model::ValidateGraph(scene.Graph()).empty());
+    context.tooltips.clear();
+    ui.Frame(context, id);
+    CHECK(std::ranges::count(context.tooltips, std::string("How far the wire moves the setting either side of the slider (negative: the other way).")) == 1);
+}
+
+TEST_CASE("ISF shader: a wire moves a float by its depth, turns a bool on from the middle and snaps a long to its nearest choice", "[node:isf-shader]")
+{
+    const auto file = TempDir() / "moved.fs";
+    WriteShader(file, kModulated);
+    test::NodeScene scene;
+    const auto& node = scene.Node(scene.Add(NodeType::IsfShader, WithPath(file)));
+
+    CHECK(Moved(node, "radius", 1.f, 0.5f) == std::vector<float>{12.f}); // 4 + 0.5 * 0.5 * 32
+    CHECK(Moved(node, "radius", 0.f) == std::vector<float>{0.f});        // clamped to MIN
+
+    CHECK(Moved(node, "mirror", 0.5f) == std::vector<float>{0.f});
+    CHECK(Moved(node, "mirror", 0.9f) == std::vector<float>{0.f}); // 0.4: still off
+    CHECK(Moved(node, "mirror", 1.f) == std::vector<float>{1.f});  // 0.5: on
+
+    // Choices 0..2 from "Soft" (2): the signal moves the choice, which picks the nearest VALUE.
+    CHECK(Moved(node, "mode", 0.7f) == std::vector<float>{2.f});    // 0.4 -> Soft
+    CHECK(Moved(node, "mode", 0.75f) == std::vector<float>{5.f});   // 0.5 -> Hard
+    CHECK(Moved(node, "mode", 1.f) == std::vector<float>{5.f});     // 1 -> Hard
+    CHECK(Moved(node, "mode", 1.f, 0.f) == std::vector<float>{2.f}); // depth 0: the choice as set
+    model::Node hard = node;
+    model::ParamsOf<IsfShaderParams>(hard).values["mode"] = {5.f};
+    CHECK(Moved(hard, "mode", 1.f) == std::vector<float>{9.f});
+    CHECK(Moved(hard, "mode", 0.f) == std::vector<float>{2.f});
+}
+
+TEST_CASE("ISF shader: its wired params reach its step's values every frame", "[node:isf-shader]")
+{
+    const auto file = TempDir() / "step.fs";
+    WriteShader(file, kModulated);
+    test::NodeScene scene;
+    const std::string video = scene.Add(NodeType::VideoSource);
+    const std::string isf = scene.Add(NodeType::IsfShader, WithPath(file));
+    const std::string lfo = scene.Add(NodeType::Lfo);
+    REQUIRE(model::Connect(scene.Graph(), video, isf, 0));
+    REQUIRE(model::Connect(scene.Graph(), isf, "viewport", 0));
+    REQUIRE(model::Connect(scene.Graph(), lfo, isf, model::ParamInput(scene.Node(isf), 0)));
+    scene.Node(isf).depths["radius"] = 0.5f;
+    REQUIRE(model::ValidateGraph(scene.Graph()).empty());
+
+    const auto plan = engine::CompilePlan(scene.Graph());
+    REQUIRE(plan.branches.size() == 1);
+    const auto& steps = plan.branches[0].steps;
+    REQUIRE(steps.size() == 1);
+    REQUIRE(steps[0].isf);
+    CHECK(engine::HasModulations(steps));
+    const auto moved = engine::Modulated(steps, {{lfo, 1.f}});
+    CHECK(moved[0].isf->values.at("radius") == std::vector<float>{12.f});
+    CHECK(engine::Modulated(steps, {}).at(0).isf->values == steps[0].isf->values); // no value yet: the slider's
+}
+
+TEST_CASE("ISF shader: a wire into an input the file loses stays, saved and broken with a note, and works when it comes back", "[node:isf-shader]")
+{
+    const auto file = TempDir() / "lost.fs";
+    WriteShader(file, R"({"NAME": "inputImage", "TYPE": "image"}, {"NAME": "speed", "TYPE": "float"}, {"NAME": "size", "TYPE": "float"})");
+    test::NodeScene scene;
+    const std::string isf = scene.Add(NodeType::IsfShader, WithPath(file));
+    const std::string lfo = scene.Add(NodeType::Lfo);
+    const std::string other = scene.Add(NodeType::Lfo);
+    REQUIRE(model::Connect(scene.Graph(), lfo, isf, model::ParamInput(scene.Node(isf), 0)));
+    scene.Node(isf).depths["speed"] = 0.25f;
+    const model::Wire wire = scene.Graph().wires.back();
+    CHECK(wire.param == "speed");
+
+    // Renamed in the file: before any wire edit, the wire already finds its own pin, and "rate" isn't wired.
+    WriteShader(file, R"({"NAME": "inputImage", "TYPE": "image"}, {"NAME": "rate", "TYPE": "float"}, {"NAME": "size", "TYPE": "float"})");
+    REQUIRE(model::ParamsFor(scene.Node(isf)).size() == 3);
+    CHECK(model::ParamsFor(scene.Node(isf))[2].lost);
+    CHECK(std::string(model::ParamsFor(scene.Node(isf))[2].name) == "speed");
+    CHECK(model::WireInput(scene.Graph(), wire) == model::ParamInput(scene.Node(isf), 2));
+    CHECK(scene.Graph().Upstream(isf, model::ParamInput(scene.Node(isf), 0)) == nullptr);
+    CHECK(scene.Graph().Upstream(isf, model::ParamInput(scene.Node(isf), 2))->id == lfo);
+
+    // Another wire edit keeps it, and the node shows a note with its pin in place of a slider.
+    REQUIRE(model::Connect(scene.Graph(), other, isf, model::ParamInput(scene.Node(isf), 1)));
+    REQUIRE(scene.Graph().wires.size() == 2);
+    CHECK(scene.Graph().wires[0].param == "speed");
+    CHECK(model::ValidateGraph(scene.Graph()).empty());
+    CHECK(model::ModulatedNode(scene.Graph(), scene.Node(isf), {{lfo, 1.f}}).params == scene.Node(isf).params); // it moves nothing
+    test::FakeNodeContext context(scene);
+    const auto notes = Controls(scene.Node(isf), context, app::Control::Kind::Text);
+    REQUIRE(notes.size() == 2); // the file's problem line, then the lost input's
+    CHECK(std::string(notes[1].label) == "'speed' isn't in this shader any more.");
+    CHECK(notes[1].param == 2);
+    test::HeadlessUi ui;
+    ui.Frame(context, isf);
+    CHECK(std::ranges::count(context.paramPins, app::InputSpec{model::ParamInput(scene.Node(isf), 2), {}, model::PortKind::Number, "speed"}) == 1);
+
+    // Saved and loaded with no warning, and still there after the file goes missing.
+    const auto loaded = model::ParsePerformance(model::SerializePerformance(scene.performance));
+    CHECK(loaded.ok);
+    CHECK(loaded.issues.size() == 1); // nothing on the viewport
+    REQUIRE(loaded.performance.scenes.size() == 1);
+    CHECK(loaded.performance.scenes[0].graph == scene.Graph());
+    std::filesystem::remove(file);
+    model::FollowWires(scene.Graph());
+    CHECK(scene.Graph().wires.size() == 2);
+    CHECK(model::ValidateGraph(scene.Graph()).empty());
+    const auto missing = model::ParsePerformance(model::SerializePerformance(scene.performance));
+    REQUIRE(missing.performance.scenes.size() == 1);
+    CHECK(missing.performance.scenes[0].graph.wires.size() == 2);
+
+    // Back in the file: the wire works again, with its depth.
+    WriteShader(file, R"({"NAME": "inputImage", "TYPE": "image"}, {"NAME": "speed", "TYPE": "float"})");
+    REQUIRE(model::ParamIndex(scene.Node(isf), "speed") == 0);
+    CHECK_FALSE(model::ParamsFor(scene.Node(isf))[0].lost);
+    CHECK(scene.Graph().Upstream(isf, model::ParamInput(scene.Node(isf), 0))->id == lfo);
+    const auto moved = model::ModulatedNode(scene.Graph(), scene.Node(isf), {{lfo, 1.f}});
+    CHECK(Isf(moved).values.at("speed") == std::vector<float>{0.125f}); // 0 + 0.5 * 0.25
 }

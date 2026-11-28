@@ -148,6 +148,9 @@ struct IsfShaderParams
     IsfResolution resolution{IsfResolution::Full}; //!< Its passes and buffers render at this fraction of the canvas.
     /// Not saved: 1 + the highest wired input (FollowWires), so a missing or edited file keeps its wires.
     int wiredInputs{0};
+    /// Not saved: the params its Number wires go to, by ISF input name (FollowWires). A wire into an input the
+    /// file no longer has keeps a param of its own (ParamDef::lost), and works again if the input comes back.
+    std::vector<std::string> wiredParams{};
     auto operator==(const IsfShaderParams&) const -> bool = default;
 };
 enum class LfoShape
@@ -214,7 +217,7 @@ struct Wire
     std::string textureName; //!< Preset texture inputs only: the texture it replaces.
     /// Modulation inputs only: the param's name (ParamDef::name). The wire follows it: FollowWires moves
     /// `toInput` to that param's input when the node's params or inputs change, and drops the wire if the
-    /// param is gone. Show files save the wire by this name.
+    /// param is gone (unless the node keeps it: NodeDef::keepsLostParams). Show files save the wire by this name.
     std::string param{};
 
     auto operator==(const Wire&) const -> bool = default;
@@ -264,6 +267,9 @@ auto OutputKind(const Node& node) -> std::optional<PortKind>;
 auto InputCount(const Node& node) -> int;
 /// The modulation input of `node`'s param `param` (an index into NodeDef::params).
 auto ParamInput(const Node& node, int param) -> int;
+/// The input `wire` goes into now: a modulation wire's param's input, found by name (its toInput may be from
+/// before the node's params changed, until FollowWires), else its toInput.
+auto WireInput(const Graph& graph, const Wire& wire) -> int;
 /// The kind input `input` of `node` takes, or nullopt if out of range.
 auto InputKind(const Node& node, int input) -> std::optional<PortKind>;
 

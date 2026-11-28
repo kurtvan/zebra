@@ -16,6 +16,8 @@ namespace gv::app {
 inline const ImVec4 kPictureWire{0.42f, 0.64f, 0.98f, 1.f}; //!< Blue.
 inline const ImVec4 kNumberWire{1.00f, 0.56f, 0.24f, 1.f};  //!< Orange.
 inline const ImVec4 kAudioWire{0.36f, 0.82f, 0.45f, 1.f};   //!< Green.
+/// A wire into a setting its node no longer has (a shader input the file lost): red, and faint.
+inline const ImVec4 kBrokenWire{0.96f, 0.42f, 0.42f, 0.55f};
 
 inline auto WireColor(model::PortKind kind) -> ImVec4
 {

@@ -5,8 +5,11 @@
 #include "model/nodes/NodeJson.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <deque>
 #include <fstream>
 #include <mutex>
+#include <set>
 #include <sstream>
 
 namespace gv::model {
@@ -28,7 +31,191 @@ auto Params(const Node& node) -> const IsfShaderParams&
     return ParamsOf<IsfShaderParams>(node);
 }
 
+auto NameOf(const isf::IsfInput& input) -> const std::string&
+{
+    return input.label.empty() ? input.name : input.label;
+}
+
+/// A float, a bool, or a long with VALUES: the inputs that are params.
+auto IsParam(const isf::IsfInput& input) -> bool
+{
+    return input.type == isf::InputType::Float || input.type == isf::InputType::Bool ||
+           (input.type == isf::InputType::Long && !input.values.empty());
+}
+
+auto InputOf(const ParamDef& def) -> const isf::IsfInput&
+{
+    return *static_cast<const isf::IsfInput*>(def.data);
+}
+
+/// A param's value: a float's or bool's own, a long's choice (an index into its VALUES; -1 if none).
+auto GetValue(const Node& node, const ParamDef& def) -> float
+{
+    if (def.data == nullptr)
+        return 0.f; // lost
+    const auto& input = InputOf(def);
+    const float value = IsfValue(Params(node).values, input);
+    if (input.type != isf::InputType::Long)
+        return value;
+    const auto it = std::ranges::find(input.values, static_cast<int>(std::lround(value)));
+    return it == input.values.end() ? -1.f : static_cast<float>(it - input.values.begin());
+}
+
+/// Sets a param: a bool is on from 0.5, a long takes the VALUE of the nearest choice.
+void SetValue(Node& node, const ParamDef& def, float value)
+{
+    if (def.data == nullptr)
+        return;
+    const auto& input = InputOf(def);
+    auto& values = ParamsOf<IsfShaderParams>(node).values;
+    if (input.type == isf::InputType::Bool)
+        values[input.name] = {value >= 0.5f ? 1.f : 0.f};
+    else if (input.type == isf::InputType::Long)
+        values[input.name] = {static_cast<float>(input.values[static_cast<size_t>(
+            std::clamp(static_cast<int>(std::lround(value)), 0, static_cast<int>(input.values.size()) - 1))])};
+    else
+        values[input.name] = {value};
+}
+
+/// The params of one header's inputs, alone and with lost params after them (by the lost inputs' names). Made
+/// once per header and kept: ParamsFor's spans and the canvas's sliders point into it.
+struct HeaderParams
+{
+    std::vector<isf::IsfInput> inputs; //!< The inputs that are params: their ParamDef::data.
+    std::deque<std::string> strings;
+    std::deque<std::vector<const char*>> options;
+    std::vector<ParamDef> params;
+    std::map<std::vector<std::string>, std::vector<ParamDef>> withLost;
+
+    auto Keep(std::string text) -> const char*
+    {
+        return strings.emplace_back(std::move(text)).c_str();
+    }
+};
+
+/// What makes two headers' params the same: their param inputs, written out.
+auto HeaderKey(const isf::IsfShader* shader) -> std::string
+{
+    std::ostringstream key;
+    for (const auto& input : shader != nullptr ? shader->inputs : std::vector<isf::IsfInput>{})
+    {
+        if (!IsParam(input))
+            continue;
+        key << input.name << '\x1f' << static_cast<int>(input.type) << '\x1f' << input.label;
+        for (const auto* list : {&input.defaultValue, &input.min, &input.max})
+        {
+            key << '\x1f';
+            for (float value : *list)
+                key << value << ',';
+        }
+        key << '\x1f';
+        for (int value : input.values)
+            key << value << ',';
+        for (const auto& label : input.labels)
+            key << '\x1f' << label;
+        key << '\x1e';
+    }
+    return key.str();
+}
+
+void MakeParams(HeaderParams& header, const isf::IsfShader* shader)
+{
+    if (shader == nullptr)
+        return;
+    for (const auto& input : shader->inputs)
+    {
+        if (IsParam(input))
+            header.inputs.push_back(input);
+    }
+    for (const auto& input : header.inputs) // not resized from here on: data points into it
+    {
+        ParamDef def;
+        def.name = header.Keep(input.name);
+        def.label = header.Keep(NameOf(input));
+        def.get = GetValue;
+        def.set = SetValue;
+        def.data = &input;
+        def.undo = header.Keep("Change " + NameOf(input));
+        if (input.type == isf::InputType::Float)
+        {
+            def.low = input.min.empty() ? 0.f : input.min[0];
+            def.high = input.max.empty() ? 1.f : input.max[0];
+            if (def.high <= def.low)
+                def.high = def.low + 1.f;
+            std::string label = NameOf(input);
+            for (size_t at = label.find('%'); at != std::string::npos; at = label.find('%', at + 2))
+                label.insert(at, "%"); // the format's own % comes after
+            def.format = header.Keep(label + " %.2f");
+        }
+        else if (input.type == isf::InputType::Bool)
+        {
+            def.kind = ParamKind::Checkbox;
+            def.undo = header.Keep("Turn On " + NameOf(input));
+            def.undoOff = header.Keep("Turn Off " + NameOf(input));
+        }
+        else
+        {
+            def.kind = ParamKind::Choice;
+            def.integer = true;
+            def.high = static_cast<float>(input.values.size() - 1);
+            auto& labels = header.options.emplace_back();
+            for (size_t i = 0; i < input.values.size(); ++i)
+                labels.push_back(header.Keep(i < input.labels.size() ? input.labels[i] : std::to_string(input.values[i])));
+            def.options = labels;
+        }
+        header.params.push_back(def);
+    }
+}
+
 } // namespace
+
+auto IsfParams(const Node& node) -> std::span<const ParamDef>
+{
+    const auto file = IsfFileAt(Params(node).path);
+    static std::mutex mutex;
+    static std::map<std::string, HeaderParams> headers; // by HeaderKey: an edit of the GLSL alone adds none
+    // The header each parsed file has, so the key is made once per file version. Versions no one holds go.
+    static std::map<const isf::IsfShader*, std::pair<std::weak_ptr<const isf::IsfShader>, HeaderParams*>> byShader;
+    std::lock_guard<std::mutex> lock(mutex);
+    HeaderParams* header = nullptr;
+    if (const auto it = byShader.find(file.shader.get()); it != byShader.end() && it->second.first.lock() == file.shader)
+        header = it->second.second;
+    else
+    {
+        std::erase_if(byShader, [](const auto& entry) { return entry.second.first.expired(); });
+        auto [made, added] = headers.try_emplace(HeaderKey(file.shader.get()));
+        if (added)
+            MakeParams(made->second, file.shader.get());
+        header = &made->second;
+        byShader[file.shader.get()] = {file.shader, header};
+    }
+
+    std::vector<std::string> lost;
+    for (const auto& name : Params(node).wiredParams)
+    {
+        if (std::ranges::none_of(header->params, [&](const ParamDef& def) { return name == def.name; }))
+            lost.push_back(name);
+    }
+    if (lost.empty())
+        return header->params;
+    auto [it, added] = header->withLost.try_emplace(lost);
+    if (added)
+    {
+        it->second = header->params;
+        for (const auto& name : lost)
+        {
+            ParamDef def;
+            def.name = header->Keep(name);
+            def.label = def.name;
+            def.get = GetValue;
+            def.set = SetValue;
+            def.lost = true;
+            def.tooltip = header->Keep("'" + name + "' isn't in this shader any more.");
+            it->second.push_back(def);
+        }
+    }
+    return it->second;
+}
 
 auto IsfFileAt(const std::filesystem::path& path) -> IsfFile
 {
@@ -101,7 +288,8 @@ auto IsfValue(const std::map<std::string, std::vector<float>>& values, const isf
 
 namespace nodes {
 
-/// An ISF shader (a .fs file): a picture input per image input, a control per float, bool and long input.
+/// An ISF shader (a .fs file): a picture input per image input, a param (slider, checkbox or choice, each
+/// with its modulation pin) per float, bool and long input.
 auto IsfShaderDef() -> NodeDef
 {
     NodeDef def;
@@ -119,13 +307,19 @@ auto IsfShaderDef() -> NodeDef
     def.inputKind = [](const Node&, int) { return PortKind::Picture; };
     def.followWires = [](const Graph& graph, Node& node) {
         int wired = 0;
+        std::set<std::string> params;
         for (const auto& wire : graph.wires)
         {
             if (wire.toNode == node.id && wire.param.empty()) // not its modulation inputs, which come after
                 wired = std::max(wired, wire.toInput + 1);
+            else if (wire.toNode == node.id)
+                params.insert(wire.param);
         }
         ParamsOf<IsfShaderParams>(node).wiredInputs = wired;
+        ParamsOf<IsfShaderParams>(node).wiredParams.assign(params.begin(), params.end());
     };
+    def.paramsFor = IsfParams;
+    def.keepsLostParams = true;
     // Values the file's MIN and MAX (or a long's VALUES) allow. Values of inputs it doesn't have are ignored.
     def.checkParams = [](const Node& node, std::vector<GraphError>& errors) {
         const auto file = IsfFileAt(Params(node).path);

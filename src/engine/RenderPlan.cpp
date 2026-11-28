@@ -45,11 +45,15 @@ void AddStep(std::vector<VideoStep>& steps, const Graph& graph, const Node& node
 {
     if (node.type == NodeType::IsfShader)
     {
-        // Its sliders aren't params yet. Once they are, this step records its wired params as effects do
-        // below, and Modulated() takes the uniforms from the modulated copy.
+        // Its wired params are recorded as an effect's are below; Modulated() takes the uniforms' values from
+        // the modulated copy.
         const auto& params = model::ParamsOf<model::IsfShaderParams>(node);
-        if (auto file = model::IsfFileAt(params.path); file.shader != nullptr && file.unsupported.empty())
-            steps.push_back({{}, IsfStep{node.id, params.path, std::move(file.shader), params.values, model::IsfDivisor(params.resolution)}});
+        auto file = model::IsfFileAt(params.path);
+        if (file.shader == nullptr || !file.unsupported.empty())
+            return;
+        steps.push_back({{}, IsfStep{node.id, params.path, std::move(file.shader), params.values, model::IsfDivisor(params.resolution)}});
+        if (auto wired = model::WiredParams(graph, node); !wired.empty())
+            steps.back().modulations.push_back({0, {node.id, node.type, 0.f, 0.f, true, node.params, node.depths}, std::move(wired)});
         return;
     }
     if (steps.empty() || steps.back().isf)
@@ -171,12 +175,15 @@ auto Modulated(const std::vector<VideoStep>& steps, const model::SignalValues& s
     for (auto& step : modulated)
     {
         // One path for every modulated node: a modulated copy, rendered as the node itself would be. An effect
-        // compiles it to its pass. An ISF shader's uniforms and a preset's variables can come from the same
-        // copy once their sliders are params.
+        // compiles it to its pass; an ISF shader's uniforms take its values. A preset's variables can come
+        // from the same copy once they're params.
         for (const auto& modulation : step.modulations)
         {
             const Node node = model::ModulatedNode(modulation.node, modulation.signals, signals);
-            step.effects.at(modulation.effect) = model::Def(node.type).pass(node);
+            if (step.isf)
+                step.isf->values = model::ParamsOf<model::IsfShaderParams>(node).values;
+            else
+                step.effects.at(modulation.effect) = model::Def(node.type).pass(node);
         }
     }
     return modulated;

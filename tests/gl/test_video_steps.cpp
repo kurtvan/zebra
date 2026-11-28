@@ -2,8 +2,10 @@
 // one of two textures in turn, the last into the branch's own. 16 x 16 throughout, so each pixel samples
 // exactly one texel.
 
+#include "engine/RenderPlan.hpp"
 #include "engine/VideoChain.hpp"
 #include "gl/GlTestContext.hpp"
+#include "model/nodes/IsfShaderNode.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -292,4 +294,34 @@ TEST_CASE("an ISF generator with no video draws its own picture into the output"
             CHECK(out[at + 3] == 255);
         }
     }
+}
+
+TEST_CASE("an ISF float moved by a steady signal renders as its slider set to the moved value", "[gl][node:isf-shader]")
+{
+    REQUIRE_GL();
+    // Video -> invert -> viewport, with an LFO into Amount at depth 0.5: 0.2 + (0.8 - 0.5) * 0.5 = 0.35.
+    const std::filesystem::path invert = std::filesystem::path(GV_TEST_FIXTURES_DIR) / "isf" / "invert.fs";
+    model::Graph graph;
+    model::AddNode(graph, NodeType::Viewport, 0.f, 0.f);
+    const std::string video = model::AddNode(graph, NodeType::VideoSource, 0.f, 0.f);
+    const std::string isf = model::AddNode(graph, NodeType::IsfShader, 0.f, 0.f);
+    const std::string lfo = model::AddNode(graph, NodeType::Lfo, 0.f, 0.f);
+    model::ParamsOf<model::IsfShaderParams>(*graph.Find(isf)) = {invert, {{"amount", {0.2f}}}};
+    graph.Find(isf)->depths["amount"] = 0.5f;
+    REQUIRE(model::Connect(graph, video, isf, 0));
+    REQUIRE(model::Connect(graph, isf, "viewport", 0));
+    REQUIRE(model::Connect(graph, lfo, isf, model::ParamInput(*graph.Find(isf), 0)));
+    REQUIRE(model::ValidateGraph(graph).empty());
+
+    const auto steps = engine::CompilePlan(graph).branches.at(0).steps;
+    REQUIRE(steps.size() == 1);
+    REQUIRE(steps[0].isf);
+    Branch branch;
+    branch.Compile(steps[0].isf->shader);
+    const Pixels moved = branch.Run(engine::Modulated(steps, {{lfo, 0.8f}}));
+    const float amount = model::Modulate(*graph.Find(isf), 0, 0.8f);
+    CHECK(std::abs(amount - 0.35f) < 1e-6f);
+    const Pixels set = branch.Run({IsfStep(steps[0].isf->shader, amount)});
+    CHECK(moved == set);
+    CHECK(moved != branch.Run(steps)); // the signal did move it
 }

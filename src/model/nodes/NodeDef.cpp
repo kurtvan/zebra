@@ -144,7 +144,8 @@ auto ModulatedNode(const Node& node, std::span<const std::pair<int, std::string>
     const auto params = ParamsFor(node);
     for (const auto& [param, from] : wired)
     {
-        if (const auto it = signals.find(from); it != signals.end())
+        // A plan made just before its shader file changed may name a param the file no longer has.
+        if (const auto it = signals.find(from); it != signals.end() && param < static_cast<int>(params.size()))
         {
             const ParamDef& def = params[static_cast<size_t>(param)];
             def.set(modulated, def, Modulate(node, param, it->second));

@@ -8,10 +8,13 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
 namespace gv::model {
+
+struct ParamDef;
 
 /// An ISF file as the node sees it.
 struct IsfFile
@@ -31,6 +34,11 @@ auto IsfFileAt(const std::filesystem::path& path) -> IsfFile;
 
 /// The shader's image inputs, in order: the node's picture inputs.
 auto IsfImageInputs(const isf::IsfShader& shader) -> std::vector<const isf::IsfInput*>;
+
+/// The node's params (NodeDef::paramsFor): a slider per float input of its file, a checkbox per bool and a
+/// choice per long, then a lost param per wire into an input the file doesn't have (IsfShaderParams::
+/// wiredParams). Kept for the session, once per header. Thread-safe.
+auto IsfParams(const Node& node) -> std::span<const ParamDef>;
 
 /// What a Resolution divides the canvas size by: 1, 2 or 4.
 auto IsfDivisor(IsfResolution resolution) -> int;
