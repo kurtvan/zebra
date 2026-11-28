@@ -20,7 +20,7 @@ auto BuildUis() -> std::array<NodeUi, model::kNodeTypeCount>
         nodes::VideoSourceUi(), nodes::ContrastUi(), nodes::SaturationUi(), nodes::LumaGateUi(),
         nodes::OpacityUi(),         nodes::MilkdropPresetUi(),   nodes::SwitcherUi(),   nodes::ViewportUi(),
         nodes::IsfShaderUi(),  nodes::LfoUi(),          nodes::AudioInUi(),     nodes::EnvelopeUi(),
-        nodes::BandUi(),
+        nodes::BandUi(),        nodes::MathUi(),
     };
     // Ui() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < model::kNodeTypeCount; ++i)
@@ -136,6 +136,18 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
             break;
         case Control::Kind::Slider:
         {
+            if (modulator != nullptr && model::ParamsFor(node)[static_cast<size_t>(control.param)].passThrough)
+            {
+                // The wire's number is the setting: shown, not a slider to drag.
+                const auto signals = context.Signals();
+                const auto it = signals.find(modulator->id);
+                ImGui::AlignTextToFramePadding();
+                if (it != signals.end())
+                    ImGui::TextColored(kNumberWire, control.format, static_cast<double>(it->second));
+                else
+                    ImGui::TextDisabled("%s", model::ParamsFor(node)[static_cast<size_t>(control.param)].label);
+                break;
+            }
             const ImGuiSliderFlags flags = control.logarithmic ? ImGuiSliderFlags_Logarithmic : ImGuiSliderFlags_None;
             const double current = control.get(node);
             const char* format = control.formatFor != nullptr ? control.formatFor(current) : control.format;

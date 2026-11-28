@@ -12,7 +12,8 @@ set(GV_NODE_TESTS
     nodes/test_lfo.cpp
     nodes/test_audio_in.cpp
     nodes/test_envelope.cpp
-    nodes/test_band.cpp)
+    nodes/test_band.cpp
+    nodes/test_math.cpp)
 
 add_executable(gv_tests
     common/test_log.cpp
