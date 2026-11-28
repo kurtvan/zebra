@@ -413,8 +413,8 @@ auto Engine::HeardAudioNow(const PcmChunk& pcm, bool input, const std::vector<fl
 
 auto Engine::PlanFor(int index, const model::Scene& scene, int item) const -> LanePlan
 {
-    const RenderPlan plan = CompilePlan(scene.graph, SelectionFor(index, scene, item));
-    return {plan.branches, plan.ShowsPicture(), plan.presetNode.empty() ? std::string() : AudioKey(scene.id, plan.presetNode)};
+    const RenderProgram program = CompileProgram(scene.graph, SelectionFor(index, scene, item));
+    return LanePlanOf(program, program.Top() != nullptr ? AudioKey(scene.id, program.Top()->presetNode) : std::string());
 }
 
 void Engine::RefreshLivePlans()
