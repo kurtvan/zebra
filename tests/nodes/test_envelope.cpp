@@ -22,7 +22,7 @@ TEST_CASE("envelope: one Audio input, a Number output; auto-level on by default"
     const auto& node = scene.Node(scene.Add(NodeType::Envelope));
     CHECK(node.id == "envelope-1");
     CHECK(model::OutputKind(node) == model::PortKind::Number);
-    CHECK(model::InputCount(node) == 1);
+    CHECK(model::InputCount(node) == 5); // the audio, then the modulation inputs of its four sliders
     CHECK(model::InputKind(node, 0) == model::PortKind::Audio);
     CHECK(model::ParamsOf<EnvelopeParams>(node) == EnvelopeParams{0.01, 0.25, 1.0, 0.0, true});
 }

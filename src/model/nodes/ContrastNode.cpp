@@ -10,8 +10,8 @@ constexpr ParamDef kParams[] = {
      .label = "Contrast",
      .low = 0.0f,
      .high = kMaxContrast,
-     .get = [](const Node& node) { return ParamsOf<ContrastParams>(node).contrast; },
-     .set = [](Node& node, float value) { ParamsOf<ContrastParams>(node).contrast = value; },
+     .get = [](const Node& node, const ParamDef&) { return ParamsOf<ContrastParams>(node).contrast; },
+     .set = [](Node& node, const ParamDef&, float value) { ParamsOf<ContrastParams>(node).contrast = value; },
      .formatFor = [](double value) { return value < 10.0 ? "%.2f" : "%.0f"; },
      .logarithmic = true,
      .tooltip = "1.00 leaves the video as it is. All the way up, with Saturation at 0, gives hard black and white.\n"

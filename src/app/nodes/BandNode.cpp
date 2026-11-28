@@ -49,31 +49,6 @@ void DrawStrip(const model::Node& node, NodeContext& context)
     ImGui::Dummy(ImVec2(width, kStripHeight));
 }
 
-auto RangeSlider(const char* id, double BandParams::*end, const char* format, const char* undo, const char* tooltip) -> Control
-{
-    Control slider;
-    slider.kind = Control::Kind::Slider;
-    slider.id = id;
-    slider.min = model::kBandMinHz;
-    slider.max = model::kBandMaxHz;
-    slider.logarithmic = true;
-    slider.format = format;
-    slider.undo = undo;
-    slider.field = id;
-    slider.tooltip = tooltip;
-    slider.get = [end](const model::Node& node) { return model::ParamsOf<BandParams>(node).*end; };
-    // Moving one end past the other pushes it along, so the range never turns inside out.
-    slider.set = [end](model::Node& node, double value) {
-        auto& params = model::ParamsOf<BandParams>(node);
-        params.*end = value;
-        if (end == &BandParams::low)
-            params.high = std::max(params.high, value);
-        else
-            params.low = std::min(params.low, value);
-    };
-    return slider;
-}
-
 } // namespace
 
 auto BandUi() -> NodeUi
@@ -104,10 +79,7 @@ auto BandUi() -> NodeUi
     strip.draw = DrawStrip;
     strip.tooltip = "The range it lets through, out of everything you can hear (20 Hz to 20 kHz). Wire it into an Envelope to follow just this range.";
 
-    const Control low = RangeSlider("##low", &BandParams::low, "low %.0f Hz", "Change Band Low End", "Sound below this is cut.");
-    const Control high = RangeSlider("##high", &BandParams::high, "high %.0f Hz", "Change Band High End", "Sound above this is cut.");
-
-    ui.controls = {{Control::Kind::Inputs}, preset, strip, low, high};
+    ui.controls = {{Control::Kind::Inputs}, preset, strip, {Control::Kind::Params}};
     ui.addItems = {{"Band", nullptr, "Lets one frequency range of the audio through (the bass, say), for an Envelope to follow."}};
     return ui;
 }

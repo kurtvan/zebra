@@ -235,7 +235,7 @@ TEST_CASE("every effect param moved by a steady signal renders as its slider set
             const auto video = AddNode(graph, NodeType::VideoSource, 0, 0);
             const auto effect = AddNode(graph, def.type, 0, 0);
             const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
-            p.set(*graph.Find(effect), p.low + (p.high - p.low) * 0.3f);
+            p.set(*graph.Find(effect), p, p.low + (p.high - p.low) * 0.3f);
             Connect(graph, preset, AddNode(graph, NodeType::Viewport, 0, 0), 0);
             Connect(graph, video, effect, 0);
             Connect(graph, effect, preset, 0);
@@ -246,7 +246,7 @@ TEST_CASE("every effect param moved by a steady signal renders as its slider set
             const auto steps = gv::engine::CompilePlan(graph).branches.at(0).steps;
             const auto got = Run(gv::engine::Modulated(steps, {{lfo, 0.7f}}).at(0).effects);
             Node slid = *graph.Find(effect);
-            p.set(slid, p.low + (p.high - p.low) * 0.5f);
+            p.set(slid, p, p.low + (p.high - p.low) * 0.5f);
             const auto want = Run({def.pass(slid)});
             REQUIRE(got.size() == want.size());
             int differ = 0;

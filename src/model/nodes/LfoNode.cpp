@@ -24,6 +24,26 @@ auto Shape(LfoShape shape, double x) -> float
     return 0.0f;
 }
 
+constexpr ParamDef kParams[] = {
+    {.name = "phase",
+     .label = "Phase",
+     .get = [](const Node& node, const ParamDef&) { return ParamsOf<LfoParams>(node).phase; },
+     .set = [](Node& node, const ParamDef&, float value) { ParamsOf<LfoParams>(node).phase = value; },
+     .format = "phase %.2f",
+     .tooltip = "How far into its cycle the LFO starts: 0.5 is half a cycle later.",
+     .undo = "Change LFO Phase"},
+    {.name = "periodSeconds",
+     .label = "Cycle without a clock",
+     .low = 0.1f,
+     .high = 60.0f,
+     .get = [](const Node& node, const ParamDef&) { return static_cast<float>(ParamsOf<LfoParams>(node).periodSeconds); },
+     .set = [](Node& node, const ParamDef&, float value) { ParamsOf<LfoParams>(node).periodSeconds = ParamToDouble(value); },
+     .format = "no clock: %.1f s",
+     .logarithmic = true,
+     .tooltip = "One cycle's length when there's no MIDI clock running.",
+     .undo = "Change LFO Period"},
+};
+
 } // namespace
 
 } // namespace gv::model::nodes
@@ -65,6 +85,7 @@ auto LfoDef() -> NodeDef
     def.displayName = "LFO";
     def.defaults = LfoParams{};
     def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Number; };
+    def.params = kParams;
     def.checkParams = [](const Node& node, std::vector<GraphError>& errors) {
         const auto& params = ParamsOf<LfoParams>(node);
         if (std::ranges::find(kLfoBeats, params.beats) == std::end(kLfoBeats))

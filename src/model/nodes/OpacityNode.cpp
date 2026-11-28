@@ -10,8 +10,8 @@ constexpr const char* kFormerJsonNames[] = {"mix"};
 constexpr ParamDef kParams[] = {
     {.name = "opacity",
      .label = "Opacity",
-     .get = [](const Node& node) { return ParamsOf<OpacityParams>(node).opacity; },
-     .set = [](Node& node, float value) { ParamsOf<OpacityParams>(node).opacity = value; },
+     .get = [](const Node& node, const ParamDef&) { return ParamsOf<OpacityParams>(node).opacity; },
+     .set = [](Node& node, const ParamDef&, float value) { ParamsOf<OpacityParams>(node).opacity = value; },
      .format = "opacity %.2f",
      .tooltip = "How strongly the video goes into the input it's wired to.",
      .undo = "Change Opacity"},

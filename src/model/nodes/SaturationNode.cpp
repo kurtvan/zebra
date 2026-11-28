@@ -10,8 +10,8 @@ constexpr ParamDef kParams[] = {
      .label = "Saturation",
      .low = 0.0f,
      .high = 2.0f,
-     .get = [](const Node& node) { return ParamsOf<SaturationParams>(node).saturation; },
-     .set = [](Node& node, float value) { ParamsOf<SaturationParams>(node).saturation = value; },
+     .get = [](const Node& node, const ParamDef&) { return ParamsOf<SaturationParams>(node).saturation; },
+     .set = [](Node& node, const ParamDef&, float value) { ParamsOf<SaturationParams>(node).saturation = value; },
      .tooltip = "1.00 leaves the video as it is; 0 is black and white.",
      .undo = "Change Saturation"},
 };

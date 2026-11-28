@@ -1,13 +1,15 @@
 #include "engine/SceneAudio.hpp"
 
+#include <algorithm>
 #include <variant>
 
 namespace gv::engine {
 
-void SceneAudio::Process(const model::Graph& graph, std::span<const float> stereo, int sampleRate)
+void SceneAudio::Process(const model::Graph& graph, std::span<const float> stereo, int sampleRate, const model::SignalValues& signals)
 {
     m_input = stereo;
     m_sampleRate = sampleRate;
+    m_signals = &signals;
     m_bandsUsed.clear();
     m_filtered.clear();
     m_presets.clear();
@@ -19,7 +21,7 @@ void SceneAudio::Process(const model::Graph& graph, std::span<const float> stere
         if (node.type != model::NodeType::Envelope || !std::holds_alternative<model::EnvelopeParams>(node.params))
             continue;
         EnvelopeFollower follower = m_followers[node.id];
-        follower.SetParams(model::ParamsOf<model::EnvelopeParams>(node));
+        follower.SetParams(model::ParamsOf<model::EnvelopeParams>(model::ModulatedNode(graph, node, signals)));
         if (const auto audio = AudioOf(graph, graph.Upstream(node.id, 0), 0))
             follower.Process(*audio, sampleRate);
         else
@@ -45,8 +47,8 @@ auto SceneAudio::AudioOf(const model::Graph& graph, const model::Node* node, int
     if (!upstream)
         return std::nullopt;
     BandFilter& filter = m_bandsUsed[node->id] = m_bands[node->id];
-    const auto& params = model::ParamsOf<model::BandParams>(*node);
-    filter.SetRange(params.low, params.high, m_sampleRate);
+    const auto params = model::ParamsOf<model::BandParams>(model::ModulatedNode(graph, *node, *m_signals));
+    filter.SetRange(std::min(params.low, params.high), std::max(params.low, params.high), m_sampleRate);
     std::vector<float>& out = m_filtered[node->id];
     filter.Process(*upstream, out);
     return std::span<const float>(out);

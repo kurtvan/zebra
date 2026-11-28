@@ -115,7 +115,7 @@ TEST_CASE("every node type's ports are consistent", "[node-types]")
         const model::Node& node = lone.scene.Node(lone.id);
         const int inputs = model::InputCount(node);
         CHECK(inputs >= 0);
-        if (inputs > 0)
+        if (model::ParamInput(node, 0) > 0) // inputs before its modulation inputs
             CHECK(def.inputKind != nullptr);
         for (int i = 0; i < inputs; ++i)
             CHECK(model::InputKind(node, i).has_value());
@@ -168,9 +168,11 @@ TEST_CASE("every param has a range, get and set, a modulation input, and a slide
             REQUIRE(p.set != nullptr);
             CHECK(model::InputKind(node, model::ParamInput(node, param)) == model::PortKind::Number);
             CHECK(std::string(p.undo).size() > 0);
+            // Its row, once among the node's controls (none while it's hidden and not wired).
+            test::FakeNodeContext context(lone.scene);
+            const bool shown = p.visible == nullptr || p.visible(node);
+            CHECK(std::ranges::count(app::NodeControls(node, context), param, &app::Control::param) == (shown ? 1 : 0));
         }
-        if (!def.params.empty()) // the node's rows for them, placed among its other controls once
-            CHECK(std::ranges::count(app::Ui(type).controls, app::Control::Kind::Params, &app::Control::kind) == 1);
     }
 }
 
@@ -179,10 +181,7 @@ namespace {
 /// Node types that still have sliders of their own, not params, and why. Each is a follow-up, so this list
 /// only ever shrinks; an entry whose node no longer has such a slider fails below.
 const std::map<NodeType, const char*> kSlidersNotParamsYet = {
-    {NodeType::Lfo, "its settings become params once Number nodes can move each other"},
-    {NodeType::Envelope, "its settings become params once Number nodes can move each other"},
-    {NodeType::Band, "its range becomes params once Number wires can move audio settings"},
-    {NodeType::IsfShader, "its file's sliders become params once a node's params can come from the node"},
+    {NodeType::IsfShader, "its file's sliders become its params through ParamsFor"},
     {NodeType::Switcher, "its interval isn't followed by the switcher clock as a param yet"},
 };
 
@@ -194,7 +193,7 @@ struct WiredParam
         : def(model::Def(type).params[static_cast<size_t>(param)])
     {
         node = scene.Add(type, [&](model::Node& n) {
-            def.set(n, (def.low + def.high) * 0.5f);
+            def.set(n, def, (def.low + def.high) * 0.5f);
             n.depths[def.name] = 0.5f;
         });
         lfo = scene.Add(NodeType::Lfo);
@@ -263,18 +262,18 @@ TEST_CASE("every param has its pin, a depth that's saved, and moves with its wir
             CHECK(loaded.performance.scenes.at(0).graph == wired.scene.Graph());
 
             // The modulated value: the middle, plus half the depth of the range at a full signal.
-            const float middle = def.get(node);
+            const float middle = def.get(node, def);
             const float want = std::clamp(middle + 0.5f * 0.5f * (def.high - def.low), def.low, def.high);
             const std::vector<std::pair<int, std::string>> signals{{param, wired.lfo}};
-            CHECK(def.get(model::ModulatedNode(node, signals, {{wired.lfo, 1.f}})) == want);
-            CHECK(def.get(model::ModulatedNode(node, signals, {})) == middle); // no value yet: the slider's
+            CHECK(std::abs(def.get(model::ModulatedNode(node, signals, {{wired.lfo, 1.f}}), def) - want) <= 1e-5f * std::max(1.f, want));
+            CHECK(def.get(model::ModulatedNode(node, signals, {}), def) == middle); // no value yet: the slider's
 
             // The engine renders effects from the modulated copy: into a preset, and straight onto the
             // viewport with no preset.
             if (model::IsEffect(type))
             {
                 model::Node expected = node;
-                def.set(expected, want);
+                def.set(expected, def, want);
                 for (const bool preset : {true, false})
                 {
                     INFO((preset ? "into a preset" : "no preset"));
@@ -382,7 +381,7 @@ TEST_CASE("every node type's controls are complete and stay within its valid set
                         model::Node& node = lone.scene.Node(lone.id);
                         control.set(node, value);
                         INFO("set to " << value);
-                        CHECK(control.get(node) == value);
+                        CHECK(std::abs(control.get(node) - value) <= 1e-6 * std::max(1.0, std::abs(value))); // some keep doubles
                         CHECK(test::Messages(model::ValidateGraph(lone.scene.Graph())).empty());
                     }
                     break;
@@ -400,7 +399,7 @@ TEST_CASE("every node type's controls are complete and stay within its valid set
         }
         // A node with inputs shows them, so they can be wired.
         Lone lone(type);
-        if (model::InputCount(lone.scene.Node(lone.id)) > 0)
+        if (model::ParamInput(lone.scene.Node(lone.id), 0) > 0) // modulation inputs sit on their slider rows
             CHECK(showsInputs);
     }
 }

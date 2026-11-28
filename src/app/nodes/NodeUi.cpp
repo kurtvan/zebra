@@ -77,10 +77,10 @@ void DrawModulation(const model::Node& node, const Control& control, const model
         const float grab = 2.f + ImGui::GetStyle().GrabMinSize * 0.5f; // where ImGui's grab centre stops at either end
         const ImVec2 min = ImGui::GetItemRectMin();
         const ImVec2 max = ImGui::GetItemRectMax();
-        const float x = min.x + grab + static_cast<float>(SliderRatio(control, value)) *(max.x - min.x - 2.f * grab);
+        const float x = min.x + grab + static_cast<float>(SliderRatio(control, value)) * (max.x - min.x - 2.f * grab);
         ImGui::GetWindowDrawList()->AddLine(ImVec2(x, min.y + 1.f), ImVec2(x, max.y - 1.f), ImGui::GetColorU32(WireColor(model::PortKind::Number)), 2.f);
     }
-    const std::string name = model::Def(node.type).params[static_cast<size_t>(control.param)].name;
+    const std::string name = model::ParamsFor(node)[static_cast<size_t>(control.param)].name;
     float depth = model::DepthOf(node, control.param);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(width);
@@ -111,7 +111,7 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
     if (control.param >= 0)
     {
         const int input = model::ParamInput(node, control.param);
-        context.ParamPin(node, {input, {}, model::PortKind::Number, model::Def(node.type).params[static_cast<size_t>(control.param)].label});
+        context.ParamPin(node, {input, {}, model::PortKind::Number, model::ParamsFor(node)[static_cast<size_t>(control.param)].label});
         ImGui::SameLine(0.f, 4.f);
         modulator = context.SceneGraph().Upstream(node.id, input);
     }
@@ -278,12 +278,13 @@ auto NodeInputs(const model::Node& node, NodeContext& context) -> std::vector<In
 
 auto ParamSlider(const model::Node& node, int param) -> Control
 {
-    const model::ParamDef& def = model::Def(node.type).params[static_cast<size_t>(param)];
+    const model::ParamDef& def = model::ParamsFor(node)[static_cast<size_t>(param)];
     Control slider;
     slider.kind = Control::Kind::Slider;
     slider.id = "##param"; // each control has its own ImGui id scope (its index), so this needn't be unique
-    slider.get = [get = def.get](const model::Node& n) { return static_cast<double>(get(n)); };
-    slider.set = [set = def.set](model::Node& n, double value) { set(n, static_cast<float>(value)); };
+    // The node type keeps its params alive (ParamsFor), so the slider may point at this one.
+    slider.get = [p = &def](const model::Node& n) { return static_cast<double>(p->get(n, *p)); };
+    slider.set = [p = &def](model::Node& n, double value) { p->set(n, *p, static_cast<float>(value)); };
     slider.min = def.low;
     slider.max = def.high;
     slider.integer = def.integer;
@@ -308,8 +309,16 @@ auto NodeControls(const model::Node& node, NodeContext& context) -> std::vector<
             controls.push_back(std::move(control));
             continue;
         }
-        for (int param = 0; param < static_cast<int>(model::Def(node.type).params.size()); ++param)
-            controls.push_back(ParamSlider(node, param));
+        const auto params = model::ParamsFor(node);
+        for (int param = 0; param < static_cast<int>(params.size()); ++param)
+        {
+            if (control.param >= 0 && param != control.param)
+                continue;
+            // A hidden param still shows while it's wired, so its wire has a pin to plug into.
+            const auto visible = params[static_cast<size_t>(param)].visible;
+            if (visible == nullptr || visible(node) || context.SceneGraph().Upstream(node.id, model::ParamInput(node, param)) != nullptr)
+                controls.push_back(ParamSlider(node, param));
+        }
     }
     return controls;
 }

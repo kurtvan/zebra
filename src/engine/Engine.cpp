@@ -350,11 +350,16 @@ auto Engine::SignalInputsNow(int scene) const -> model::SignalInputs
 
 void Engine::FollowAudio(const std::vector<float>& pcm)
 {
+    // What moves each scene's Band and Envelope settings: its numbers as of the last tick's levels.
+    std::vector<model::SignalValues> signals;
+    for (int i = 0; i < static_cast<int>(m_performance.scenes.size()); ++i)
+        signals.push_back(model::EvaluateSignals(m_performance.scenes[static_cast<size_t>(i)].graph, SignalInputsNow(i)));
     std::map<std::string, SceneAudio> kept; // only the scenes still there
-    for (const auto& scene : m_performance.scenes)
+    for (size_t i = 0; i < m_performance.scenes.size(); ++i)
     {
+        const auto& scene = m_performance.scenes[i];
         SceneAudio& audio = kept[scene.id] = std::move(m_sceneAudio[scene.id]);
-        audio.Process(scene.graph, pcm, m_sampleRate);
+        audio.Process(scene.graph, pcm, m_sampleRate, signals[i]);
     }
     m_sceneAudio = std::move(kept);
 }

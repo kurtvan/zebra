@@ -240,6 +240,53 @@ TEST_CASE("an LFO, its Number wire and a modulation depth round-trip; nodes with
     CHECK(SerializePerformance(performance).find("depths") == std::string::npos);
 }
 
+TEST_CASE("wires into a slider are kept by the slider's name: saved, loaded, and when inputs move")
+{
+    Performance performance;
+    performance.scenes.push_back(MakeScene("a", 1));
+    Graph& graph = performance.scenes[0].graph;
+    const auto lfo = AddNode(graph, NodeType::Lfo, 0, 0);
+    const auto gate = AddNode(graph, NodeType::LumaGate, 0, 0);
+    Connect(graph, lfo, gate, ParamInput(*graph.Find(gate), 1));
+    REQUIRE(graph.wires.back().toNode == gate);
+    CHECK(graph.wires.back().param == "softness");
+    graph.Find(gate)->depths["softness"] = 0.25f;
+
+    const auto text = SerializePerformance(performance);
+    CHECK(text.find("\"param\": \"softness\"") != std::string::npos);
+    const auto loaded = ParsePerformance(text);
+    REQUIRE(loaded.ok);
+    CHECK(loaded.performance.scenes.at(0).graph == graph);
+
+    // When the inputs before it move (a param list that changed), the wire follows its param's name.
+    Graph moved = graph;
+    moved.wires.back().toInput = 1;
+    FollowWires(moved);
+    CHECK(moved.wires.back().toInput == ParamInput(*graph.Find(gate), 1));
+
+    auto withWire = [&](const std::string& wire) {
+        return ParsePerformance(R"({"version": 3, "scenes": [{"id": "a", "midi": {"cc20Value": 0}, "graph": {
+            "nodes": [{"id": "l", "type": "lfo"}, {"id": "k", "type": "lfo"}, {"id": "v", "type": "viewport"},
+                      {"id": "g", "type": "lumaGate", "depths": {"threshold": 0.5}}],
+            "wires": [{"from": "k", "to": "g", "param": "threshold"}, )" + wire + "]}}]}");
+    };
+    // Files from before params had names wired them by number: they open on the same param.
+    const auto old = withWire(R"({"from": "l", "to": "g", "input": 2})");
+    REQUIRE(old.ok);
+    const Wire* softness = old.performance.scenes[0].graph.WireInto("g", 2);
+    REQUIRE(softness != nullptr);
+    CHECK(softness->param == "softness");
+
+    // A wire into a param the node doesn't have any more is left out; the others and their depths stay.
+    const auto gone = withWire(R"({"from": "l", "to": "g", "param": "brightness"})");
+    CHECK(HasIssueAt(gone, "/scenes/0/graph/wires/1/param", Issue::Severity::Warning));
+    const Graph& kept = gone.performance.scenes[0].graph;
+    REQUIRE(kept.wires.size() == 1);
+    CHECK(kept.wires[0].param == "threshold");
+    CHECK(kept.wires[0].toInput == 1);
+    CHECK(kept.Find("g")->depths.at("threshold") == 0.5f);
+}
+
 TEST_CASE("canvas sizes must be even and within range")
 {
     auto check = [](int width, int height) {
