@@ -13,6 +13,8 @@ namespace gv::model {
 
 namespace {
 
+constexpr const char* kResolutionNames[] = {"full", "half", "quarter"};
+
 /// "0.5", "32": a number as the artist would write it.
 auto Number(float value) -> std::string
 {
@@ -77,6 +79,17 @@ auto IsfImageInputs(const isf::IsfShader& shader) -> std::vector<const isf::IsfI
             images.push_back(&input);
     }
     return images;
+}
+
+auto IsfDivisor(IsfResolution resolution) -> int
+{
+    switch (resolution)
+    {
+        case IsfResolution::Full: return 1;
+        case IsfResolution::Half: return 2;
+        case IsfResolution::Quarter: return 4;
+    }
+    return 1;
 }
 
 auto IsfValue(const std::map<std::string, std::vector<float>>& values, const isf::IsfInput& input) -> float
@@ -147,6 +160,7 @@ auto IsfShaderDef() -> NodeDef
     };
     def.write = [](const Node& node, nlohmann::json& object) {
         object["path"] = Params(node).path.string();
+        object["resolution"] = kResolutionNames[static_cast<size_t>(Params(node).resolution)];
         nlohmann::json values = nlohmann::json::object();
         for (const auto& [name, value] : Params(node).values)
             values[name] = value.size() == 1 ? nlohmann::json(value[0]) : nlohmann::json(value);
@@ -157,6 +171,12 @@ auto IsfShaderDef() -> NodeDef
         std::string shaderPath;
         ReadField(object, "path", shaderPath, path, issues);
         params.path = shaderPath;
+        std::string resolution = kResolutionNames[0]; // older shows have none: full
+        ReadField(object, "resolution", resolution, path, issues);
+        if (const auto* it = std::ranges::find(kResolutionNames, resolution); it != std::end(kResolutionNames))
+            params.resolution = static_cast<IsfResolution>(it - std::begin(kResolutionNames));
+        else
+            issues.push_back(JsonError(path + "/resolution", "unknown resolution \"" + resolution + "\" (expected full, half or quarter)"));
         const auto values = object.find("values");
         if (values == object.end() || values->is_null())
             return;

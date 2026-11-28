@@ -1,5 +1,7 @@
 #include "isf/IsfHeader.hpp"
 
+#include "isf/IsfSize.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -284,15 +286,20 @@ auto ParseIsf(std::string_view source) -> std::variant<IsfShader, IsfError>
 
 auto UnsupportedFeature(const IsfShader& shader) -> std::string
 {
-    // Only one pass into the output is drawn (multi-pass is D5, #72): any buffer a pass draws into would be an
-    // undeclared sampler in the code that reads it.
-    const bool buffers = shader.passes.size() > 1 ||
-                         std::any_of(shader.passes.begin(), shader.passes.end(), [](const IsfPass& pass) { return pass.persistent || !pass.target.empty(); });
-    if (buffers)
-        return "Uses multi-pass buffers, which aren't supported yet.";
     if (!shader.imported.empty())
         return "Uses imported images, which aren't supported yet.";
+    if (const std::string size = BadSizeExpression(shader); !size.empty())
+        return "A pass has a size that can't be worked out: \"" + size + "\".";
     return {};
+}
+
+auto Targets(const IsfShader& shader) -> std::vector<std::string>
+{
+    std::vector<std::string> targets;
+    for (const auto& pass : shader.passes)
+        if (!pass.target.empty() && std::ranges::find(targets, pass.target) == targets.end())
+            targets.push_back(pass.target);
+    return targets;
 }
 
 auto FindInput(const IsfShader& shader, std::string_view name) -> const IsfInput*
@@ -328,6 +335,9 @@ out vec4 isf_FragColor;
 )GLSL";
     for (const auto& input : shader.inputs)
         out += std::string("uniform ") + UniformType(input.type) + " " + input.name + ";\n";
+    for (const auto& target : Targets(shader))
+        if (FindInput(shader, target) == nullptr)
+            out += "uniform sampler2D " + target + ";\n";
     out += R"GLSL(vec4 IMG_NORM_PIXEL(sampler2D img, vec2 uv) { return texture(img, uv); }
 vec4 IMG_PIXEL(sampler2D img, vec2 xy) { return texture(img, xy / vec2(textureSize(img, 0))); }
 vec4 IMG_THIS_NORM_PIXEL(sampler2D img) { return texture(img, isf_FragNormCoord); }

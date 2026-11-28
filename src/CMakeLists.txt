@@ -93,10 +93,14 @@ target_link_libraries(gv_io PUBLIC gv_common SDL2::SDL2 OpenGL::GL PRIVATE gv_wa
 # ISF shaders: the header parser and GLSL translator are pure (unit tested); the program needs GL.
 add_library(gv_isf STATIC
     isf/IsfHeader.cpp
-    isf/IsfHeader.hpp)
+    isf/IsfHeader.hpp
+    isf/IsfSize.cpp
+    isf/IsfSize.hpp)
 target_link_libraries(gv_isf PUBLIC gv_common PRIVATE gv_warnings nlohmann_json::nlohmann_json)
 
 add_library(gv_isf_gl STATIC
+    isf/IsfBuffers.cpp
+    isf/IsfBuffers.hpp
     isf/IsfProgram.cpp
     isf/IsfProgram.hpp)
 target_compile_definitions(gv_isf_gl PRIVATE GL_SILENCE_DEPRECATION)

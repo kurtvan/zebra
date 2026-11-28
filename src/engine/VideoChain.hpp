@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/RenderPlan.hpp"
+#include "isf/IsfBuffers.hpp"
 #include "isf/IsfProgram.hpp"
 
 #include <OpenGL/gl3.h>
@@ -21,6 +22,10 @@ using IsfPrograms = std::map<std::shared_ptr<const isf::IsfShader>, std::shared_
 /// keeps the old version on screen. Returns the compiler's message, or "" when it compiled.
 auto CompileIsf(IsfPrograms& programs, const std::shared_ptr<const isf::IsfShader>& shader,
                 const std::shared_ptr<const isf::IsfShader>& lastGood = nullptr) -> std::string;
+
+/// The buffers of a loaded scene's ISF nodes, by node id (IsfStep::node): made when the scene is prepared, kept
+/// while it stays loaded and freed with it.
+using IsfNodeBuffers = std::map<std::string, isf::IsfBuffers>;
 
 /// A texture and the framebuffer that draws into it.
 struct RenderTarget
@@ -53,14 +58,17 @@ public:
 
     /// Draws `video` through a branch's `steps` into all of `target` (width x height), ping-ponging through
     /// `scratch` between steps (it may be empty when no step is an ISF shader). An ISF step whose program is
-    /// missing from `programs` or didn't compile passes its input through. Leaves framebuffer 0 bound.
-    void RunSteps(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
+    /// missing from `programs` or didn't compile passes its input through; one that draws runs all its passes
+    /// with its node's entry in `buffers` (made if missing). Leaves framebuffer 0 bound.
+    void RunSteps(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, IsfNodeBuffers& buffers,
+                  const isf::IsfClock& clock,
                   RenderTarget target, RenderTarget scratch, int width, int height);
 
     /// A scene with no preset: draws `video` (0 for none, as with a generator) through `steps` into `picture`
     /// (RunSteps), then that over black into all of `fbo`, so what effects make see-through shows black. Leaves
     /// framebuffer 0 bound.
-    void DrawPicture(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
+    void DrawPicture(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, IsfNodeBuffers& buffers,
+                     const isf::IsfClock& clock,
                      RenderTarget picture, RenderTarget scratch, GLuint fbo, int width, int height);
 
     /// Alpha-blends `texture` (straight alpha) over the bound framebuffer's viewport, keeping its alpha.

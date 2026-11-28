@@ -260,18 +260,30 @@ TEST_CASE("the fixture shaders parse")
     CHECK(Parse(Fixture("invert.fs")).kind == ShaderKind::Filter);
 }
 
-TEST_CASE("a shader that needs buffers between passes is unsupported, in plain words")
+TEST_CASE("shaders with passes and buffers can run, unless a pass's size can't be worked out")
 {
-    const std::string multiPass = "Uses multi-pass buffers, which aren't supported yet.";
-    CHECK(UnsupportedFeature(Parse(kEveryType)) == multiPass); // a persistent target, then the output
-    // One pass, but into a persistent buffer the code reads back (as Lorenz system.fs does).
-    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ { "TARGET": "lastData", "PERSISTENT": true } ] }*/ void main() {})")) == multiPass);
-    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ { "TARGET": "half" } ] }*/ void main() {})")) == multiPass);
-    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ {}, {} ] }*/ void main() {})")) == multiPass);
-    // One pass into the output is what's drawn anyway.
-    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ { "WIDTH": "$WIDTH" } ] }*/ void main() {})")).empty());
+    CHECK(UnsupportedFeature(Parse(kEveryType)).empty()); // a persistent target, then the output
+    // One pass, into a persistent buffer the code reads back (as Lorenz system.fs does).
+    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ { "TARGET": "lastData", "PERSISTENT": true } ] }*/ void main() {})")).empty());
+    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ {}, {} ] }*/ void main() {})")).empty());
+    CHECK(UnsupportedFeature(Parse(R"(/*{ "PASSES": [ { "TARGET": "half", "WIDTH": "$WIDTH/2" } ] }*/ void main() {})")).empty());
+    CHECK(UnsupportedFeature(Parse(R"x(/*{ "PASSES": [ { "TARGET": "half", "WIDTH": "floor($WIDTH/2)" } ] }*/ void main() {})x")) ==
+          "A pass has a size that can't be worked out: \"floor($WIDTH/2)\".");
     for (const char* name : {"passthrough.fs", "invert.fs", "box_blur.fs", "gradient.fs"})
         CHECK(UnsupportedFeature(Parse(Fixture(name))).empty());
+}
+
+TEST_CASE("each buffer the passes draw into is a sampler of its name, declared once")
+{
+    const auto shader = Parse(R"(/*{
+        "INPUTS": [ { "NAME": "inputImage", "TYPE": "image" } ],
+        "PASSES": [ { "TARGET": "a" }, { "TARGET": "b" }, { "TARGET": "a" }, { "TARGET": "inputImage" }, {} ]
+    }*/ void main() {})");
+    CHECK(Targets(shader) == std::vector<std::string>{"a", "b", "inputImage"});
+    const auto glsl = TranslateIsf(shader);
+    CHECK(Contains(glsl, "uniform sampler2D a;\nuniform sampler2D b;\n"));
+    CHECK(glsl.find("uniform sampler2D a;") == glsl.rfind("uniform sampler2D a;"));
+    CHECK(glsl.find("uniform sampler2D inputImage;") == glsl.rfind("uniform sampler2D inputImage;")); // already an input
 }
 
 TEST_CASE("a shader with imported images is unsupported, in plain words")

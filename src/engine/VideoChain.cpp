@@ -186,7 +186,8 @@ auto CompileIsf(IsfPrograms& programs, const std::shared_ptr<const isf::IsfShade
     return error;
 }
 
-void VideoChain::RunSteps(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
+void VideoChain::RunSteps(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, IsfNodeBuffers& buffers,
+                          const isf::IsfClock& clock,
                           RenderTarget target, RenderTarget scratch, int width, int height)
 {
     // The steps that draw: an ISF shader without a working program is left out.
@@ -211,7 +212,7 @@ void VideoChain::RunSteps(GLuint video, const std::vector<VideoStep>& steps, con
             std::map<std::string, GLuint> images;
             if (const auto inputs = model::IsfImageInputs(*isf->shader); !inputs.empty())
                 images[inputs.front()->name] = input;
-            programs.at(isf->shader)->Render(images, isf->values, clock, out.fbo, width, height);
+            buffers[isf->node].Render(*programs.at(isf->shader), std::move(images), isf->values, clock, out.fbo, width, height, isf->divisor);
         }
         else
             Run(input, drawn[i]->effects, out.fbo, width, height);
@@ -219,10 +220,11 @@ void VideoChain::RunSteps(GLuint video, const std::vector<VideoStep>& steps, con
     }
 }
 
-void VideoChain::DrawPicture(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, const isf::IsfClock& clock,
+void VideoChain::DrawPicture(GLuint video, const std::vector<VideoStep>& steps, const IsfPrograms& programs, IsfNodeBuffers& buffers,
+                             const isf::IsfClock& clock,
                              RenderTarget picture, RenderTarget scratch, GLuint fbo, int width, int height)
 {
-    RunSteps(video, steps, programs, clock, picture, scratch, width, height);
+    RunSteps(video, steps, programs, buffers, clock, picture, scratch, width, height);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glViewport(0, 0, width, height);
     glClearColor(0.f, 0.f, 0.f, 1.f);

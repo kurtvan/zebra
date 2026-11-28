@@ -3,6 +3,7 @@
 // The ISF shader node's file: its parsed header, which gives the node its picture inputs and controls.
 
 #include "isf/IsfHeader.hpp"
+#include "model/Graph.hpp"
 
 #include <filesystem>
 #include <map>
@@ -30,6 +31,9 @@ auto IsfFileAt(const std::filesystem::path& path) -> IsfFile;
 
 /// The shader's image inputs, in order: the node's picture inputs.
 auto IsfImageInputs(const isf::IsfShader& shader) -> std::vector<const isf::IsfInput*>;
+
+/// What a Resolution divides the canvas size by: 1, 2 or 4.
+auto IsfDivisor(IsfResolution resolution) -> int;
 
 /// The value input `input` has on a node with `values`: its own if set, else the input's DEFAULT, else 0.
 auto IsfValue(const std::map<std::string, std::vector<float>>& values, const isf::IsfInput& input) -> float;

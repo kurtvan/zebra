@@ -46,6 +46,7 @@ add_executable(gv_tests
     thumbnails/test_slot_plan.cpp
     nodes/test_node_types.cpp
     isf/test_isf_header.cpp
+    isf/test_isf_size.cpp
     ${GV_NODE_TESTS})
 target_include_directories(gv_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gv_tests PRIVATE gv_warnings gv_common gv_model gv_io gv_engine gv_library gv_app_nodes gv_app_settings imgui_node_editor Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
@@ -58,7 +59,7 @@ include(Catch)
 catch_discover_tests(gv_tests)
 
 # GPU tests (N2.6): need a GL 4.1 context from a hidden window; each test skips itself if there's none.
-add_executable(gv_gl_tests gl/test_video_chain.cpp gl/test_effect_nodes.cpp gl/test_isf_program.cpp gl/test_video_steps.cpp)
+add_executable(gv_gl_tests gl/test_video_chain.cpp gl/test_effect_nodes.cpp gl/test_isf_program.cpp gl/test_video_steps.cpp gl/test_isf_buffers.cpp)
 target_include_directories(gv_gl_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gv_gl_tests PRIVATE gv_warnings gv_engine Catch2::Catch2WithMain)
 target_compile_definitions(gv_gl_tests PRIVATE GL_SILENCE_DEPRECATION)
