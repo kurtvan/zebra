@@ -121,6 +121,10 @@ public:
     {
         m_actions.JumpSwitcher(m_scene, node.id, input);
     }
+    void ResetShader(const model::Node& node) override
+    {
+        m_actions.ResetShader(m_scene, node.id);
+    }
     auto SceneReady() const -> bool override
     {
         return m_state.engine != nullptr && m_state.engine->Scene(m_scene).state == engine::ScenePool::State::Ready;

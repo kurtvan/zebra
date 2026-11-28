@@ -110,6 +110,7 @@ public:
     std::vector<app::InputSpec> inputRows;
     std::vector<app::InputSpec> paramPins;                //!< Modulation pins, on their sliders' rows.
     std::vector<std::pair<std::string, int>> jumps;       //!< JumpSwitcher calls: node id, input.
+    std::vector<std::string> resets;                      //!< ResetShader calls: node id.
     std::vector<int> popups;
     std::vector<std::string> tooltips;
     std::vector<std::string> fileDialogs;
@@ -147,6 +148,10 @@ public:
     void JumpSwitcher(const model::Node& node, int input) override
     {
         jumps.emplace_back(node.id, input);
+    }
+    void ResetShader(const model::Node& node) override
+    {
+        resets.push_back(node.id);
     }
     auto SceneReady() const -> bool override
     {
