@@ -84,6 +84,7 @@ struct LanePlan
 {
     std::vector<VideoBranch> branches;
     bool picture{false}; //!< No preset: branches[0] is drawn straight into the frame (RenderPlan::ShowsPicture).
+    std::string audio;   //!< The key of the tick's audio its preset hears (Lane::HeardAudio); not there: nothing.
 
     auto operator==(const LanePlan&) const -> bool = default;
 };

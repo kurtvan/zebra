@@ -25,6 +25,8 @@
 namespace gv::engine {
 
 using PcmChunk = std::shared_ptr<const std::vector<float>>; //!< Interleaved stereo float samples.
+/// What a tick's presets hear, by LanePlan::audio: what's wired into each one's Audio input.
+using HeardAudio = std::map<std::string, PcmChunk>;
 
 /// The current frame of the live scene's video, if it has one.
 struct VideoFrame
@@ -102,11 +104,10 @@ public:
     /// Which hosted instance renders on ticks (0: none).
     void SetLive(InstanceId instance);
 
-    /// Feeds `pcm` to every hosted instance and, if live, renders one frame, drawing `video` through its plan.
-    /// The live instance gets `livePcm` instead when it's set (the same audio plus beat hits).
-    /// `signals` move the live instance's modulated effects (Modulated). Coalesces with an unprocessed tick (the
-    /// newest video frame and signals win).
-    void Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm = nullptr, model::SignalValues signals = {});
+    /// Feeds each hosted instance its plan's entry of `audio` (nothing if it has none) and, if live, renders one
+    /// frame, drawing `video` through its plan. `signals` move the live instance's modulated effects (Modulated).
+    /// Coalesces with an unprocessed tick (the audio adds up; the newest video frame and signals win).
+    void Tick(HeardAudio audio, long long tick, VideoFrame video, model::SignalValues signals = {});
 
     /// The newest published frame not yet taken, or tick -1.
     auto TakeLatest() -> PublishedFrame;
@@ -148,8 +149,7 @@ private:
     struct PendingTick
     {
         bool has{false};
-        std::vector<PcmChunk> pcm;
-        std::vector<PcmChunk> livePcm; //!< What the live instance hears: livePcm where given, else pcm.
+        std::map<std::string, std::vector<PcmChunk>> audio; //!< By LanePlan::audio, in order.
         long long tick{-1};
         VideoFrame video;
         model::SignalValues signals;

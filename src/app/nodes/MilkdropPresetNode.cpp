@@ -291,10 +291,11 @@ auto MilkdropPresetUi() -> NodeUi
             return {NodeState::Ready, "Ready."};
         return {};
     };
-    // The three layers, then one input per texture the preset samples, plus any wired texture it no longer
-    // has (so the wire shows).
+    // What it hears, the three layers, then one input per texture the preset samples, plus any wired texture it
+    // no longer has (so the wire shows).
     ui.inputs = [](const model::Node& node, NodeContext& context) {
         std::vector<InputSpec> inputs = {
+            {model::kPresetAudioInput, {}, model::PortKind::Audio, "Audio", false, "All the preset hears: from Audio In or a Band."},
             {static_cast<int>(PresetLayer::Feedback), {}, model::PortKind::Picture, "Feedback"},
             {static_cast<int>(PresetLayer::BeforeComposite), {}, model::PortKind::Picture, "Before composite"},
             {static_cast<int>(PresetLayer::OnTop), {}, model::PortKind::Picture, "On top"},
@@ -327,10 +328,17 @@ auto MilkdropPresetUi() -> NodeUi
     missing.kind = Control::Kind::Text;
     missing.warning = true;
     missing.text = [](const model::Node& node, NodeContext& context) -> std::string { return Missing(node, context) ? "File not found." : ""; };
+    // Quiet, not a warning: a silent preset can be deliberate.
+    Control deaf;
+    deaf.id = "##deaf";
+    deaf.kind = Control::Kind::Text;
+    deaf.text = [](const model::Node& node, NodeContext& context) -> std::string {
+        return context.SceneGraph().WireInto(node.id, model::kPresetAudioInput) == nullptr ? "Hears no audio" : "";
+    };
     Control frameTime;
     frameTime.id = "##frame-time";
     frameTime.draw = DrawFrameTime;
-    ui.controls = {picture, stepping, browser, buttons, missing, frameTime, {Control::Kind::Inputs}};
+    ui.controls = {picture, stepping, browser, buttons, missing, deaf, frameTime, {Control::Kind::Inputs}};
     ui.addItems = {{"Milkdrop preset...", nullptr, "Or drag a preset from the Presets panel onto the canvas.", true}};
     return ui;
 }

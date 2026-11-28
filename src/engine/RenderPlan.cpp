@@ -148,11 +148,11 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
     plan.presetNode = preset->id;
     plan.presetPath = model::ParamsOf<model::MilkdropPresetParams>(*preset).path;
 
-    // Each wired video input, in input order (texture inputs by name).
+    // Each wired video input, in input order (texture inputs by name). The audio is the lane's (LanePlan::audio).
     std::vector<const model::Wire*> inputs;
     for (const auto& wire : graph.wires)
     {
-        if (wire.toNode == preset->id)
+        if (wire.toNode == preset->id && wire.toInput != model::kPresetAudioInput)
             inputs.push_back(&wire);
     }
     std::sort(inputs.begin(), inputs.end(), [](const model::Wire* a, const model::Wire* b) {

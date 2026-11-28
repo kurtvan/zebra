@@ -230,18 +230,15 @@ void Lane::SetLive(InstanceId instance)
     m_live = instance;
 }
 
-void Lane::Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm, model::SignalValues signals)
+void Lane::Tick(HeardAudio audio, long long tick, VideoFrame video, model::SignalValues signals)
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_pendingTick.has = true;
-        if (livePcm && !livePcm->empty())
-            m_pendingTick.livePcm.push_back(std::move(livePcm));
-        else if (pcm && !pcm->empty())
-            m_pendingTick.livePcm.push_back(pcm);
-        if (pcm && !pcm->empty())
+        for (auto& [key, chunk] : audio)
         {
-            m_pendingTick.pcm.push_back(std::move(pcm));
+            if (chunk && !chunk->empty())
+                m_pendingTick.audio[key].push_back(std::move(chunk));
         }
         m_pendingTick.tick = tick;
         m_pendingTick.video = video;
@@ -573,12 +570,11 @@ void Lane::DoTick(PendingTick tick)
     }
     for (auto& [id, hosted] : m_instances)
     {
-        if (hosted.handle == nullptr)
-            continue; // no preset: nothing hears the audio
-        for (const auto& chunk : id == live ? tick.livePcm : tick.pcm)
-        {
+        const auto heard = tick.audio.find(hosted.plan.audio);
+        if (hosted.handle == nullptr || heard == tick.audio.end())
+            continue; // no preset, or no audio this tick
+        for (const auto& chunk : heard->second)
             AddPcm(hosted.handle, *chunk);
-        }
     }
 
     auto it = m_instances.find(live);

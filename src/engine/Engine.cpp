@@ -348,12 +348,8 @@ auto Engine::SignalInputsNow(int scene) const -> model::SignalInputs
     return inputs;
 }
 
-void Engine::FollowAudio(const PcmChunk& chunk)
+void Engine::FollowAudio(const std::vector<float>& pcm)
 {
-    std::vector<float> silence;
-    if (!chunk)
-        silence.assign(static_cast<size_t>(m_sampleRate / 60) * 2, 0.f);
-    const std::span<const float> pcm = chunk ? std::span<const float>(*chunk) : std::span<const float>(silence);
     std::map<std::string, SceneAudio> kept; // only the scenes still there
     for (const auto& scene : m_performance.scenes)
     {
@@ -363,10 +359,57 @@ void Engine::FollowAudio(const PcmChunk& chunk)
     m_sceneAudio = std::move(kept);
 }
 
+namespace {
+
+/// LanePlan::audio of preset `preset` in scene `scene` (by id: scene indices change with edits).
+auto AudioKey(const std::string& scene, const std::string& preset) -> std::string
+{
+    return scene + "/" + preset;
+}
+
+} // namespace
+
+auto Engine::HeardAudioNow(const PcmChunk& pcm, bool input, const std::vector<float>& hit) const -> std::pair<HeardAudio, HeardAudio>
+{
+    HeardAudio heard;
+    HeardAudio live; // the live scene's, with the hit
+    const int liveScene = m_pool.LiveScene();
+    PcmChunk silence;
+    for (int i = 0; i < static_cast<int>(m_performance.scenes.size()); ++i)
+    {
+        const auto& scene = m_performance.scenes[static_cast<size_t>(i)];
+        const auto audio = m_sceneAudio.find(scene.id);
+        if (audio == m_sceneAudio.end())
+            continue;
+        for (const auto& [preset, samples] : audio->second.PresetAudio())
+        {
+            const std::string key = AudioKey(scene.id, preset);
+            if (!samples)
+            {
+                // Nothing wired: silence, so it doesn't go on with the last audio it heard.
+                if (input)
+                    heard[key] = silence ? silence : (silence = std::make_shared<const std::vector<float>>(pcm->size(), 0.f));
+                continue;
+            }
+            const PcmChunk chunk = samples->data() == pcm->data() ? pcm : std::make_shared<const std::vector<float>>(samples->begin(), samples->end());
+            if (input)
+                heard[key] = chunk;
+            if (i == liveScene && !hit.empty())
+            {
+                auto mixed = std::make_shared<std::vector<float>>(*chunk);
+                for (size_t s = 0; s < mixed->size() && s < hit.size(); ++s)
+                    (*mixed)[s] += hit[s];
+                live[key] = std::move(mixed);
+            }
+        }
+    }
+    return {std::move(heard), std::move(live)};
+}
+
 auto Engine::PlanFor(int index, const model::Scene& scene, int item) const -> LanePlan
 {
     const RenderPlan plan = CompilePlan(scene.graph, SelectionFor(index, scene, item));
-    return {plan.branches, plan.ShowsPicture()};
+    return {plan.branches, plan.ShowsPicture(), plan.presetNode.empty() ? std::string() : AudioKey(scene.id, plan.presetNode)};
 }
 
 void Engine::RefreshLivePlans()
@@ -529,13 +572,15 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
         chunk = std::move(buffer);
     }
 
-    FollowAudio(chunk);
+    // Without input audio this frame, the audio nodes follow a frame's worth of silence.
+    const PcmChunk pcm = chunk ? chunk : std::make_shared<const std::vector<float>>(static_cast<size_t>(m_sampleRate / 60) * 2, 0.f);
+    FollowAudio(*pcm);
     UpdateSwitchers();
     ReloadChangedShaders();
     if (m_videoProvider != nullptr)
         m_videoProvider->BeginFrame(Needs());
 
-    // Beat hits: a transient on the clock's beats, heard only by the live scene's preset.
+    // Beat hits: a transient on the clock's beats, mixed into what the live scene's presets hear through their wires.
     const int liveScene = m_pool.LiveScene();
     const model::BeatHit* beatHit =
         liveScene >= 0 && liveScene < static_cast<int>(m_performance.scenes.size()) ? &m_performance.scenes[static_cast<size_t>(liveScene)].beatHit : nullptr;
@@ -549,14 +594,15 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
         m_beatHitClock.Reset();
         m_beatHitSynth.Stop();
     }
-    PcmChunk liveChunk;
+    std::vector<float> hit;
     if (m_beatHitSynth.Active())
     {
         // Without input audio this frame, the hit goes into a frame's worth of silence.
-        auto buffer = chunk ? std::make_shared<std::vector<float>>(*chunk) : std::make_shared<std::vector<float>>(static_cast<size_t>(m_sampleRate / 60) * 2, 0.f);
-        m_beatHitSynth.MixInto(buffer->data(), buffer->size() / 2, m_sampleRate);
-        liveChunk = std::move(buffer);
+        hit.assign(pcm->size(), 0.f);
+        m_beatHitSynth.MixInto(hit.data(), hit.size() / 2, m_sampleRate);
     }
+    // Without input audio and a hit, the presets hear nothing new (they aren't fed silence).
+    const auto [heard, liveHeard] = HeardAudioNow(pcm, chunk != nullptr, hit);
 
     // Video for the live scene and, during a handover, the outgoing one; other lanes only take PCM.
     for (int i = 0; i < static_cast<int>(m_lanes.size()); ++i)
@@ -572,7 +618,13 @@ void Engine::Tick(const float* samples, size_t frames, float gain)
         model::SignalValues signals;
         if (i == m_liveLane && liveScene >= 0 && liveScene < static_cast<int>(m_performance.scenes.size()))
             signals = model::EvaluateSignals(m_performance.scenes[static_cast<size_t>(liveScene)].graph, SignalInputsNow(liveScene));
-        m_lanes[static_cast<size_t>(i)]->Tick(chunk, m_tick, video, i == m_liveLane ? liveChunk : nullptr, std::move(signals));
+        HeardAudio audio = heard;
+        if (i == m_liveLane)
+        {
+            for (const auto& [key, mixed] : liveHeard)
+                audio[key] = mixed;
+        }
+        m_lanes[static_cast<size_t>(i)]->Tick(std::move(audio), m_tick, video, std::move(signals));
     }
 
     // Once a scene has been live for half a second, its lane's average render time replaces the

@@ -10,7 +10,7 @@
 
 namespace gv::model {
 
-constexpr int kCurrentFormatVersion = 3; //!< 3: scenes are node graphs. 2: video files live in a shared pool (Performance::videos).
+constexpr int kCurrentFormatVersion = 4; //!< 4: presets hear only the audio wired to them. 3: scenes are node graphs. 2: video files live in a shared pool (Performance::videos).
 constexpr int kMaxScenes = 128; //!< One MIDI CC (CC 20) on one channel.
 constexpr int kMinCanvasSize = 320;  //!< Canvas width and height, in pixels (even numbers only).
 constexpr int kMaxCanvasSize = 7680;

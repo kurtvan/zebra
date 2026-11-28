@@ -8,15 +8,16 @@ namespace gv::model::nodes {
 
 namespace {
 
-// Show-file names of the inputs, by PresetLayer.
-constexpr const char* kInputNames[] = {"feedback", "beforeComposite", "onTop", "texture"};
+// Show-file names of the inputs, by PresetLayer, then the Audio input.
+constexpr const char* kInputNames[] = {"feedback", "beforeComposite", "onTop", "texture", "audio"};
 static_assert(std::size(kInputNames) == kPresetInputs);
 
 constexpr const char* kFormerJsonNames[] = {"preset"};
 
 } // namespace
 
-/// A MilkDrop preset: video inputs into its layers (and textures), and its finished frame as output.
+/// A MilkDrop preset: video inputs into its layers (and textures), the audio it hears, and its finished frame as
+/// output.
 auto MilkdropPresetDef() -> NodeDef
 {
     NodeDef def;
@@ -28,7 +29,7 @@ auto MilkdropPresetDef() -> NodeDef
     def.defaults = MilkdropPresetParams{};
     def.output = [](const Node&) -> std::optional<PortKind> { return PortKind::Picture; };
     def.inputCount = [](const Node&) { return kPresetInputs; };
-    def.inputKind = [](const Node&, int) { return PortKind::Picture; };
+    def.inputKind = [](const Node&, int input) { return input == kPresetAudioInput ? PortKind::Audio : PortKind::Picture; };
     def.textureInput = static_cast<int>(PresetLayer::Texture);
     def.inputNames = kInputNames;
     // One video source at a time: every input starts from the same source or Video switcher.
@@ -36,9 +37,10 @@ auto MilkdropPresetDef() -> NodeDef
         std::set<std::string> starts;
         for (const auto& wire : graph.wires)
         {
-            if (wire.toNode != node.id)
-                continue;
-            if (const Node* start = ChainStart(graph, graph.Find(wire.fromNode)); start != nullptr)
+            const Node* from = wire.toNode == node.id ? graph.Find(wire.fromNode) : nullptr;
+            if (from == nullptr || wire.toInput == kPresetAudioInput || OutputKind(*from) != PortKind::Picture)
+                continue; // its audio, or a wrong kind (reported already)
+            if (const Node* start = ChainStart(graph, from); start != nullptr)
                 starts.insert(start->id);
         }
         if (starts.size() > 1)

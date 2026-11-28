@@ -117,3 +117,40 @@ TEST_CASE("scene audio: a Band after a Band narrows it; an Envelope with no audi
     model::RemoveNode(scene.graph, followMid);
     CHECK(scene.Feed(Sine(1500.0)).count(followMid) == 0);
 }
+
+TEST_CASE("scene audio: a preset hears only what's wired into its Audio input", "[scene-audio]")
+{
+    Scene scene;
+    const auto wired = model::AddNode(scene.graph, NodeType::MilkdropPreset, 0, 0);
+    REQUIRE(model::Connect(scene.graph, scene.audio, wired, model::kPresetAudioInput));
+    const auto deaf = model::AddNode(scene.graph, NodeType::MilkdropPreset, 0, 0);
+    const auto bass = model::AddNode(scene.graph, NodeType::MilkdropPreset, 0, 0);
+    REQUIRE(model::Connect(scene.graph, scene.Band(model::kBandPresets[0], scene.audio), bass, model::kPresetAudioInput));
+    REQUIRE(model::ValidateGraph(scene.graph) == std::vector<model::GraphError>{{"", "There's no viewport."}});
+
+    // RMS of what each preset hears over a tick of `hz`, after a second of it (so the filters settle).
+    auto heard = [&](double hz) {
+        const auto tone = Sine(hz);
+        scene.Feed(std::vector<float>(tone.begin(), tone.end() - static_cast<long>(kChunk)));
+        const std::span<const float> last = std::span<const float>(tone).last(kChunk);
+        scene.sceneAudio.Process(scene.graph, last, kRate);
+        const auto& audio = scene.sceneAudio.PresetAudio();
+        REQUIRE(audio.size() == 3);
+        CHECK_FALSE(audio.at(deaf).has_value()); // nothing wired: silence
+        REQUIRE(audio.at(wired).has_value());
+        CHECK(audio.at(wired)->data() == last.data()); // the input itself
+        REQUIRE(audio.at(bass).has_value());
+        REQUIRE(audio.at(bass)->size() == last.size());
+        double sum = 0.0;
+        for (const float sample : *audio.at(bass))
+            sum += static_cast<double>(sample) * sample;
+        return std::sqrt(sum / static_cast<double>(last.size()));
+    };
+    CHECK(heard(60.0) > 0.3);   // the tone's RMS is about 0.35
+    CHECK(heard(8000.0) < 0.01); // cut by the bass Band
+
+    // A removed preset is forgotten.
+    model::RemoveNode(scene.graph, deaf);
+    scene.Feed(Sine(60.0));
+    CHECK(scene.sceneAudio.PresetAudio().count(deaf) == 0);
+}
