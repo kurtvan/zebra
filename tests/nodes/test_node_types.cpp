@@ -181,7 +181,6 @@ namespace {
 /// Node types that still have sliders of their own, not params, and why. Each is a follow-up, so this list
 /// only ever shrinks; an entry whose node no longer has such a slider fails below.
 const std::map<NodeType, const char*> kSlidersNotParamsYet = {
-    {NodeType::IsfShader, "its file's sliders become its params through ParamsFor"},
     {NodeType::Switcher, "its interval isn't followed by the switcher clock as a param yet"},
 };
 

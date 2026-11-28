@@ -57,7 +57,7 @@ auto Graph::WireInto(const std::string& node, int input, const std::string& text
 {
     for (const auto& wire : wires)
     {
-        if (wire.toNode == node && wire.toInput == input && wire.textureName == textureName)
+        if (wire.toNode == node && WireInput(*this, wire) == input && wire.textureName == textureName)
             return &wire;
     }
     return nullptr;
@@ -99,6 +99,13 @@ auto ParamInput(const Node& node, int param) -> int
 {
     const NodeDef& def = Def(node.type);
     return (def.inputCount != nullptr ? def.inputCount(node) : 0) + param;
+}
+
+auto WireInput(const Graph& graph, const Wire& wire) -> int
+{
+    const Node* node = wire.param.empty() ? nullptr : graph.Find(wire.toNode);
+    const int param = node != nullptr ? ParamIndex(*node, wire.param) : -1;
+    return param >= 0 ? ParamInput(*node, param) : wire.toInput;
 }
 
 auto InputCount(const Node& node) -> int
@@ -408,7 +415,9 @@ auto ConnectErrors(const Graph& graph, const std::string& from, const std::strin
 auto Disconnect(Graph& graph, const std::string& to, int input, const std::string& textureName) -> bool
 {
     const auto before = graph.wires.size();
-    std::erase_if(graph.wires, [&](const Wire& wire) { return wire.toNode == to && wire.toInput == input && wire.textureName == textureName; });
+    std::erase_if(graph.wires, [&](const Wire& wire) {
+        return wire.toNode == to && WireInput(graph, wire) == input && wire.textureName == textureName;
+    });
     if (graph.wires.size() == before)
         return false;
     FollowWires(graph);

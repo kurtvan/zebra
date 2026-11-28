@@ -925,7 +925,7 @@ auto GraphEditor::WiresAt(const model::Node& node, bool output, const InputSpec*
     return static_cast<int>(std::count_if(m_graph->wires.begin(), m_graph->wires.end(), [&](const model::Wire& wire) {
         if (output)
             return wire.fromNode == node.id;
-        return spec != nullptr && wire.toNode == node.id && wire.toInput == spec->input && wire.textureName == spec->texture;
+        return spec != nullptr && wire.toNode == node.id && model::WireInput(*m_graph, wire) == spec->input && wire.textureName == spec->texture;
     }));
 }
 
@@ -971,13 +971,16 @@ void GraphEditor::DrawLinks(const model::Graph& graph)
         m_wires[key] = wire;
         const bool moving = m_moving && *m_moving == wire; // picked up: DrawMovingWire draws it at the pointer
         const uint64_t out = OutputKey(wire.fromNode);
-        const uint64_t in = InputKey(wire.toNode, wire.toInput, wire.textureName);
+        const uint64_t in = InputKey(wire.toNode, model::WireInput(graph, wire), wire.textureName);
         if (!moving)
             ed::Link(key, out, in, hidden, kHiddenLink);
         auto a = m_pins.find(out);
         auto b = m_pins.find(in);
+        const model::Node* to = wire.param.empty() ? nullptr : graph.Find(wire.toNode);
+        const int param = to != nullptr ? model::ParamIndex(*to, wire.param) : -1;
+        const bool broken = param >= 0 && model::ParamsFor(*to)[static_cast<size_t>(param)].lost;
         if (a != m_pins.end() && b != m_pins.end())
-            shown.push_back({&wire, key, &a->second, &b->second, WireColor(*model::OutputKind(*from))});
+            shown.push_back({&wire, key, &a->second, &b->second, broken ? kBrokenWire : WireColor(*model::OutputKind(*from))});
     }
 
     // Each wire's ends: at a pin several wires share, its own point on the pill, in the order of the wires'

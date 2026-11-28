@@ -177,6 +177,8 @@ auto ParseWire(const json& object, const Graph& graph, const std::string& path, 
     if (ReadField(object, "param", wire.param, path, issues); !wire.param.empty())
     {
         const int param = ParamIndex(*to, wire.param);
+        if (param < 0 && Def(to->type).keepsLostParams)
+            return wire; // FollowWires gives it a param of its own
         if (param < 0)
         {
             issues.push_back(Warning(path + "/param", Label(*to) + " has no setting \"" + wire.param + "\" any more: the wire was left out"));

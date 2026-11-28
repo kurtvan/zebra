@@ -29,10 +29,11 @@ struct IsfStep
     auto operator==(const IsfStep&) const -> bool = default;
 };
 
-/// An effect whose settings Number wires move: what the lane needs to redo its pass each frame (Modulated).
+/// An effect or ISF shader whose settings Number wires move: what the lane needs to redo its pass (or the
+/// shader's values) each frame (Modulated).
 struct PassModulation
 {
-    size_t effect{0}; //!< Its index in VideoStep::effects.
+    size_t effect{0}; //!< Its index in VideoStep::effects (0 for an ISF step).
     model::Node node; //!< The effect node's id, type, settings and depths (not its place on the canvas).
     std::vector<std::pair<int, std::string>> signals; //!< Param index (NodeDef::params) -> the node it's wired from.
 
@@ -44,7 +45,7 @@ struct VideoStep
 {
     std::vector<EffectPass> effects{}; //!< Without `isf`: in order, in one draw (VideoChain::Run).
     std::optional<IsfStep> isf{};
-    std::vector<PassModulation> modulations{}; //!< The effects Number wires move, redone each frame.
+    std::vector<PassModulation> modulations{}; //!< The effects (or ISF shader) Number wires move, redone each frame.
 
     auto operator==(const VideoStep&) const -> bool = default;
 };

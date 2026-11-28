@@ -66,12 +66,12 @@ auto SliderRatio(const Control& control, double value) -> double
     return std::log(std::max(value, floor) / floor) / std::log(control.max / floor);
 }
 
-/// After a modulated slider, on its row: the value the setting has this frame, as a marker on the slider, then
-/// the depth.
-void DrawModulation(const model::Node& node, const Control& control, const model::Node& modulator, float width, NodeContext& context)
+/// After a modulated slider, checkbox or choice, on its row: the value the setting has this frame, as a marker
+/// on a slider, then the depth in the `rest` of the row's width.
+void DrawModulation(const model::Node& node, const Control& control, const model::Node& modulator, float rest, NodeContext& context)
 {
     const auto signals = context.Signals();
-    if (const auto it = signals.find(modulator.id); it != signals.end())
+    if (const auto it = signals.find(modulator.id); it != signals.end() && control.kind == Control::Kind::Slider)
     {
         const double value = model::Modulate(node, control.param, it->second);
         const float grab = 2.f + ImGui::GetStyle().GrabMinSize * 0.5f; // where ImGui's grab centre stops at either end
@@ -82,8 +82,9 @@ void DrawModulation(const model::Node& node, const Control& control, const model
     }
     const std::string name = model::ParamsFor(node)[static_cast<size_t>(control.param)].name;
     float depth = model::DepthOf(node, control.param);
+    const float width = rest - ImGui::GetItemRectSize().x - ImGui::GetStyle().ItemSpacing.x;
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(width);
+    ImGui::SetNextItemWidth(std::max(width, 20.f));
     if (ImGui::SliderFloat("##depth", &depth, -1.f, 1.f, "depth %.2f"))
         context.Edit(node, "Change Depth", ("depth:" + name).c_str(), [&](model::Node& n) { n.depths[name] = depth; });
     context.EndEditIfReleased();
@@ -100,20 +101,20 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
     ImGui::PushID(static_cast<int>(index));
     context.control = static_cast<int>(index);
 
-    if (control.label != nullptr && control.kind != Control::Kind::Checkbox)
-    {
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(control.label);
-        ImGui::SameLine();
-    }
     const auto set = control.set;
     const model::Node* modulator = nullptr; // what's wired into the slider's modulation input
-    if (control.param >= 0)
+    if (control.param >= 0) // the pin starts the row
     {
         const int input = model::ParamInput(node, control.param);
         context.ParamPin(node, {input, {}, model::PortKind::Number, model::ParamsFor(node)[static_cast<size_t>(control.param)].label});
         ImGui::SameLine(0.f, 4.f);
         modulator = context.SceneGraph().Upstream(node.id, input);
+    }
+    if (control.label != nullptr && control.kind != Control::Kind::Checkbox && control.kind != Control::Kind::Text)
+    {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(control.label);
+        ImGui::SameLine();
     }
     const float rest = control.width > 0.f ? control.width : RemainingWidth(controls, index, node, rowStart, context.width);
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -158,7 +159,7 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
             if (modulator != nullptr && control.tooltip != nullptr)
                 context.Tooltip(control.tooltip);
             if (modulator != nullptr)
-                DrawModulation(node, control, *modulator, rest - width - spacing, context);
+                DrawModulation(node, control, *modulator, rest, context);
             break;
         }
         case Control::Kind::Checkbox:
@@ -169,6 +170,8 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
                 const char* undo = on || control.undoOff == nullptr ? control.undo : control.undoOff;
                 context.EditOnce(node, undo, [&](model::Node& n) { set(n, on ? 1.0 : 0.0); });
             }
+            if (modulator != nullptr)
+                DrawModulation(node, control, *modulator, rest, context);
             break;
         }
         case Control::Kind::Choice:
@@ -191,11 +194,13 @@ void DrawControl(const std::vector<Control>& controls, size_t index, const model
                 if (ImGui::Button(text.c_str(), ImVec2(width, 0.f)))
                     context.OpenPopup(node, static_cast<int>(index));
             }
+            if (modulator != nullptr)
+                DrawModulation(node, control, *modulator, rest, context);
             break;
         }
         case Control::Kind::Text:
         {
-            const std::string text = control.text(node, context);
+            const std::string text = control.text != nullptr ? control.text(node, context) : control.label;
             if (!text.empty())
             {
                 // Wrapped to the node's width: a compiler message would otherwise run past its edge.
@@ -280,7 +285,20 @@ auto ParamSlider(const model::Node& node, int param) -> Control
 {
     const model::ParamDef& def = model::ParamsFor(node)[static_cast<size_t>(param)];
     Control slider;
-    slider.kind = Control::Kind::Slider;
+    slider.param = param;
+    if (def.lost) // a note in its place, after the pin its wire keeps
+    {
+        slider.kind = Control::Kind::Text;
+        slider.warning = true;
+        slider.label = def.tooltip;
+        return slider;
+    }
+    slider.kind = def.kind == model::ParamKind::Checkbox ? Control::Kind::Checkbox
+                  : def.kind == model::ParamKind::Choice ? Control::Kind::Choice
+                                                         : Control::Kind::Slider;
+    slider.label = def.kind != model::ParamKind::Slider ? def.label : nullptr;
+    slider.options = def.options;
+    slider.undoOff = def.undoOff;
     slider.id = "##param"; // each control has its own ImGui id scope (its index), so this needn't be unique
     // The node type keeps its params alive (ParamsFor), so the slider may point at this one.
     slider.get = [p = &def](const model::Node& n) { return static_cast<double>(p->get(n, *p)); };
@@ -291,7 +309,6 @@ auto ParamSlider(const model::Node& node, int param) -> Control
     slider.logarithmic = def.logarithmic;
     slider.format = def.format;
     slider.formatFor = def.formatFor;
-    slider.param = param;
     slider.undo = def.undo;
     slider.field = def.name;
     slider.tooltip = def.tooltip;
