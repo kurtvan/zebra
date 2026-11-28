@@ -56,9 +56,10 @@ enum class NodeType
     Lfo,
     AudioIn,
     Envelope,
-    Band
+    Band,
+    Math
 };
-constexpr int kNodeTypeCount = 13; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
+constexpr int kNodeTypeCount = 14; //!< Every NodeType has a definition (model/nodes/NodeDef.hpp).
 
 /// What travels along a wire: a picture (a video's, an effect's, or a preset's finished frame), a number
 /// (0..1 this frame, an LFO's, say) that moves a setting, or audio (the Setup panel's input, or one range of
@@ -187,10 +188,30 @@ struct BandParams
     double high{250.0}; //!< 20..20000 Hz: above this is cut.
     auto operator==(const BandParams&) const -> bool = default;
 };
+/// What a math node does with its numbers (model/nodes/MathNode.hpp).
+enum class MathOp
+{
+    Sum,        //!< a + b + ..., growing an input as the last is wired.
+    Difference, //!< a - b
+    Multiply,   //!< a * b * ..., growing like Sum.
+    Divide,     //!< a / b
+    Log,        //!< A log-shaped curve from 0..1 to 0..1.
+    Absolute,   //!< |a|
+};
+constexpr int kMaxMathInputs = 8;
+struct MathParams
+{
+    MathOp op{MathOp::Sum};
+    /// One number per input, used while it's unwired (a wired input's is the wire's this frame). Its size is
+    /// the node's input count: Sum and Multiply keep one empty input after the last wired (FollowWires).
+    std::vector<float> values{0.0f, 0.0f};
+    float curve{0.5f}; //!< Log: 0..1, how strongly it bends; 0 is a straight line.
+    auto operator==(const MathParams&) const -> bool = default;
+};
 
 using NodeParams = std::variant<VideoSourceParams, ContrastParams, SaturationParams, LumaGateParams, OpacityParams, MilkdropPresetParams,
                                 SwitcherParams, ViewportParams, IsfShaderParams, LfoParams, AudioInParams, EnvelopeParams,
-                                BandParams>;
+                                BandParams, MathParams>;
 
 struct Node
 {

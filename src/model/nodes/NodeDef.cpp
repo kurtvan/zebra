@@ -18,7 +18,7 @@ auto BuildDefs() -> std::array<NodeDef, kNodeTypeCount>
         nodes::VideoSourceDef(), nodes::ContrastDef(), nodes::SaturationDef(), nodes::LumaGateDef(),
         nodes::OpacityDef(),         nodes::MilkdropPresetDef(),   nodes::SwitcherDef(),   nodes::ViewportDef(),
         nodes::IsfShaderDef(),  nodes::LfoDef(),          nodes::AudioInDef(),    nodes::EnvelopeDef(),
-        nodes::BandDef(),
+        nodes::BandDef(),      nodes::MathDef(),
     };
     // Def() indexes by type, so each definition must sit at its own type's index.
     for (int i = 0; i < kNodeTypeCount; ++i)
@@ -134,6 +134,8 @@ auto DepthOf(const Node& node, int param) -> float
 auto Modulate(const Node& node, int param, float signal) -> float
 {
     const ParamDef& def = ParamsFor(node)[static_cast<size_t>(param)];
+    if (def.passThrough)
+        return signal;
     const float value = def.get(node, def) + (signal - 0.5f) * DepthOf(node, param) * (def.high - def.low);
     return std::clamp(value, def.low, def.high);
 }

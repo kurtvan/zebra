@@ -47,9 +47,13 @@ struct SignalInputs
     double seconds{0.0};         //!< Time since the engine started.
     /// What the engine's audio analysers measured this tick (0..1), by node id: each Envelope's level.
     std::map<std::string, float> levels{};
+    /// Every Number output's value last frame, by node id: what a math node holds while its answer isn't a
+    /// number (dividing by zero, say). Empty: none yet.
+    std::map<std::string, float> previous{};
 };
 
-/// Every Number output's value this frame (0..1), by node id.
+/// Every Number output's value this frame, by node id: 0..1 by convention, though a math node's can be
+/// anything finite (a Sum of two LFOs reaches 2). Modulate clamps where it moves a setting.
 using SignalValues = std::map<std::string, float>;
 
 /// A slider of a node (ParamsFor), declared once: the canvas draws its row from this (the slider, its
@@ -76,6 +80,9 @@ struct ParamDef
     const char* tooltip{nullptr};
     const char* undo{""}; //!< "Change Opacity"
     bool (*visible)(const Node&){nullptr}; //!< Null: always shown. Hidden, it keeps its pin's wire.
+    /// A wire's value replaces the setting as it is, not moved around the slider, scaled or clamped, and
+    /// with no depth: a math node's inputs. The slider is the number used while unwired.
+    bool passThrough{false};
 };
 
 /// A param's value (a float) for a setting kept as a double: rounded to 6 decimals, so the slider's end
@@ -173,7 +180,7 @@ auto WiredParams(const Graph& graph, const Node& node) -> std::vector<std::pair<
 /// settings another moves sees that one's value of this frame.
 auto EvaluateSignals(const Graph& graph, const SignalInputs& inputs) -> SignalValues;
 /// `node`'s param `param` moved by `signal` around its own value: clamp(value + (signal - 0.5) * depth *
-/// (high - low)), with the depth from Node::depths.
+/// (high - low)), with the depth from Node::depths. A passThrough param's is `signal` itself.
 auto Modulate(const Node& node, int param, float signal) -> float;
 /// The depth of `node`'s param `param` (Node::depths; 1 if not set).
 auto DepthOf(const Node& node, int param) -> float;
@@ -200,6 +207,7 @@ auto LfoDef() -> NodeDef;
 auto AudioInDef() -> NodeDef;
 auto EnvelopeDef() -> NodeDef;
 auto BandDef() -> NodeDef;
+auto MathDef() -> NodeDef;
 
 /// The parts every effect shares: one video input, one video output.
 auto EffectBase(NodeType type, const char* jsonName, const char* idPrefix, const char* displayName, NodeParams defaults) -> NodeDef;

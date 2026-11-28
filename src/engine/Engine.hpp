@@ -330,6 +330,9 @@ private:
     float m_audioLevel{0.f};
     /// Each scene's Envelopes and Bands, by scene id.
     std::map<std::string, SceneAudio> m_sceneAudio;
+    /// Each scene's Number outputs as of the last tick, by scene id: what its math nodes hold while they have
+    /// no answer (model::SignalInputs::previous).
+    std::map<std::string, model::SignalValues> m_lastSignals;
 };
 
 } // namespace gv::engine

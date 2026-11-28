@@ -47,6 +47,8 @@ add_library(gv_model STATIC
     model/nodes/EnvelopeNode.cpp
     model/nodes/BandNode.cpp
     model/nodes/BandNode.hpp
+    model/nodes/MathNode.cpp
+    model/nodes/MathNode.hpp
     model/nodes/MilkdropPresetNode.cpp
     model/nodes/SwitcherNode.cpp
     model/nodes/ViewportNode.cpp
@@ -148,6 +150,7 @@ add_library(gv_app_nodes STATIC
     app/nodes/AudioInNode.cpp
     app/nodes/EnvelopeNode.cpp
     app/nodes/BandNode.cpp
+    app/nodes/MathNode.cpp
     app/nodes/MilkdropPresetNode.cpp
     app/nodes/SwitcherNode.cpp
     app/nodes/ViewportNode.cpp

@@ -344,6 +344,8 @@ auto Engine::SignalInputsNow(int scene) const -> model::SignalInputs
     {
         if (const auto it = m_sceneAudio.find(m_performance.scenes[static_cast<size_t>(scene)].id); it != m_sceneAudio.end())
             inputs.levels = it->second.Levels();
+        if (const auto it = m_lastSignals.find(m_performance.scenes[static_cast<size_t>(scene)].id); it != m_lastSignals.end())
+            inputs.previous = it->second;
     }
     return inputs;
 }
@@ -355,13 +357,16 @@ void Engine::FollowAudio(const std::vector<float>& pcm)
     for (int i = 0; i < static_cast<int>(m_performance.scenes.size()); ++i)
         signals.push_back(model::EvaluateSignals(m_performance.scenes[static_cast<size_t>(i)].graph, SignalInputsNow(i)));
     std::map<std::string, SceneAudio> kept; // only the scenes still there
+    std::map<std::string, model::SignalValues> last;
     for (size_t i = 0; i < m_performance.scenes.size(); ++i)
     {
         const auto& scene = m_performance.scenes[i];
         SceneAudio& audio = kept[scene.id] = std::move(m_sceneAudio[scene.id]);
         audio.Process(scene.graph, pcm, m_sampleRate, signals[i]);
+        last[scene.id] = std::move(signals[i]);
     }
     m_sceneAudio = std::move(kept);
+    m_lastSignals = std::move(last);
 }
 
 namespace {
