@@ -79,7 +79,8 @@ enum class PresetLayer
     OnTop = 2,           //!< Over the finished frame.
     Texture = 3,         //!< In place of one of the preset's textures (Wire::textureName).
 };
-constexpr int kPresetInputs = 4;
+constexpr int kPresetAudioInput = 4; //!< A preset's Audio input, after its layers: all it hears (nothing unwired).
+constexpr int kPresetInputs = 5;
 
 struct VideoSourceParams
 {
@@ -131,12 +132,20 @@ struct ViewportParams
 {
     auto operator==(const ViewportParams&) const -> bool = default;
 };
+/// How big an ISF shader renders, before it's scaled up to the canvas: smaller is lighter on the GPU.
+enum class IsfResolution
+{
+    Full,
+    Half,
+    Quarter
+};
 struct IsfShaderParams
 {
     std::filesystem::path path; //!< The .fs file; its header gives the node's inputs and controls.
     /// The controls' values, by ISF input name (1 number for float, bool and long). Values for inputs the file
     /// no longer has are kept but unused.
     std::map<std::string, std::vector<float>> values;
+    IsfResolution resolution{IsfResolution::Full}; //!< Its passes and buffers render at this fraction of the canvas.
     /// Not saved: 1 + the highest wired input (FollowWires), so a missing or edited file keeps its wires.
     int wiredInputs{0};
     auto operator==(const IsfShaderParams&) const -> bool = default;
@@ -201,7 +210,7 @@ struct Wire
 {
     std::string fromNode; //!< Every node has at most one output.
     std::string toNode;
-    int toInput{0};          //!< Preset: a PresetLayer. Switcher: the input index. Others: 0.
+    int toInput{0};          //!< Preset: a PresetLayer or kPresetAudioInput. Switcher: the input index. Others: 0.
     std::string textureName; //!< Preset texture inputs only: the texture it replaces.
     /// Modulation inputs only: the param's name (ParamDef::name). The wire follows it: FollowWires moves
     /// `toInput` to that param's input when the node's params or inputs change, and drops the wire if the
@@ -313,5 +322,16 @@ auto ConnectErrors(const Graph& graph, const std::string& from, const std::strin
 auto PresetsOf(const Graph& graph) -> std::vector<std::filesystem::path>;
 /// The pool video ids of every file video source node, in node order.
 auto VideoIdsOf(const Graph& graph) -> std::vector<std::string>;
+
+/// Wires preset `preset`'s Audio input to the graph's Audio In (the first), adding one above the preset when
+/// there's none. Returns the Audio In's id.
+auto WireToAudioIn(Graph& graph, const std::string& preset) -> std::string;
+/// Adds a preset node that already hears the scene's audio (WireToAudioIn), so a new preset isn't silently deaf.
+/// Returns its id.
+auto AddPreset(Graph& graph, float x, float y, const std::filesystem::path& path = {}) -> std::string;
+/// For shows from before presets had an Audio input, when every preset heard the input: wires every preset
+/// with nothing in its Audio input to one Audio In, added above the presets if the graph has none.
+/// Returns the number of wires added.
+auto WireUpAudio(Graph& graph) -> int;
 
 } // namespace gv::model

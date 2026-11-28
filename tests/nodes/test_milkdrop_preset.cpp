@@ -31,7 +31,7 @@ auto PathOf(const model::Node& node) -> std::filesystem::path
 
 } // namespace
 
-TEST_CASE("milkdrop preset: video into its three layers and its textures, its picture out", "[node:milkdrop-preset]")
+TEST_CASE("milkdrop preset: video into its three layers and its textures, audio into its Audio input, its picture out", "[node:milkdrop-preset]")
 {
     const auto& def = model::Def(NodeType::MilkdropPreset);
     CHECK(def.textureInput == Layer(PresetLayer::Texture));
@@ -43,7 +43,48 @@ TEST_CASE("milkdrop preset: video into its three layers and its textures, its pi
     CHECK(model::OutputKind(node) == model::PortKind::Picture);
     CHECK(model::InputCount(node) == model::kPresetInputs);
     for (int input = 0; input < model::kPresetInputs; ++input)
-        CHECK(model::InputKind(node, input) == model::PortKind::Picture);
+        CHECK(model::InputKind(node, input) == (input == model::kPresetAudioInput ? model::PortKind::Audio : model::PortKind::Picture));
+    CHECK(def.inputNames[static_cast<size_t>(model::kPresetAudioInput)] == std::string("audio"));
+    CHECK(model::ParamInput(node, 0) == model::kPresetInputs); // no settings: the Audio input moves no modulation input
+}
+
+TEST_CASE("milkdrop preset: audio wires into its Audio input only, and isn't a second video source", "[node:milkdrop-preset]")
+{
+    test::NodeScene scene;
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
+    const std::string video = scene.Add(NodeType::VideoSource);
+    const std::string audio = scene.Add(NodeType::AudioIn);
+    const std::string band = scene.Add(NodeType::Band);
+    model::Connect(scene.Graph(), video, preset, Layer(PresetLayer::Feedback));
+    CHECK(model::ConnectErrors(scene.Graph(), audio, preset, model::kPresetAudioInput).empty());
+    model::Connect(scene.Graph(), audio, band, 0);
+    CHECK(model::ConnectErrors(scene.Graph(), band, preset, model::kPresetAudioInput).empty());
+    CHECK(test::Messages(model::ConnectErrors(scene.Graph(), video, preset, model::kPresetAudioInput)) ==
+          std::vector<std::string>{"Milkdrop preset: this input takes audio (from Audio In or a Band), not a picture."});
+    CHECK(test::Messages(model::ConnectErrors(scene.Graph(), audio, preset, Layer(PresetLayer::OnTop))) ==
+          std::vector<std::string>{"Milkdrop preset: this input takes a picture, not audio."});
+}
+
+TEST_CASE("milkdrop preset: a new preset arrives wired to the scene's Audio In, which is added if missing", "[node:milkdrop-preset]")
+{
+    model::Graph graph;
+    const std::string first = model::AddPreset(graph, 1500.0f, 0.0f, "/a.milk");
+    REQUIRE(graph.nodes.size() == 2);
+    const model::Node* audioIn = graph.Upstream(first, model::kPresetAudioInput);
+    REQUIRE(audioIn != nullptr);
+    CHECK(audioIn->type == NodeType::AudioIn);
+    CHECK(audioIn->y < graph.Find(first)->y); // above it, out of the way
+    CHECK(PathOf(*graph.Find(first)) == "/a.milk");
+
+    // A second preset joins the same Audio In.
+    const std::string second = model::AddPreset(graph, 1500.0f, 420.0f);
+    CHECK(graph.nodes.size() == 3);
+    CHECK(graph.Upstream(second, model::kPresetAudioInput) == graph.Upstream(first, model::kPresetAudioInput));
+    CHECK(model::ValidateGraph(graph) == std::vector<model::GraphError>{{"", "There's no viewport."}});
+
+    // Deleting the wire is allowed: that preset is silent.
+    CHECK(model::Disconnect(graph, second, model::kPresetAudioInput));
+    CHECK(graph.Upstream(second, model::kPresetAudioInput) == nullptr);
 }
 
 TEST_CASE("milkdrop preset: texture inputs need a texture name, and only they have one", "[node:milkdrop-preset]")
@@ -162,8 +203,10 @@ TEST_CASE("milkdrop preset: an input row per layer and per texture, keeping wire
     std::vector<std::string> labels;
     for (const auto& input : inputs)
         labels.push_back(input.label);
-    CHECK(labels == std::vector<std::string>{"Feedback", "Before composite", "On top", "Texture: noise_lq", "Texture: clouds", "Texture: gone"});
-    CHECK(inputs[3] == app::InputSpec{Layer(PresetLayer::Texture), "noise_lq", model::PortKind::Picture, "Texture: noise_lq"});
+    CHECK(labels == std::vector<std::string>{"Audio", "Feedback", "Before composite", "On top", "Texture: noise_lq", "Texture: clouds", "Texture: gone"});
+    CHECK(inputs[0].input == model::kPresetAudioInput);
+    CHECK(inputs[0].kind == model::PortKind::Audio);
+    CHECK(inputs[4] == app::InputSpec{Layer(PresetLayer::Texture), "noise_lq", model::PortKind::Picture, "Texture: noise_lq"});
 
     test::HeadlessUi ui;
     ui.Frame(context, id);
@@ -243,11 +286,17 @@ TEST_CASE("milkdrop preset: the frame time shows only on the live preset, and th
     const std::string id = scene.Add(NodeType::MilkdropPreset, WithPath("/p.milk"));
     test::FakeNodeContext context(scene);
     const auto texts = test::ControlsOf(NodeType::MilkdropPreset, app::Control::Kind::Text);
-    REQUIRE(texts.size() == 1);
+    REQUIRE(texts.size() == 2);
     CHECK(texts[0]->warning);
     CHECK(texts[0]->text(scene.Node(id), context) == "File not found.");
     context.files = {"/p.milk"};
     CHECK(texts[0]->text(scene.Node(id), context).empty());
+
+    // A quiet note, not a warning, while nothing is wired into its Audio input.
+    CHECK_FALSE(texts[1]->warning);
+    CHECK(texts[1]->text(scene.Node(id), context) == "Hears no audio");
+    model::Connect(scene.Graph(), scene.Add(NodeType::AudioIn), id, model::kPresetAudioInput);
+    CHECK(texts[1]->text(scene.Node(id), context).empty());
 
     context.frameTime = std::pair<double, bool>{21.5, true};
     context.livePreset = id;

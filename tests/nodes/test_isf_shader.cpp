@@ -127,11 +127,12 @@ TEST_CASE("ISF shader: a missing or shrunk file keeps its wires, as inputs it no
     CHECK(loaded.performance.scenes[0].graph.wires == scene.Graph().wires);
 }
 
-TEST_CASE("ISF shader: saved with its path and values, including values for inputs the file doesn't have", "[node:isf-shader]")
+TEST_CASE("ISF shader: saved with its path, values (including for inputs the file doesn't have) and Resolution", "[node:isf-shader]")
 {
     test::NodeScene scene;
     auto& node = scene.Node(scene.Add(NodeType::IsfShader, [](model::Node& n) {
-        model::ParamsOf<IsfShaderParams>(n) = {kInvert, {{"amount", {0.25f}}, {"gone", {3.f}}, {"tint", {1.f, 0.5f, 0.f, 1.f}}}};
+        model::ParamsOf<IsfShaderParams>(n) = {
+            kInvert, {{"amount", {0.25f}}, {"gone", {3.f}}, {"tint", {1.f, 0.5f, 0.f, 1.f}}}, model::IsfResolution::Quarter};
     }));
     CHECK(test::RoundTrip(node) == node);
 
@@ -141,6 +142,41 @@ TEST_CASE("ISF shader: saved with its path and values, including values for inpu
     CHECK(issues.empty());
     CHECK(test::ReadNode(NodeType::IsfShader, {{"values", {{"radius", "big"}}}}).second.size() == 1);
     CHECK(test::ReadNode(NodeType::IsfShader, {{"values", 3}}).second.size() == 1);
+    CHECK(Isf(read).resolution == model::IsfResolution::Full); // older shows have none
+    CHECK(Isf(test::ReadNode(NodeType::IsfShader, {{"resolution", "half"}}).first).resolution == model::IsfResolution::Half);
+    CHECK(test::ReadNode(NodeType::IsfShader, {{"resolution", "tiny"}}).second.size() == 1);
+    CHECK(model::IsfDivisor(model::IsfResolution::Full) == 1);
+    CHECK(model::IsfDivisor(model::IsfResolution::Half) == 2);
+    CHECK(model::IsfDivisor(model::IsfResolution::Quarter) == 4);
+}
+
+TEST_CASE("ISF shader: Resolution is a choice on the node that its step renders at", "[node:isf-shader]")
+{
+    const auto file = TempDir() / "buffers.fs";
+    std::ofstream(file) << R"(/*{ "INPUTS": [ {"NAME": "inputImage", "TYPE": "image"} ], "PASSES": [ { "TARGET": "trail", "PERSISTENT": true }, {} ] }*/
+void main() { gl_FragColor = IMG_THIS_PIXEL(trail); }
+)";
+    test::NodeScene scene;
+    const std::string preset = scene.Add(NodeType::MilkdropPreset);
+    const std::string video = scene.Add(NodeType::VideoSource);
+    const std::string isf = scene.Add(NodeType::IsfShader, WithPath(file));
+    model::Connect(scene.Graph(), preset, "viewport", 0);
+    model::Connect(scene.Graph(), video, isf, 0);
+    model::Connect(scene.Graph(), isf, preset, static_cast<int>(model::PresetLayer::Feedback));
+    test::FakeNodeContext context(scene);
+
+    const auto choices = Controls(scene.Node(isf), context, app::Control::Kind::Choice);
+    REQUIRE_FALSE(choices.empty());
+    const auto& resolution = choices[0];
+    REQUIRE(resolution.options.size() == 3);
+    CHECK(std::string(resolution.options[0]) == "Full");
+    CHECK(resolution.get(scene.Node(isf)) == 0.0);
+    resolution.set(scene.Node(isf), 1.0);
+    CHECK(Isf(scene.Node(isf)).resolution == model::IsfResolution::Half);
+    const auto plan = engine::CompilePlan(scene.Graph());
+    REQUIRE(plan.branches.size() == 1);
+    REQUIRE(plan.branches[0].steps.size() == 1);
+    CHECK(plan.branches[0].steps[0].isf->divisor == 2);
 }
 
 TEST_CASE("ISF shader: no file, a missing file and a broken file are warnings, not errors", "[node:isf-shader]")
@@ -204,11 +240,12 @@ TEST_CASE("ISF shader: on the canvas, a slider per float, a checkbox per bool an
     REQUIRE(checkboxes.size() == 1);
     CHECK(std::string(checkboxes[0].label) == "Mirror");
     const auto choices = Controls(scene.Node(id), context, app::Control::Kind::Choice);
-    REQUIRE(choices.size() == 1);
-    REQUIRE(choices[0].options.size() == 2);
-    CHECK(std::string(choices[0].options[1]) == "Hard");
-    CHECK(choices[0].get(scene.Node(id)) == 1.0); // DEFAULT 5 is the second choice
-    choices[0].set(scene.Node(id), 0.0);
+    REQUIRE(choices.size() == 2); // Resolution, then the long
+    CHECK(std::string(choices[0].label) == "Resolution");
+    REQUIRE(choices[1].options.size() == 2);
+    CHECK(std::string(choices[1].options[1]) == "Hard");
+    CHECK(choices[1].get(scene.Node(id)) == 1.0); // DEFAULT 5 is the second choice
+    choices[1].set(scene.Node(id), 0.0);
     CHECK(Isf(scene.Node(id)).values.at("mode") == std::vector<float>{2.f});
     CHECK(model::ValidateGraph(scene.Graph()).empty());
 
@@ -320,7 +357,7 @@ TEST_CASE("ISF shader: a feature that can't run yet is named on the node, and th
 {
     const auto dir = TempDir();
     const std::pair<const char*, const char*> cases[] = {
-        {R"("PASSES": [ { "TARGET": "bufferA", "PERSISTENT": true }, {} ])", "Uses multi-pass buffers, which aren't supported yet."},
+        {R"x("PASSES": [ { "TARGET": "bufferA", "WIDTH": "floor($WIDTH)" }, {} ])x", "A pass has a size that can't be worked out: \"floor($WIDTH)\"."},
         {R"("IMPORTED": { "noise": { "PATH": "noise.png" } })", "Uses imported images, which aren't supported yet."},
     };
     for (const auto& [header, message] : cases)

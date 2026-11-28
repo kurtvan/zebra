@@ -49,7 +49,7 @@ void AddStep(std::vector<VideoStep>& steps, const Graph& graph, const Node& node
         // below, and Modulated() takes the uniforms from the modulated copy.
         const auto& params = model::ParamsOf<model::IsfShaderParams>(node);
         if (auto file = model::IsfFileAt(params.path); file.shader != nullptr && file.unsupported.empty())
-            steps.push_back({{}, IsfStep{node.id, params.path, std::move(file.shader), params.values}});
+            steps.push_back({{}, IsfStep{node.id, params.path, std::move(file.shader), params.values, model::IsfDivisor(params.resolution)}});
         return;
     }
     if (steps.empty() || steps.back().isf)
@@ -144,11 +144,11 @@ auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> Rend
     plan.presetNode = preset->id;
     plan.presetPath = model::ParamsOf<model::MilkdropPresetParams>(*preset).path;
 
-    // Each wired video input, in input order (texture inputs by name).
+    // Each wired video input, in input order (texture inputs by name). The audio is the lane's (LanePlan::audio).
     std::vector<const model::Wire*> inputs;
     for (const auto& wire : graph.wires)
     {
-        if (wire.toNode == preset->id)
+        if (wire.toNode == preset->id && wire.toInput != model::kPresetAudioInput)
             inputs.push_back(&wire);
     }
     std::sort(inputs.begin(), inputs.end(), [](const model::Wire* a, const model::Wire* b) {

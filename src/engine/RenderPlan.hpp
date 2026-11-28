@@ -24,6 +24,7 @@ struct IsfStep
     std::filesystem::path path;                   //!< Its file: compile errors are reported by path.
     std::shared_ptr<const isf::IsfShader> shader; //!< The parsed file (model::IsfFileAt): a new one when it changes.
     std::map<std::string, std::vector<float>> values;
+    int divisor{1}; //!< The node's Resolution: it renders at the canvas size divided by this (1, 2 or 4).
 
     auto operator==(const IsfStep&) const -> bool = default;
 };
@@ -83,6 +84,7 @@ struct LanePlan
 {
     std::vector<VideoBranch> branches;
     bool picture{false}; //!< No preset: branches[0] is drawn straight into the frame (RenderPlan::ShowsPicture).
+    std::string audio;   //!< The key of the tick's audio its preset hears (Lane::HeardAudio); not there: nothing.
 
     auto operator==(const LanePlan&) const -> bool = default;
 };

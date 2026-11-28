@@ -91,7 +91,7 @@ TEST_CASE("switcher: a show file's old kind is ignored", "[node:switcher]")
     REQUIRE(loaded.ok);
     CHECK(loaded.issues.empty());
     const auto& graph = loaded.performance.scenes[0].graph;
-    CHECK(graph.wires.size() == 2);
+    CHECK(graph.wires.size() == 3); // and the old show's preset now hears Audio In
     CHECK(model::ValidateGraph(graph).empty());
 }
 

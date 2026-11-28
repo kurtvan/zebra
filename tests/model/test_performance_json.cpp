@@ -7,9 +7,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unistd.h>
 
 using namespace gv::model;
 using gv::test::MakeScene;
@@ -78,7 +80,7 @@ TEST_CASE("a performance survives a save/load round trip")
     REQUIRE(result.ok);
     REQUIRE(result.issues.empty());
     const auto& loaded = result.performance;
-    CHECK(loaded.version == 3);
+    CHECK(loaded.version == kCurrentFormatVersion);
     CHECK(loaded.name == "Show");
     REQUIRE(loaded.scenes.size() == 2);
     CHECK(loaded.scenes[0].graph == a.graph); // node positions and expanded state included
@@ -143,8 +145,8 @@ TEST_CASE("switchers saved with a kind open with the same graph, and save withou
     REQUIRE(loaded.ok);
     CHECK(loaded.issues.empty());
     const Graph& graph = loaded.performance.scenes[0].graph;
-    CHECK(graph.nodes.size() == 7);
-    CHECK(graph.wires.size() == 7);
+    CHECK(graph.nodes.size() == 8); // and the Audio In an old show gets
+    CHECK(graph.wires.size() == 9);
     CHECK(ValidateGraph(graph).empty());
     CHECK(SwitchesVideos(graph, *graph.Find("videos")));
     CHECK_FALSE(SwitchesVideos(graph, *graph.Find("frames")));
@@ -167,8 +169,8 @@ TEST_CASE("damaged graphs load unfinished, with a warning per problem")
                   {"from": "c", "to": "p", "input": "sideways"}]}}]})");
     REQUIRE(result.ok); // only warnings
     const auto& scene = result.performance.scenes[0];
-    CHECK(scene.graph.nodes.size() == 3);           // the unknown node is left out
-    CHECK(scene.graph.wires.empty());               // nothing wired: unfinished
+    CHECK(scene.graph.nodes.size() == 4);           // the unknown node is left out, an Audio In is added
+    CHECK(scene.graph.wires.size() == 1);           // nothing wired but the preset's audio: unfinished
     CHECK(ValidateGraph(scene.graph).empty());
     CHECK(HasIssueAt(result, "/scenes/0/graph/nodes/3/type", Issue::Severity::Warning));
     CHECK(HasIssueAt(result, "/scenes/0/graph/wires/3/input", Issue::Severity::Warning));
@@ -563,7 +565,7 @@ TEST_CASE("format 1 file videos become pool videos, one per file")
 
     // Saved in the new format, without per-scene paths.
     const std::string saved = SerializePerformance(performance);
-    CHECK(saved.find("\"version\": 3") != std::string::npos);
+    CHECK(saved.find("\"version\": " + std::to_string(kCurrentFormatVersion)) != std::string::npos);
     CHECK(saved.find("\"video\": \"hearts-intro\"") != std::string::npos);
     const auto reloaded = ParsePerformance(saved);
     REQUIRE(reloaded.ok);
@@ -710,4 +712,75 @@ TEST_CASE("a scene needs something on the output, not a preset")
     REQUIRE(CountIssuesAt(issues, "/scenes/1/graph") == 1);
     CHECK(issues.back().message == "Nothing is wired to the output.");
     CHECK(issues.back().severity == Issue::Severity::Warning);
+}
+
+TEST_CASE("an old show opens with one Audio In per scene wired to every preset, switcher entries included")
+{
+    std::ifstream in(std::string(GV_TEST_FIXTURES_DIR) + "/govtech-nov-6th.json");
+    std::stringstream text;
+    text << in.rdbuf();
+    const auto result = ParsePerformance(text.str());
+    REQUIRE(result.ok);
+    int switched = 0; // presets that are a switcher's entries
+    for (const auto& scene : result.performance.scenes)
+    {
+        INFO(scene.id);
+        const auto& graph = scene.graph;
+        CHECK(ValidateGraph(graph).empty());
+        std::vector<const Node*> audioIns;
+        for (const auto& node : graph.nodes)
+        {
+            if (node.type == NodeType::AudioIn)
+                audioIns.push_back(&node);
+        }
+        REQUIRE(audioIns.size() == 1);
+        for (const auto& node : graph.nodes)
+        {
+            if (node.type != NodeType::MilkdropPreset)
+                continue;
+            CHECK(graph.Upstream(node.id, kPresetAudioInput) == audioIns[0]);
+            CHECK(audioIns[0]->y < node.y); // above the presets, out of the way
+            switched += std::any_of(graph.wires.begin(), graph.wires.end(), [&](const Wire& wire) {
+                return wire.fromNode == node.id && graph.Find(wire.toNode)->type == NodeType::Switcher;
+            });
+        }
+    }
+    CHECK(switched > 0);
+
+    // Saved, it round-trips, and opening the new format adds nothing.
+    const auto dir = std::filesystem::temp_directory_path() / ("gv_test_wire_audio_" + std::to_string(getpid()));
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    const auto file = dir / "show.json";
+    REQUIRE(SavePerformance(result.performance, file).empty());
+    const auto reopened = LoadPerformance(file);
+    REQUIRE(reopened.performance.scenes.size() == result.performance.scenes.size());
+    for (size_t i = 0; i < result.performance.scenes.size(); ++i)
+        CHECK(reopened.performance.scenes[i].graph == result.performance.scenes[i].graph);
+    CHECK(SerializePerformance(reopened.performance) == SerializePerformance(result.performance));
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("a show in the new format keeps its presets' audio as it was, deaf ones included")
+{
+    const std::string show = R"({"version": 4, "scenes": [{"id": "a", "midi": {"cc20Value": 0}, "graph": {
+        "nodes": [{"id": "p", "type": "milkdropPreset", "path": "/x.milk"}, {"id": "v", "type": "viewport"}],
+        "wires": [{"from": "p", "to": "v", "input": 0}]}}]})";
+    const auto loaded = ParsePerformance(show);
+    REQUIRE(loaded.ok);
+    const Graph& graph = loaded.performance.scenes[0].graph;
+    CHECK(graph.nodes.size() == 2);
+    CHECK(graph.wires.size() == 1);
+    CHECK(graph.Upstream("p", kPresetAudioInput) == nullptr);
+
+    // The same show as format 3: the preset heard the input, so now it's wired to it.
+    std::string old = show;
+    old.replace(old.find("\"version\": 4"), 12, "\"version\": 3");
+    const auto migrated = ParsePerformance(old);
+    REQUIRE(migrated.ok);
+    const Graph& wired = migrated.performance.scenes[0].graph;
+    REQUIRE(wired.nodes.size() == 3);
+    CHECK(wired.nodes[2].type == NodeType::AudioIn);
+    CHECK(wired.Upstream("p", kPresetAudioInput) == &wired.nodes[2]);
+    CHECK(SerializePerformance(migrated.performance).find("\"input\": \"audio\"") != std::string::npos);
 }

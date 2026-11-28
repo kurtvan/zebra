@@ -165,9 +165,7 @@ auto ReplacePreset(Performance& performance, int index, int item, const std::fil
         // Unfinished: a new preset node into the viewport.
         const Node* viewport = graph.Viewport();
         const std::string viewportId = viewport != nullptr ? viewport->id : AddNode(graph, NodeType::Viewport, 400.0f, 0.0f);
-        const std::string preset = AddNode(graph, NodeType::MilkdropPreset, 100.0f, 0.0f);
-        ParamsOf<MilkdropPresetParams>(*graph.Find(preset)).path = presetPath;
-        Connect(graph, preset, viewportId, 0);
+        Connect(graph, AddPreset(graph, 100.0f, 0.0f, presetPath), viewportId, 0);
         scene.Refresh();
         return 0;
     }
@@ -247,8 +245,7 @@ auto AddScene(Performance& performance, int after, const std::filesystem::path& 
     Scene scene;
     scene.id = UniqueSceneId(performance);
     // One preset into the viewport, where a converted show puts them.
-    const std::string preset = AddNode(scene.graph, NodeType::MilkdropPreset, 1500.0f, 0.0f);
-    ParamsOf<MilkdropPresetParams>(*scene.graph.Find(preset)).path = presetPath;
+    const std::string preset = AddPreset(scene.graph, 1500.0f, 0.0f, presetPath);
     Connect(scene.graph, preset, AddNode(scene.graph, NodeType::Viewport, 2080.0f, 0.0f), 0);
     scene.Refresh();
     scene.cc20Value = *cc;

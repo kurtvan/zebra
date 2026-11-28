@@ -1,6 +1,6 @@
 # Show checklist
 
-For running a performance with Govtech Visualizer. Written for the 2026-11-06 show; it applies to any show.
+For running a performance with Zebra. Written for the 2026-11-06 show; it applies to any show.
 
 ## The day before
 

@@ -1,7 +1,7 @@
 /*{
     "ISFVSN": "2",
     "DESCRIPTION": "Passes the image through unchanged",
-    "CREDIT": "Govtech Visualizer tests",
+    "CREDIT": "Zebra tests",
     "CATEGORIES": ["Utility"],
     "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" }

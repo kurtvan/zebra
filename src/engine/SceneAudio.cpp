@@ -12,9 +12,12 @@ void SceneAudio::Process(const model::Graph& graph, std::span<const float> stere
     m_signals = &signals;
     m_bandsUsed.clear();
     m_filtered.clear();
+    m_presets.clear();
     std::map<std::string, EnvelopeFollower> followers; // only the Envelopes still there
     for (const auto& node : graph.nodes)
     {
+        if (node.type == model::NodeType::MilkdropPreset)
+            m_presets[node.id] = AudioOf(graph, graph.Upstream(node.id, model::kPresetAudioInput), 0);
         if (node.type != model::NodeType::Envelope || !std::holds_alternative<model::EnvelopeParams>(node.params))
             continue;
         EnvelopeFollower follower = m_followers[node.id];

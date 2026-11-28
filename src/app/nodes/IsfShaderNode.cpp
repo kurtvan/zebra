@@ -59,6 +59,27 @@ void DrawButtons(const model::Node& node, NodeContext& context)
     context.Tooltip("Show the file in Finder.");
 }
 
+constexpr const char* kResolutions[] = {"Full", "½", "¼"};
+
+/// The Resolution choice.
+auto ResolutionControl() -> Control
+{
+    Control resolution;
+    resolution.kind = Control::Kind::Choice;
+    resolution.id = "##resolution";
+    resolution.label = "Resolution";
+    resolution.options = kResolutions;
+    resolution.undo = "Change Resolution";
+    resolution.tooltip = "Renders the shader smaller and scales it up: lighter on the GPU for heavy shaders.";
+    resolution.get = [](const model::Node& node) {
+        return static_cast<double>(model::ParamsOf<model::IsfShaderParams>(node).resolution);
+    };
+    resolution.set = [](model::Node& node, double value) {
+        model::ParamsOf<model::IsfShaderParams>(node).resolution = static_cast<model::IsfResolution>(std::clamp(static_cast<int>(value), 0, 2));
+    };
+    return resolution;
+}
+
 /// One input's control: a slider for a float, a checkbox for a bool, a choice for a long. Its strings live
 /// in `strings` (and `options`), which outlive it.
 auto InputControl(const isf::IsfInput& input, std::deque<std::string>& strings, std::deque<std::vector<const char*>>& options)
@@ -201,6 +222,7 @@ auto IsfShaderUi() -> NodeUi
         problem.warning = true;
         problem.text = FileProblem;
         std::vector<Control> controls = {{Control::Kind::Inputs}, buttons, problem};
+        controls.push_back(ResolutionControl());
         if (const auto file = model::IsfFileAt(PathOf(node)); file.shader != nullptr)
         {
             const auto inputs = InputControls(file.shader);

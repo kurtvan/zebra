@@ -59,7 +59,9 @@ struct IsfInput
     std::vector<std::string> labels;  //!< long: "LABELS"
 };
 
-/// One entry of the header's "PASSES". Stored as written; only the first pass is rendered for now.
+/// One entry of the header's "PASSES", stored as written. Passes draw in order; each one with a TARGET draws into
+/// that named buffer, which every pass after it (and, when PERSISTENT, the next frame) reads as a sampler of that
+/// name. The last pass is the shader's picture, whether or not it has a TARGET.
 struct IsfPass
 {
     std::string target;  //!< "TARGET", or empty for the output
@@ -103,10 +105,13 @@ auto TranslateIsf(const IsfShader& shader) -> std::string;
 /// The vertex shader every ISF program shares: a full-screen triangle that hands isf_FragNormCoord on.
 auto IsfVertexShader() -> const char*;
 
-/// What `shader` uses that the loader can't run yet, as a sentence for the artist ("Uses multi-pass buffers,
+/// What `shader` uses that the loader can't run yet, as a sentence for the artist ("Uses imported images,
 /// which aren't supported yet."), or "" if it can run. Such a shader isn't compiled: the compiler's error
 /// wouldn't say why it fails.
 auto UnsupportedFeature(const IsfShader& shader) -> std::string;
+
+/// The buffers the passes draw into (their TARGETs), each once, in the order they first appear.
+auto Targets(const IsfShader& shader) -> std::vector<std::string>;
 
 /// The input called `name`, if the shader has one.
 auto FindInput(const IsfShader& shader, std::string_view name) -> const IsfInput*;

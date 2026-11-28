@@ -1,7 +1,7 @@
 /*{
     "ISFVSN": "2",
     "DESCRIPTION": "A gradient (x in red, y in green), tinted, with a blue spot and a white flash",
-    "CREDIT": "Govtech Visualizer tests",
+    "CREDIT": "Zebra tests",
     "CATEGORIES": ["Generator"],
     "INPUTS": [
         { "NAME": "tint", "TYPE": "color", "DEFAULT": [1.0, 1.0, 1.0, 1.0] },

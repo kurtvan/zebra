@@ -33,6 +33,7 @@ auto Compile(GLenum type, const std::string& source, std::string& error) -> GLui
 
 IsfProgram::IsfProgram(const IsfShader& shader)
     : m_inputs(shader.inputs)
+    , m_passes(shader.passes)
 {
     const GLuint vertex = Compile(GL_VERTEX_SHADER, IsfVertexShader(), m_error);
     const GLuint fragment = vertex == 0 ? 0 : Compile(GL_FRAGMENT_SHADER, TranslateIsf(shader), m_error);
@@ -63,6 +64,9 @@ IsfProgram::IsfProgram(const IsfShader& shader)
 
     for (const auto& input : m_inputs)
         m_inputLocations.push_back(glGetUniformLocation(m_program, input.name.c_str()));
+    for (const auto& target : Targets(shader))
+        if (FindInput(shader, target) == nullptr)
+            m_targets.emplace_back(target, glGetUniformLocation(m_program, target.c_str()));
     m_timeLocation = glGetUniformLocation(m_program, "TIME");
     m_timeDeltaLocation = glGetUniformLocation(m_program, "TIMEDELTA");
     m_frameIndexLocation = glGetUniformLocation(m_program, "FRAMEINDEX");
@@ -81,7 +85,7 @@ IsfProgram::~IsfProgram()
 }
 
 void IsfProgram::Render(const std::map<std::string, GLuint>& images, const std::map<std::string, std::vector<float>>& values,
-                        const IsfClock& clock, GLuint fbo, int width, int height)
+                        const IsfClock& clock, GLuint fbo, int width, int height, int passIndex)
 {
     if (m_program == 0)
         return;
@@ -94,7 +98,7 @@ void IsfProgram::Render(const std::map<std::string, GLuint>& images, const std::
     glUniform1f(m_timeDeltaLocation, clock.timeDelta);
     glUniform1i(m_frameIndexLocation, clock.frameIndex);
     glUniform2f(m_renderSizeLocation, static_cast<float>(width), static_cast<float>(height));
-    glUniform1i(m_passIndexLocation, 0);
+    glUniform1i(m_passIndexLocation, passIndex);
     glUniform4fv(m_dateLocation, 1, clock.date.data());
 
     GLint unit = 0;
@@ -124,6 +128,14 @@ void IsfProgram::Render(const std::map<std::string, GLuint>& images, const std::
             case InputType::Color: glUniform4f(location, v[0], v[1], v[2], v[3]); break;
             default: break;
         }
+    }
+
+    for (const auto& [name, location] : m_targets)
+    {
+        const auto image = images.find(name);
+        glActiveTexture(static_cast<GLenum>(GL_TEXTURE0 + unit));
+        glBindTexture(GL_TEXTURE_2D, image == images.end() ? 0 : image->second);
+        glUniform1i(location, unit++);
     }
 
     glBindVertexArray(m_vao);

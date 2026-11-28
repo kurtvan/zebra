@@ -135,6 +135,29 @@ TEST_CASE("adding scenes uses unique ids and free CC values")
     CHECK(AddScene(performance, 99, "/end.milk") == 4);
 }
 
+TEST_CASE("a new scene's preset, and one added to an empty scene, arrive hearing the scene's Audio In")
+{
+    auto performance = ThreeScenes();
+    const int index = AddScene(performance, 0, "/new.milk");
+    const Graph& graph = performance.scenes[static_cast<size_t>(index)].graph;
+    const Node* preset = graph.Upstream("viewport", 0);
+    REQUIRE(preset != nullptr);
+    const Node* audioIn = graph.Upstream(preset->id, kPresetAudioInput);
+    REQUIRE(audioIn != nullptr);
+    CHECK(audioIn->type == NodeType::AudioIn);
+
+    Scene& empty = performance.scenes[0];
+    empty.graph = {};
+    AddNode(empty.graph, NodeType::Viewport, 0, 0);
+    const std::string existing = AddNode(empty.graph, NodeType::AudioIn, 0, 0); // already there: used
+    REQUIRE(ReplacePreset(performance, 0, 0, "/x.milk") == 0);
+    const Node* added = empty.graph.Upstream("viewport", 0);
+    REQUIRE(added != nullptr);
+    CHECK(empty.graph.Upstream(added->id, kPresetAudioInput) == empty.graph.Find(existing));
+    CHECK(empty.graph.nodes.size() == 3);
+    CHECK(ValidateGraph(empty.graph).empty());
+}
+
 TEST_CASE("replacing a scene's preset, or the playlist entry on screen")
 {
     auto performance = ThreeScenes();

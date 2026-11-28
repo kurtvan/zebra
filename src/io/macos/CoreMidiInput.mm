@@ -44,7 +44,7 @@ class CoreMidiInput final : public MidiInput
 public:
     CoreMidiInput()
     {
-        OSStatus status = MIDIClientCreateWithBlock(CFSTR("Govtech Visualizer"), &m_client, ^(const MIDINotification* notification) {
+        OSStatus status = MIDIClientCreateWithBlock(CFSTR("Zebra"), &m_client, ^(const MIDINotification* notification) {
             if (notification->messageID == kMIDIMsgSetupChanged)
             {
                 ConnectAllSources();

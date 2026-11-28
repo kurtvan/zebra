@@ -25,6 +25,8 @@
 namespace gv::engine {
 
 using PcmChunk = std::shared_ptr<const std::vector<float>>; //!< Interleaved stereo float samples.
+/// What a tick's presets hear, by LanePlan::audio: what's wired into each one's Audio input.
+using HeardAudio = std::map<std::string, PcmChunk>;
 
 /// The current frame of the live scene's video, if it has one.
 struct VideoFrame
@@ -93,6 +95,7 @@ public:
     void Release(InstanceId instance);
 
     /// Changes how a hosted instance draws its video (branches and their effects) without re-preparing it.
+    /// Its ISF nodes keep their buffers; those of nodes the plan no longer has are freed.
     void SetPlan(InstanceId instance, LanePlan plan);
 
     /// Drops queued (not started) Prepare and Warm jobs. Returns the dropped prepares and warm scenes.
@@ -101,11 +104,10 @@ public:
     /// Which hosted instance renders on ticks (0: none).
     void SetLive(InstanceId instance);
 
-    /// Feeds `pcm` to every hosted instance and, if live, renders one frame, drawing `video` through its plan.
-    /// The live instance gets `livePcm` instead when it's set (the same audio plus beat hits).
-    /// `signals` move the live instance's modulated effects (Modulated). Coalesces with an unprocessed tick (the
-    /// newest video frame and signals win).
-    void Tick(PcmChunk pcm, long long tick, VideoFrame video, PcmChunk livePcm = nullptr, model::SignalValues signals = {});
+    /// Feeds each hosted instance its plan's entry of `audio` (nothing if it has none) and, if live, renders one
+    /// frame, drawing `video` through its plan. `signals` move the live instance's modulated effects (Modulated).
+    /// Coalesces with an unprocessed tick (the audio adds up; the newest video frame and signals win).
+    void Tick(HeardAudio audio, long long tick, VideoFrame video, model::SignalValues signals = {});
 
     /// The newest published frame not yet taken, or tick -1.
     auto TakeLatest() -> PublishedFrame;
@@ -147,8 +149,7 @@ private:
     struct PendingTick
     {
         bool has{false};
-        std::vector<PcmChunk> pcm;
-        std::vector<PcmChunk> livePcm; //!< What the live instance hears: livePcm where given, else pcm.
+        std::map<std::string, std::vector<PcmChunk>> audio; //!< By LanePlan::audio, in order.
         long long tick{-1};
         VideoFrame video;
         model::SignalValues signals;
@@ -179,10 +180,10 @@ private:
     /// Runs the plan's branches on `video` and sets the instance's layers. Texture branches are drawn only with
     /// `overrides` (hosted instances, not warm-ups). Returns the On top branch textures, to composite over the
     /// rendered frame.
-    auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides,
+    auto RunBranches(projectm_handle instance, const LanePlan& plan, GLuint video, TextureOverrides* overrides, IsfNodeBuffers& buffers,
                      const model::SignalValues& signals = {}) -> std::vector<GLuint>;
     /// An instance with no preset (LanePlan::picture): draws its picture of `video` straight into `fbo`; black with no branch.
-    void DrawPicture(const LanePlan& plan, GLuint video, const model::SignalValues& signals, GLuint fbo);
+    void DrawPicture(const LanePlan& plan, GLuint video, const model::SignalValues& signals, IsfNodeBuffers& buffers, GLuint fbo);
     /// Targets[index] at render size, creating it (and those before it) if needed.
     auto BranchTarget(std::vector<RenderTarget>& targets, size_t index) -> RenderTarget;
     /// Compiles the plan's ISF shaders this lane doesn't have yet, reporting each one (ShaderCompiled).
@@ -218,6 +219,7 @@ private:
         projectm_handle handle{nullptr}; //!< Null for a picture with no preset (LanePlan::picture).
         LanePlan plan; //!< How the scene draws its video.
         TextureOverrides textures;
+        IsfNodeBuffers buffers; //!< Its ISF nodes' buffers: kept while it's hosted, prepared or live.
     };
     std::map<InstanceId, Hosted> m_instances;
     GLuint m_placeholderVideo{0}; //!< 1x1 black texture used while warming up video scenes (compiles the blends).
