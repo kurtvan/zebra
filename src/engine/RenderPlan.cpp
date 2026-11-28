@@ -115,53 +115,152 @@ auto Walk(const Graph& graph, const Node* node, const SwitcherSelection& selecti
 
 } // namespace
 
-auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> RenderPlan
+auto CompileProgram(const Graph& graph, const SwitcherSelection& selection) -> RenderProgram
 {
-    RenderPlan plan;
+    RenderProgram program;
     const Node* viewport = graph.Viewport();
     if (viewport == nullptr)
-        return plan;
+        return program;
     const Node* top = ThroughSwitchers(graph, graph.Upstream(viewport->id, 0), selection);
     if (top == nullptr)
-        return plan;
-    auto use = [&](const Walked& walked, VideoBranch branch) {
-        branch.steps = walked.steps;
-        if (walked.source != nullptr)
+        return program;
+    auto useSource = [&](const Node* source) {
+        if (source != nullptr)
         {
-            plan.sourceNode = walked.source->id;
-            plan.source = model::ParamsOf<model::VideoSourceParams>(*walked.source).source;
+            program.sourceNode = source->id;
+            program.source = model::ParamsOf<model::VideoSourceParams>(*source).source;
         }
-        plan.branches.push_back(std::move(branch));
     };
     if (top->type != NodeType::MilkdropPreset)
     {
         // No preset: the picture goes straight onto the viewport.
-        if (const auto walked = Walk(graph, top, selection, true))
-            use(*walked, {});
-        return plan;
+        if (auto walked = Walk(graph, top, selection, true))
+        {
+            useSource(walked->source);
+            program.picture.emplace();
+            program.picture->steps = std::move(walked->steps);
+        }
+        return program;
     }
-    const Node* preset = top;
-    plan.presetNode = preset->id;
-    plan.presetPath = model::ParamsOf<model::MilkdropPresetParams>(*preset).path;
 
-    // Each wired video input, in input order (texture inputs by name). The audio is the lane's (LanePlan::audio).
-    std::vector<const model::Wire*> inputs;
-    for (const auto& wire : graph.wires)
+    // Every preset the viewport's reaches, compiled with the presets and sources feeding each of its inputs.
+    struct Found
     {
-        if (wire.toNode == preset->id && wire.toInput != model::kPresetAudioInput)
-            inputs.push_back(&wire);
-    }
-    std::sort(inputs.begin(), inputs.end(), [](const model::Wire* a, const model::Wire* b) {
-        return std::tie(a->toInput, a->textureName) < std::tie(b->toInput, b->textureName);
-    });
-    for (const model::Wire* wire : inputs)
+        PresetStep step;
+        std::vector<std::string> from;      // per input: the preset feeding it, or empty
+        std::vector<const Node*> sources;   // per input: the video source it starts at, or null
+    };
+    std::map<std::string, Found> found; // by node id: the order ties are broken in
+    std::vector<const Node*> queue{top};
+    while (!queue.empty())
     {
-        VideoBranch branch;
-        branch.layer = static_cast<model::PresetLayer>(wire->toInput);
-        branch.textureName = wire->textureName;
-        if (const auto walked = Walk(graph, graph.Find(wire->fromNode), selection, false))
-            use(*walked, std::move(branch));
+        const Node* preset = queue.back();
+        queue.pop_back();
+        if (found.count(preset->id) != 0)
+            continue;
+        Found& compiled = found[preset->id];
+        compiled.step.presetNode = preset->id;
+        compiled.step.presetPath = model::ParamsOf<model::MilkdropPresetParams>(*preset).path;
+        if (const model::Wire* audio = graph.WireInto(preset->id, model::kPresetAudioInput))
+            compiled.step.audio = audio->fromNode;
+
+        // Each wired picture input, in input order (texture inputs by name).
+        std::vector<const model::Wire*> wires;
+        for (const auto& wire : graph.wires)
+        {
+            if (wire.toNode == preset->id && wire.toInput != model::kPresetAudioInput)
+                wires.push_back(&wire);
+        }
+        std::sort(wires.begin(), wires.end(), [](const model::Wire* a, const model::Wire* b) {
+            return std::tie(a->toInput, a->textureName) < std::tie(b->toInput, b->textureName);
+        });
+        for (const model::Wire* wire : wires)
+        {
+            StepInput input;
+            input.layer = static_cast<model::PresetLayer>(wire->toInput);
+            input.textureName = wire->textureName;
+            const Node* from = ThroughSwitchers(graph, graph.Find(wire->fromNode), selection);
+            const Node* source = nullptr;
+            if (from != nullptr && from->type == NodeType::MilkdropPreset)
+            {
+                input.feed = Feed::Step;
+                queue.push_back(from);
+            }
+            else if (auto walked = Walk(graph, from, selection, false))
+            {
+                input.feed = Feed::Video;
+                input.video = std::move(walked->steps);
+                source = walked->source;
+            }
+            compiled.from.push_back(input.feed == Feed::Step ? from->id : std::string());
+            compiled.sources.push_back(source);
+            compiled.step.inputs.push_back(std::move(input));
+        }
     }
+
+    // Upstream first: each time, the first preset by id whose feeding presets are all placed. The viewport's is
+    // last, since every other one feeds it. One that never gets placed is on a loop.
+    std::map<std::string, int> placed;
+    while (placed.size() < found.size())
+    {
+        auto ready = std::find_if(found.begin(), found.end(), [&](const auto& entry) {
+            return placed.count(entry.first) == 0 && std::all_of(entry.second.from.begin(), entry.second.from.end(), [&](const std::string& id) {
+                       return id.empty() || placed.count(id) != 0;
+                   });
+        });
+        if (ready == found.end())
+        {
+            const auto looped = std::find_if(found.begin(), found.end(), [&](const auto& entry) { return placed.count(entry.first) == 0; });
+            const Node* node = graph.Find(looped->first);
+            program = {};
+            program.errors.push_back({node->id, model::Label(*node) + ": its picture comes back into its own inputs, making a loop. "
+                                                                     "Loops of presets can't be drawn yet."});
+            return program;
+        }
+        Found& compiled = ready->second;
+        for (size_t i = 0; i < compiled.step.inputs.size(); ++i)
+        {
+            if (!compiled.from[i].empty())
+                compiled.step.inputs[i].step = placed.at(compiled.from[i]);
+            useSource(compiled.sources[i]);
+        }
+        placed[ready->first] = static_cast<int>(program.steps.size());
+        program.steps.push_back(std::move(compiled.step));
+    }
+    return program;
+}
+
+auto LanePlanOf(const RenderProgram& program, std::string audio) -> LanePlan
+{
+    LanePlan plan;
+    plan.picture = program.ShowsPicture();
+    if (program.picture)
+        plan.branches.push_back(*program.picture);
+    if (const PresetStep* top = program.Top())
+    {
+        // Only its video inputs: a preset's frame into another one is drawn once the lane renders several.
+        for (const StepInput& input : top->inputs)
+        {
+            if (input.feed == Feed::Video)
+                plan.branches.push_back({input.video, input.layer, input.textureName});
+        }
+        plan.audio = std::move(audio);
+    }
+    return plan;
+}
+
+auto CompilePlan(const Graph& graph, const SwitcherSelection& selection) -> RenderPlan
+{
+    const RenderProgram program = CompileProgram(graph, selection);
+    RenderPlan plan;
+    if (const PresetStep* top = program.Top())
+    {
+        plan.presetNode = top->presetNode;
+        plan.presetPath = top->presetPath;
+    }
+    plan.sourceNode = program.sourceNode;
+    plan.source = program.source;
+    plan.branches = LanePlanOf(program, {}).branches;
     return plan;
 }
 

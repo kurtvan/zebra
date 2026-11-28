@@ -79,6 +79,61 @@ struct RenderPlan
     auto operator==(const RenderPlan&) const -> bool = default;
 };
 
+/// What feeds one wired picture input of a preset step.
+enum class Feed
+{
+    Nothing, //!< An unfinished chain: no picture.
+    Video,   //!< A video branch (StepInput::video).
+    Step,    //!< Another preset's finished frame (StepInput::step).
+};
+
+/// One wired picture input of a preset step and what feeds it.
+struct StepInput
+{
+    model::PresetLayer layer{model::PresetLayer::Feedback};
+    std::string textureName; //!< Texture layer only.
+    Feed feed{Feed::Nothing};
+    std::vector<VideoStep> video{}; //!< Feed::Video: the video's path into it, with its modulations (VideoBranch::steps).
+    int step{-1};                   //!< Feed::Step: the index in RenderProgram::steps of the preset feeding it, always earlier.
+
+    auto operator==(const StepInput&) const -> bool = default;
+};
+
+/// One preset of a render program, and what feeds each of its inputs.
+struct PresetStep
+{
+    std::string presetNode;
+    std::filesystem::path presetPath;
+    std::vector<StepInput> inputs; //!< Every wired picture input, in input order (texture inputs by name).
+    std::string audio;             //!< The node wired into its Audio input; empty: it hears nothing.
+
+    auto operator==(const PresetStep&) const -> bool = default;
+};
+
+/// What a scene draws for one switcher selection: its presets as ordered steps, each one's inputs naming what
+/// feeds them. Today's scenes have at most one step.
+struct RenderProgram
+{
+    std::vector<PresetStep> steps; //!< Upstream first, ties by node id; the last is the preset on the viewport.
+    std::optional<VideoBranch> picture; //!< No preset: the picture on the viewport, if any (its layer unused).
+    std::string sourceNode;             //!< Empty: no video.
+    model::VideoSource source;
+    std::vector<model::GraphError> errors; //!< Not empty: the program was refused (a loop) and has no steps.
+
+    /// The preset on the viewport, or null.
+    auto Top() const -> const PresetStep*
+    {
+        return steps.empty() ? nullptr : &steps.back();
+    }
+    /// True when the viewport shows a picture with no preset (RenderPlan::ShowsPicture).
+    auto ShowsPicture() const -> bool
+    {
+        return steps.empty() && picture.has_value();
+    }
+
+    auto operator==(const RenderProgram&) const -> bool = default;
+};
+
 /// What a lane needs to draw a plan's video: its branches. The preset and source are chosen elsewhere.
 struct LanePlan
 {
@@ -95,6 +150,14 @@ using SwitcherSelection = std::map<std::string, int>;
 /// Walks back from the viewport, following only each switcher's selected input. `graph` must be valid
 /// (model::ValidateGraph); unfinished parts compile to nothing.
 auto CompilePlan(const model::Graph& graph, const SwitcherSelection& selection = {}) -> RenderPlan;
+
+/// Walks back from the viewport as CompilePlan does, also through presets wired into other presets' inputs, and
+/// orders the presets upstream first. A loop of presets is refused (RenderProgram::errors). Pure: no GL.
+auto CompileProgram(const model::Graph& graph, const SwitcherSelection& selection = {}) -> RenderProgram;
+
+/// What the lane draws for `program`: the video branches into its top preset (the lane renders that one only
+/// for now), or its picture with no preset. `audio` is the key of what that preset hears (LanePlan::audio).
+auto LanePlanOf(const RenderProgram& program, std::string audio) -> LanePlan;
 
 /// `steps` with every modulated effect's pass redone from this frame's `signals`. A signal missing from
 /// `signals` leaves its setting as it is.

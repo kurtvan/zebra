@@ -42,6 +42,7 @@ add_executable(gv_tests
     engine/test_band_filter.cpp
     engine/test_scene_audio.cpp
     engine/test_render_plan.cpp
+    engine/test_render_program.cpp
     library/test_library.cpp
     thumbnails/test_slot_plan.cpp
     nodes/test_node_types.cpp
