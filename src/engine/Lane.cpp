@@ -200,6 +200,15 @@ void Lane::SetPlan(InstanceId instance, LanePlan plan)
     Push(std::move(job), true);
 }
 
+void Lane::ResetShader(InstanceId instance, std::string node)
+{
+    Job job;
+    job.type = Job::Type::ResetShader;
+    job.instance = instance;
+    job.node = std::move(node);
+    Push(std::move(job), true);
+}
+
 auto Lane::CancelQueued() -> std::pair<std::vector<InstanceId>, std::vector<std::pair<int, std::string>>>
 {
     std::pair<std::vector<InstanceId>, std::vector<std::pair<int, std::string>>> cancelled;
@@ -346,6 +355,13 @@ void Lane::Run()
                     RestoreTextures(job.instance, job.plan, hosted->second.textures);
                     std::erase_if(hosted->second.buffers, [&](const auto& entry) { return !DrawsShader(job.plan, entry.first); });
                     DropUnusedPrograms();
+                }
+                break;
+            case Job::Type::ResetShader:
+                if (auto hosted = m_instances.find(job.instance); hosted != m_instances.end())
+                {
+                    if (auto buffers = hosted->second.buffers.find(job.node); buffers != hosted->second.buffers.end())
+                        buffers->second.Clear();
                 }
                 break;
             case Job::Type::Shutdown:

@@ -477,6 +477,14 @@ void Engine::JumpVideo(int index, const std::string& switcherId, int input)
     GV_LOG_INFO(kLogCategory, "scene %d (%s): video switcher %s jumped to input %d", index, scene.DisplayName().c_str(), switcherId.c_str(), input + 1);
 }
 
+void Engine::ResetShader(int index, const std::string& nodeId)
+{
+    for (const auto& hosted : m_pool.InstancesOf(index))
+        m_lanes[static_cast<size_t>(hosted.lane)]->ResetShader(hosted.instance, nodeId);
+    if (m_handover.instance != 0 && m_handover.scene == index)
+        m_lanes[static_cast<size_t>(m_handover.lane)]->ResetShader(m_handover.instance, nodeId);
+}
+
 auto Engine::Switcher(int index, const std::string& switcherId) const -> std::optional<SwitcherState>
 {
     if (index < 0 || index != m_switchers.scene || index != m_pool.LiveScene())

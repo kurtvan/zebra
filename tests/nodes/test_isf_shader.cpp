@@ -150,7 +150,7 @@ TEST_CASE("ISF shader: saved with its path, values (including for inputs the fil
     CHECK(model::IsfDivisor(model::IsfResolution::Quarter) == 4);
 }
 
-TEST_CASE("ISF shader: Resolution is a choice on the node that its step renders at", "[node:isf-shader]")
+TEST_CASE("ISF shader: Resolution is a choice on the node that its step renders at; Reset shows for shaders with buffers", "[node:isf-shader]")
 {
     const auto file = TempDir() / "buffers.fs";
     std::ofstream(file) << R"(/*{ "INPUTS": [ {"NAME": "inputImage", "TYPE": "image"} ], "PASSES": [ { "TARGET": "trail", "PERSISTENT": true }, {} ] }*/
@@ -160,6 +160,7 @@ void main() { gl_FragColor = IMG_THIS_PIXEL(trail); }
     const std::string preset = scene.Add(NodeType::MilkdropPreset);
     const std::string video = scene.Add(NodeType::VideoSource);
     const std::string isf = scene.Add(NodeType::IsfShader, WithPath(file));
+    const std::string plain = scene.Add(NodeType::IsfShader, WithPath(kInvert));
     model::Connect(scene.Graph(), preset, "viewport", 0);
     model::Connect(scene.Graph(), video, isf, 0);
     model::Connect(scene.Graph(), isf, preset, static_cast<int>(model::PresetLayer::Feedback));
@@ -177,6 +178,21 @@ void main() { gl_FragColor = IMG_THIS_PIXEL(trail); }
     REQUIRE(plan.branches.size() == 1);
     REQUIRE(plan.branches[0].steps.size() == 1);
     CHECK(plan.branches[0].steps[0].isf->divisor == 2);
+
+    // Reset: only on a shader with buffers, and it clears them through the engine, not as an edit.
+    const auto hasButton = [&](const std::string& id) {
+        const auto controls = app::NodeControls(scene.Node(id), context);
+        return std::ranges::any_of(controls, [&](const app::Control& c) {
+            return std::string(c.id) == "##restart" && (c.visible == nullptr || c.visible(scene.Node(id)));
+        });
+    };
+    CHECK(hasButton(isf));
+    CHECK_FALSE(hasButton(plain));
+    test::HeadlessUi ui;
+    ui.Frame(context, isf);
+    ui.Click(context, isf, test::HeadlessUi::Centre(context, "Clear the shader's buffers, so a simulation or trail starts again."));
+    CHECK(context.resets == std::vector<std::string>{isf});
+    CHECK(context.edits.empty());
 }
 
 TEST_CASE("ISF shader: no file, a missing file and a broken file are warnings, not errors", "[node:isf-shader]")

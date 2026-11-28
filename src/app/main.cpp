@@ -432,6 +432,11 @@ public:
         m_engine.JumpVideo(scene, switcherId, input);
     }
 
+    void ResetShader(int scene, const std::string& nodeId) override
+    {
+        m_engine.ResetShader(scene, nodeId);
+    }
+
     void TriggerItem(int scene, int item) override
     {
         m_video.OnTrigger(scene, item, m_engine.LiveScene()); // only restarts when entering another scene

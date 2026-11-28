@@ -56,8 +56,15 @@ void DrawButtons(const model::Node& node, NodeContext& context)
 
 constexpr const char* kResolutions[] = {"Full", "½", "¼"};
 
-/// The Resolution choice.
-auto ResolutionControl() -> Control
+/// True if the shader draws into buffers of its own, which Reset clears.
+auto HasBuffers(const model::Node& node) -> bool
+{
+    const auto file = model::IsfFileAt(PathOf(node));
+    return file.shader != nullptr && !isf::Targets(*file.shader).empty();
+}
+
+/// Resolution, and Reset for a shader with buffers.
+auto SettingControls() -> std::vector<Control>
 {
     Control resolution;
     resolution.kind = Control::Kind::Choice;
@@ -72,7 +79,15 @@ auto ResolutionControl() -> Control
     resolution.set = [](model::Node& node, double value) {
         model::ParamsOf<model::IsfShaderParams>(node).resolution = static_cast<model::IsfResolution>(std::clamp(static_cast<int>(value), 0, 2));
     };
-    return resolution;
+    Control restart;
+    restart.id = "##restart";
+    restart.visible = HasBuffers;
+    restart.draw = [](const model::Node& node, NodeContext& context) {
+        if (ImGui::Button("Reset"))
+            context.ResetShader(node);
+        context.Tooltip("Clear the shader's buffers, so a simulation or trail starts again.");
+    };
+    return {resolution, restart};
 }
 
 } // namespace
@@ -126,7 +141,8 @@ auto IsfShaderUi() -> NodeUi
         problem.warning = true;
         problem.text = FileProblem;
         std::vector<Control> controls = {{Control::Kind::Inputs}, buttons, problem};
-        controls.push_back(ResolutionControl());
+        const auto settings = SettingControls();
+        controls.insert(controls.end(), settings.begin(), settings.end());
         controls.push_back({Control::Kind::Params}); // its file's sliders, checkboxes and choices (model::IsfParams)
         return controls;
     };
